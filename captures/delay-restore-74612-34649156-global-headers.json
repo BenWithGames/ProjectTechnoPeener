@@ -1,0 +1,63 @@
+[
+  {
+    "record": "191",
+    "side": "2",
+    "kind": "5",
+    "list": "0",
+    "parent": "0",
+    "address": "140698154885176",
+    "offset": "23176",
+    "length": "8",
+    "hex_bytes": "600b2ad7f67f0000",
+    "qwords": [
+      "0x7ff6d72a0b60"
+    ]
+  },
+  {
+    "record": "193",
+    "side": "2",
+    "kind": "3",
+    "list": "0",
+    "parent": "191",
+    "address": "140698148539232",
+    "offset": "23188",
+    "length": "16",
+    "hex_bytes": "c022dc11800200000000803f0000803f",
+    "qwords": [
+      "0x28011dc22c0",
+      "0x3f8000003f800000"
+    ]
+  },
+  {
+    "record": "194",
+    "side": "2",
+    "kind": "4",
+    "list": "0",
+    "parent": "193",
+    "address": "2749078708928",
+    "offset": "23204",
+    "length": "24",
+    "hex_bytes": "b88c02d7f67f0000c01ddc11800200004025dc1180020000",
+    "qwords": [
+      "0x7ff6d7028cb8",
+      "0x28011dc1dc0",
+      "0x28011dc2540"
+    ]
+  },
+  {
+    "record": "195",
+    "side": "2",
+    "kind": "4",
+    "list": "0",
+    "parent": "193",
+    "address": "2749078709568",
+    "offset": "23228",
+    "length": "24",
+    "hex_bytes": "888c02d7f67f0000c022dc11800200000000000000000000",
+    "qwords": [
+      "0x7ff6d7028c88",
+      "0x28011dc22c0",
+      "0x0"
+    ]
+  }
+]

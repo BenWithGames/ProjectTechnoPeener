@@ -1,0 +1,34 @@
+[
+  {
+    "player": 1,
+    "subobject": "0x35a0",
+    "stride": 49152,
+    "before_slot": 2,
+    "next_slot": 1,
+    "exact_slot_addresses": true
+  },
+  {
+    "player": 1,
+    "subobject": "0x27760",
+    "stride": 2048,
+    "before_slot": 1,
+    "next_slot": 0,
+    "exact_slot_addresses": true
+  },
+  {
+    "player": 2,
+    "subobject": "0x35a0",
+    "stride": 49152,
+    "before_slot": 2,
+    "next_slot": 1,
+    "exact_slot_addresses": true
+  },
+  {
+    "player": 2,
+    "subobject": "0x27760",
+    "stride": 2048,
+    "before_slot": 1,
+    "next_slot": 0,
+    "exact_slot_addresses": true
+  }
+]

@@ -1,0 +1,20 @@
+{
+  "p2_block2_index": [
+    12,
+    3
+  ],
+  "p2_block2_table": [
+    "0x1d7ba69c010",
+    "0x1d7ba69c010"
+  ],
+  "transform_comparisons": {
+    "original_b": 0,
+    "restored": 0,
+    "restored_after_save": 0
+  },
+  "ring_differences": {
+    "1": 0,
+    "2": 0,
+    "3": 0
+  }
+}

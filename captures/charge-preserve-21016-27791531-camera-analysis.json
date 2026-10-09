@@ -1,0 +1,90 @@
+{
+  "supported_rows": 601,
+  "readable_rows": 601,
+  "same_boundary_position": [
+    1.0,
+    1.0
+  ],
+  "same_boundary_changed_outputs": [
+    "camera_output_1f0_bits",
+    "camera_output_1f4_bits",
+    "camera_output_1f8_bits",
+    "camera_output_200_bits",
+    "camera_output_204_bits",
+    "camera_output_208_bits",
+    "camera_output_210_bits",
+    "camera_output_220_bits",
+    "camera_output_230_bits",
+    "camera_output_234_bits",
+    "camera_output_238_bits",
+    "camera_output_244_bits",
+    "camera_output_248_bits"
+  ],
+  "same_boundary_flag": [
+    "0",
+    "1"
+  ],
+  "first_frames": [
+    {
+      "sample": "0",
+      "position": 1.0,
+      "flag": "0"
+    },
+    {
+      "sample": "1",
+      "position": 2.0,
+      "flag": "0"
+    },
+    {
+      "sample": "2",
+      "position": 3.0,
+      "flag": "0"
+    },
+    {
+      "sample": "3",
+      "position": 4.0,
+      "flag": "0"
+    },
+    {
+      "sample": "4",
+      "position": 5.0,
+      "flag": "0"
+    },
+    {
+      "sample": "5",
+      "position": 6.0,
+      "flag": "0"
+    },
+    {
+      "sample": "6",
+      "position": 7.0,
+      "flag": "0"
+    },
+    {
+      "sample": "7",
+      "position": 8.0,
+      "flag": "0"
+    }
+  ],
+  "matched_baseline_rows": 600,
+  "output_mismatch_counts": {
+    "camera_output_1f0_bits": 0,
+    "camera_output_1f4_bits": 0,
+    "camera_output_1f8_bits": 0,
+    "camera_output_200_bits": 0,
+    "camera_output_204_bits": 0,
+    "camera_output_208_bits": 0,
+    "camera_output_210_bits": 0,
+    "camera_output_218_bits": 0,
+    "camera_output_21c_bits": 0,
+    "camera_output_220_bits": 0,
+    "camera_output_230_bits": 600,
+    "camera_output_234_bits": 0,
+    "camera_output_238_bits": 600,
+    "camera_output_244_bits": 600,
+    "camera_output_248_bits": 0,
+    "camera_output_250_bits": 0,
+    "camera_output_258_bits": 0
+  },
+  "caution": "Separate activations can select different normal camera paths; matching position/state does not prove identical initial conditions."
+}

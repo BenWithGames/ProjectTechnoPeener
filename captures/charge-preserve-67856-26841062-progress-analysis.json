@@ -1,0 +1,51 @@
+{
+  "invalid_rows": 0,
+  "observations": 601,
+  "changes": [
+    {
+      "sample": "0",
+      "phase": "before_update",
+      "flag": "0",
+      "mode": "3",
+      "data": "1563747544288",
+      "cached": "0",
+      "sequence": "1563747544288",
+      "cursor": "0",
+      "length": "125",
+      "target": "1561779028912",
+      "target_length_bits": "1123680256",
+      "target_progress_bits": "0",
+      "progress_status": "1"
+    },
+    {
+      "sample": "0",
+      "phase": "after_probe",
+      "flag": "1",
+      "mode": "3",
+      "data": "1563747544288",
+      "cached": "0",
+      "sequence": "1563747544288",
+      "cursor": "0",
+      "length": "125",
+      "target": "1561779028912",
+      "target_length_bits": "1123680256",
+      "target_progress_bits": "0",
+      "progress_status": "1"
+    },
+    {
+      "sample": "1",
+      "phase": "before_update",
+      "flag": "0",
+      "mode": "3",
+      "data": "1563747544288",
+      "cached": "0",
+      "sequence": "1563747544288",
+      "cursor": "0",
+      "length": "125",
+      "target": "1561779028912",
+      "target_length_bits": "1123680256",
+      "target_progress_bits": "0",
+      "progress_status": "1"
+    }
+  ]
+}

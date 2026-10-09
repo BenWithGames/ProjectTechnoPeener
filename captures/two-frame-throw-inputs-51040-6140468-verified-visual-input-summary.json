@@ -1,0 +1,86 @@
+{
+  "hops": [
+    {
+      "rings-2": {
+        "bytes": 307200,
+        "equal": true
+      },
+      "blend-original_b": {
+        "bytes": 2760,
+        "equal": true
+      },
+      "transforms-original_b": {
+        "bytes": 85956,
+        "equal": true
+      },
+      "camera-1": {
+        "bytes": 3648,
+        "equal": true
+      },
+      "camera-1-response-1": {
+        "bytes": 12,
+        "equal": true
+      },
+      "camera-1-smoothing-1": {
+        "bytes": 80,
+        "equal": true
+      },
+      "camera-1-targets-1": {
+        "bytes": 128,
+        "equal": true
+      }
+    },
+    {
+      "rings-2": {
+        "bytes": 307200,
+        "equal": true
+      },
+      "blend-original_b": {
+        "bytes": 2760,
+        "equal": true
+      },
+      "transforms-original_b": {
+        "bytes": 85956,
+        "equal": true
+      },
+      "camera-1": {
+        "bytes": 3648,
+        "equal": true
+      },
+      "camera-1-response-1": {
+        "bytes": 12,
+        "equal": true
+      },
+      "camera-1-smoothing-1": {
+        "bytes": 80,
+        "equal": true
+      },
+      "camera-1-targets-1": {
+        "bytes": 128,
+        "equal": true
+      }
+    }
+  ],
+  "reference_inputs_all_equal": false,
+  "first24_equal": true,
+  "auxiliary_floats": [
+    [
+      0.003906369209289551,
+      0.011749626137316227,
+      -0.01177978515625,
+      0.003906369209289551
+    ],
+    [
+      0.003906369209289551,
+      0.011749626137316227,
+      -0.019622802734375,
+      0.003906369209289551
+    ],
+    [
+      0.003906369209289551,
+      0.011749626137316227,
+      -0.01177978515625,
+      0.003906369209289551
+    ]
+  ]
+}

@@ -1,0 +1,2 @@
+module_base=0x7ff6d31a0000 timer=0x7ff6d7991428
+attach_failed=5

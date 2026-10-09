@@ -1,0 +1,72 @@
+[2026-10-07 17:33:58] Console created
+[2026-10-07 17:33:58] UE4SS - v3.0.1 Beta #0 - Git SHA #d935b5b
+[2026-10-07 17:33:58] UE4SS Build Configuration: Game__Shipping__Win64 (MSVC)
+[2026-10-07 17:33:58] Setting up mods...
+[2026-10-07 17:33:58] Starting mods (from mods.txt load order)...
+[2026-10-07 17:33:58] Starting C++ mod 'SC6Rollback'
+[2026-10-07 17:33:58] [SC6Rollback] loaded; research scaffold only
+[2026-10-07 17:33:58] Starting mods (from enabled.txt, no defined load order)...
+[2026-10-07 17:33:58] No specific game configuration found, using default configuration file
+[2026-10-07 17:33:58] Config: E:\SteamLibrary\steamapps\common\SoulcaliburVI\SoulcaliburVI\Binaries\Win64\UE4SS-settings.ini
+
+[2026-10-07 17:33:58] root directory: E:\SteamLibrary\steamapps\common\SoulcaliburVI\SoulcaliburVI\Binaries\Win64
+[2026-10-07 17:33:58] working directory: E:\SteamLibrary\steamapps\common\SoulcaliburVI\SoulcaliburVI\Binaries\Win64
+[2026-10-07 17:33:58] game executable directory: E:\SteamLibrary\steamapps\common\SoulcaliburVI\SoulcaliburVI\Binaries\Win64
+[2026-10-07 17:33:58] game executable: E:\SteamLibrary\steamapps\common\SoulcaliburVI\SoulcaliburVI\Binaries\Win64\SoulcaliburVI.exe (71737344 bytes)
+
+
+[2026-10-07 17:33:58] mods directory: E:\SteamLibrary\steamapps\common\SoulcaliburVI\SoulcaliburVI\Binaries\Win64\Mods
+[2026-10-07 17:33:58] log directory: E:\SteamLibrary\steamapps\common\SoulcaliburVI\SoulcaliburVI\Binaries\Win64
+[2026-10-07 17:33:58] object dumper directory: E:\SteamLibrary\steamapps\common\SoulcaliburVI\SoulcaliburVI\Binaries\Win64
+
+
+[2026-10-07 17:33:58] PS Scan attempt 1
+[2026-10-07 17:33:58] [PS] Reading image
+[2026-10-07 17:33:58] [PS] Starting scan
+[2026-10-07 17:33:58] [PS] Scan finished in 146.6ms
+[2026-10-07 17:33:58] [PS] Found EngineVersion: 4.17
+[2026-10-07 17:33:58] [PS] Found GUObjectArray: 0x7ff6d7441140
+[2026-10-07 17:33:58] [PS] Found GMalloc: 0x7ff6d73371c8
+[2026-10-07 17:33:58] [PS] Found FName::ToString: 0x7ff6d3fb2b20
+[2026-10-07 17:33:58] [PS] Found FName::FName(wchar_t*): 0x7ff6d3f95d00
+[2026-10-07 17:33:58] [PS] Found StaticConstructObject_Internal: 0x7ff6d412d1f0
+[2026-10-07 17:33:58] [PS] Found FText::FText(FString&&): 0x7ff6d3f01770
+[2026-10-07 17:33:58] PS scan successful
+[2026-10-07 17:33:58] Need to construct: /Script/CoreUObject.Class
+[2026-10-07 17:33:58] Need to construct: /Script/CoreUObject
+[2026-10-07 17:33:58] Need to construct: /Script/CoreUObject.Struct
+[2026-10-07 17:33:58] Need to construct: /Script/Engine.Pawn
+[2026-10-07 17:33:58] Need to construct: /Script/Engine.Character
+[2026-10-07 17:33:58] Need to construct: /Script/Engine.Actor
+[2026-10-07 17:33:58] Need to construct: /Script/CoreUObject.Vector
+[2026-10-07 17:33:58] Need to construct: /Script/Engine.Default__DefaultPawn
+[2026-10-07 17:33:58] Need to construct: /Script/Engine.HitResult
+[2026-10-07 17:33:58] Need to construct: /Script/Engine.Default__MaterialExpression
+[2026-10-07 17:33:58] Need to construct: /Script/Engine.ActorComponent
+[2026-10-07 17:33:58] Need to construct: /Script/CoreUObject.OrientedBox
+[2026-10-07 17:33:58] Need to construct: /Script/Engine.MovementComponent
+[2026-10-07 17:33:58] Need to construct: /Script/Engine.HUD
+[2026-10-07 17:33:58] Need to construct: /Script/Engine.PlayerController
+[2026-10-07 17:33:58] Need to construct: /Script/Engine.PlayerCameraManager
+[2026-10-07 17:33:58] Need to construct: /Script/CoreUObject.EInterpCurveMode
+[2026-10-07 17:33:58] Need to construct: /Script/Engine.ENetRole
+[2026-10-07 17:33:58] Need to construct: /Script/MovieScene.MovieSceneEditorData
+[2026-10-07 17:33:58] Need to construct: /Script/UMG.Widget
+[2026-10-07 17:33:58] Need to construct: /Script/UMG.ComboBoxString
+[2026-10-07 17:33:58] Need to construct: /Script/CoreUObject.Interface
+[2026-10-07 17:33:58] Need to construct: /Script/CoreUObject.DynamicClass
+[2026-10-07 17:33:59] Constructed [1 / 23]: /Script/CoreUObject.Class
+[2026-10-07 17:33:59] Constructed [2 / 23]: /Script/CoreUObject
+[2026-10-07 17:33:59] Constructed [3 / 23]: /Script/CoreUObject.Struct
+[2026-10-07 17:33:59] Constructed [4 / 23]: /Script/Engine.Pawn
+[2026-10-07 17:33:59] Constructed [5 / 23]: /Script/Engine.Character
+[2026-10-07 17:33:59] Constructed [6 / 23]: /Script/Engine.Actor
+[2026-10-07 17:33:59] Constructed [7 / 23]: /Script/Engine.ActorComponent
+[2026-10-07 17:33:59] Constructed [8 / 23]: /Script/Engine.MovementComponent
+[2026-10-07 17:33:59] Constructed [9 / 23]: /Script/Engine.HUD
+[2026-10-07 17:33:59] Constructed [10 / 23]: /Script/Engine.PlayerController
+[2026-10-07 17:33:59] Constructed [11 / 23]: /Script/Engine.PlayerCameraManager
+[2026-10-07 17:33:59] Constructed [12 / 23]: /Script/UMG.Widget
+[2026-10-07 17:33:59] Constructed [13 / 23]: /Script/UMG.ComboBoxString
+[2026-10-07 17:33:59] Constructed [14 / 23]: /Script/CoreUObject.Interface
+[2026-10-07 17:33:59] Constructed [15 / 23]: /Script/CoreUObject.DynamicClass

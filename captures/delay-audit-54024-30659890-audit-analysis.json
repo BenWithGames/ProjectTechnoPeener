@@ -1,0 +1,46 @@
+{
+  "source_changes": [
+    {
+      "index": 2,
+      "length": 6208,
+      "offset": 13712,
+      "source_before": 140698155027712,
+      "source_next": 140698154978560,
+      "delta": -49152,
+      "writer_rva": "0x30a9f0",
+      "payload_equal": false
+    },
+    {
+      "index": 3,
+      "length": 2048,
+      "offset": 19920,
+      "source_before": 140698155079424,
+      "source_next": 140698155077376,
+      "delta": -2048,
+      "writer_rva": "0x30aa12",
+      "payload_equal": false
+    },
+    {
+      "index": 350,
+      "length": 6208,
+      "offset": 50572,
+      "source_before": 140698155647232,
+      "source_next": 140698155598080,
+      "delta": -49152,
+      "writer_rva": "0x30a9f0",
+      "payload_equal": false
+    },
+    {
+      "index": 351,
+      "length": 2048,
+      "offset": 56780,
+      "source_before": 140698155698816,
+      "source_next": 140698155696768,
+      "delta": -2048,
+      "writer_rva": "0x30aa12",
+      "payload_equal": false
+    }
+  ],
+  "actual_payload_different_bytes": 9089,
+  "note": "Two saves, no load. Legacy report raw_byte_differences is not calculated in audit mode."
+}

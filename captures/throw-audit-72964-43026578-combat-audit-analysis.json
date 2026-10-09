@@ -1,0 +1,80 @@
+{
+  "transfer_counts": [
+    1310,
+    1310
+  ],
+  "source_changes": [
+    {
+      "index": "2",
+      "length": "6208",
+      "writer_rva": "0x30a9f0"
+    },
+    {
+      "index": "3",
+      "length": "2048",
+      "writer_rva": "0x30aa12"
+    },
+    {
+      "index": "350",
+      "length": "6208",
+      "writer_rva": "0x30a9f0"
+    },
+    {
+      "index": "351",
+      "length": "2048",
+      "writer_rva": "0x30aa12"
+    }
+  ],
+  "camera": {
+    "targets": {
+      "changed_bytes": [
+        72,
+        73,
+        74,
+        76,
+        77,
+        80,
+        81,
+        82,
+        89,
+        92,
+        93,
+        96,
+        97,
+        98
+      ]
+    },
+    "smoothing": {
+      "changed_bytes": [
+        12,
+        13,
+        14,
+        72,
+        76
+      ]
+    },
+    "response": {
+      "changed_bytes": [
+        0,
+        1,
+        2,
+        8,
+        9,
+        10
+      ],
+      "values": [
+        [
+          0.2799999713897705,
+          0.375,
+          0.15999998152256012
+        ],
+        [
+          0.29999998211860657,
+          0.375,
+          0.17999997735023499
+        ]
+      ]
+    },
+    "common_changed_bytes": 58
+  }
+}

@@ -1,0 +1,77 @@
+{
+  "block_changes_outside_index_mask": [
+    {
+      "side": 0,
+      "block": 0,
+      "offset": "0x3c",
+      "before_hex": "a84ab43e",
+      "after_hex": "87580d3f",
+      "before_float": 0.35213208198547363,
+      "after_float": 0.5521320700645447
+    },
+    {
+      "side": 0,
+      "block": 0,
+      "offset": "0x40",
+      "before_hex": "a84ab43e",
+      "after_hex": "87580d3f",
+      "before_float": 0.35213208198547363,
+      "after_float": 0.5521320700645447
+    },
+    {
+      "side": 0,
+      "block": 0,
+      "offset": "0x6c",
+      "before_hex": "a84ab43e",
+      "after_hex": "87580d3f",
+      "before_float": 0.35213208198547363,
+      "after_float": 0.5521320700645447
+    },
+    {
+      "side": 0,
+      "block": 0,
+      "offset": "0x70",
+      "before_hex": "a84ab43e",
+      "after_hex": "87580d3f",
+      "before_float": 0.35213208198547363,
+      "after_float": 0.5521320700645447
+    },
+    {
+      "side": 0,
+      "block": 2,
+      "offset": "0x3c",
+      "before_hex": "acda253f",
+      "after_hex": "f24ee53e",
+      "before_float": 0.6478679180145264,
+      "after_float": 0.4478679299354553
+    },
+    {
+      "side": 0,
+      "block": 2,
+      "offset": "0x40",
+      "before_hex": "acda253f",
+      "after_hex": "f24ee53e",
+      "before_float": 0.6478679180145264,
+      "after_float": 0.4478679299354553
+    },
+    {
+      "side": 0,
+      "block": 2,
+      "offset": "0x6c",
+      "before_hex": "acda253f",
+      "after_hex": "f24ee53e",
+      "before_float": 0.6478679180145264,
+      "after_float": 0.4478679299354553
+    },
+    {
+      "side": 0,
+      "block": 2,
+      "offset": "0x70",
+      "before_hex": "acda253f",
+      "after_hex": "f24ee53e",
+      "before_float": 0.6478679180145264,
+      "after_float": 0.4478679299354553
+    }
+  ],
+  "owner_weight_changed_bytes": []
+}

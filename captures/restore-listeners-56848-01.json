@@ -1,0 +1,50 @@
+{
+  "read_only": true,
+  "listener_count": 4,
+  "listeners": [
+    {
+      "index": 0,
+      "active": 3,
+      "bound_method_rva": "0x3c6050",
+      "object": "0x20caf878890",
+      "vtable": "0x7ff6d68eb760",
+      "vtable_relative_to_exe": "0x374b760",
+      "methods_relative_to_exe": {
+        "0x68": "0x3ef060"
+      }
+    },
+    {
+      "index": 1,
+      "active": 3,
+      "bound_method_rva": "0x3c6050",
+      "object": "0x20caf8793a0",
+      "vtable": "0x7ff6d68eb760",
+      "vtable_relative_to_exe": "0x374b760",
+      "methods_relative_to_exe": {
+        "0x68": "0x3ef060"
+      }
+    },
+    {
+      "index": 2,
+      "active": 3,
+      "bound_method_rva": "0x5112a0",
+      "object": "0x20caf87da80",
+      "vtable": "0x7ff6d68eb760",
+      "vtable_relative_to_exe": "0x374b760",
+      "methods_relative_to_exe": {
+        "0x68": "0x3ef060"
+      }
+    },
+    {
+      "index": 3,
+      "active": 3,
+      "bound_method_rva": "0x3c6020",
+      "object": "0x20cbe41b6e0",
+      "vtable": "0x7ff6d68eb760",
+      "vtable_relative_to_exe": "0x374b760",
+      "methods_relative_to_exe": {
+        "0x68": "0x3ef060"
+      }
+    }
+  ]
+}

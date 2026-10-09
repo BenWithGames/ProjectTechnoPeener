@@ -1,0 +1,408 @@
+[
+  {
+    "index": "2",
+    "length": "6208",
+    "writer_rva": "0x30a9f0",
+    "source_a": "0x7ff756738d00",
+    "source_b": "0x7ff756750d00"
+  },
+  {
+    "index": "3",
+    "length": "2048",
+    "writer_rva": "0x30aa12",
+    "source_a": "0x7ff75675df00",
+    "source_b": "0x7ff75675d700"
+  },
+  {
+    "index": "16",
+    "length": "4",
+    "writer_rva": "0x30ed1f",
+    "source_a": "0xaa80ec7170",
+    "source_b": "0xaa80ec7080"
+  },
+  {
+    "index": "339",
+    "length": "16",
+    "writer_rva": "0x30ab2f",
+    "source_a": "0xaa80ec7190",
+    "source_b": "0xaa80ec70a0"
+  },
+  {
+    "index": "340",
+    "length": "16",
+    "writer_rva": "0x30ab84",
+    "source_a": "0xaa80ec7190",
+    "source_b": "0xaa80ec70a0"
+  },
+  {
+    "index": "341",
+    "length": "16",
+    "writer_rva": "0x30abdf",
+    "source_a": "0xaa80ec7190",
+    "source_b": "0xaa80ec70a0"
+  },
+  {
+    "index": "342",
+    "length": "16",
+    "writer_rva": "0x30ac34",
+    "source_a": "0xaa80ec7190",
+    "source_b": "0xaa80ec70a0"
+  },
+  {
+    "index": "343",
+    "length": "16",
+    "writer_rva": "0x30ac8f",
+    "source_a": "0xaa80ec7190",
+    "source_b": "0xaa80ec70a0"
+  },
+  {
+    "index": "344",
+    "length": "16",
+    "writer_rva": "0x30ace4",
+    "source_a": "0xaa80ec7190",
+    "source_b": "0xaa80ec70a0"
+  },
+  {
+    "index": "345",
+    "length": "16",
+    "writer_rva": "0x30ad3f",
+    "source_a": "0xaa80ec7190",
+    "source_b": "0xaa80ec70a0"
+  },
+  {
+    "index": "346",
+    "length": "16",
+    "writer_rva": "0x30ad94",
+    "source_a": "0xaa80ec7190",
+    "source_b": "0xaa80ec70a0"
+  },
+  {
+    "index": "347",
+    "length": "16",
+    "writer_rva": "0x30adef",
+    "source_a": "0xaa80ec7190",
+    "source_b": "0xaa80ec70a0"
+  },
+  {
+    "index": "350",
+    "length": "6208",
+    "writer_rva": "0x30a9f0",
+    "source_a": "0x7ff7567d0100",
+    "source_b": "0x7ff7567e8100"
+  },
+  {
+    "index": "351",
+    "length": "2048",
+    "writer_rva": "0x30aa12",
+    "source_a": "0x7ff7567f5280",
+    "source_b": "0x7ff7567f4a80"
+  },
+  {
+    "index": "364",
+    "length": "4",
+    "writer_rva": "0x30ed1f",
+    "source_a": "0xaa80ec7170",
+    "source_b": "0xaa80ec7080"
+  },
+  {
+    "index": "653",
+    "length": "16",
+    "writer_rva": "0x30ab2f",
+    "source_a": "0xaa80ec7190",
+    "source_b": "0xaa80ec70a0"
+  },
+  {
+    "index": "654",
+    "length": "16",
+    "writer_rva": "0x30ab84",
+    "source_a": "0xaa80ec7190",
+    "source_b": "0xaa80ec70a0"
+  },
+  {
+    "index": "655",
+    "length": "16",
+    "writer_rva": "0x30abdf",
+    "source_a": "0xaa80ec7190",
+    "source_b": "0xaa80ec70a0"
+  },
+  {
+    "index": "656",
+    "length": "16",
+    "writer_rva": "0x30ac34",
+    "source_a": "0xaa80ec7190",
+    "source_b": "0xaa80ec70a0"
+  },
+  {
+    "index": "657",
+    "length": "16",
+    "writer_rva": "0x30ac8f",
+    "source_a": "0xaa80ec7190",
+    "source_b": "0xaa80ec70a0"
+  },
+  {
+    "index": "658",
+    "length": "16",
+    "writer_rva": "0x30ace4",
+    "source_a": "0xaa80ec7190",
+    "source_b": "0xaa80ec70a0"
+  },
+  {
+    "index": "659",
+    "length": "16",
+    "writer_rva": "0x30ad3f",
+    "source_a": "0xaa80ec7190",
+    "source_b": "0xaa80ec70a0"
+  },
+  {
+    "index": "660",
+    "length": "16",
+    "writer_rva": "0x30ad94",
+    "source_a": "0xaa80ec7190",
+    "source_b": "0xaa80ec70a0"
+  },
+  {
+    "index": "661",
+    "length": "16",
+    "writer_rva": "0x30adef",
+    "source_a": "0xaa80ec7190",
+    "source_b": "0xaa80ec70a0"
+  },
+  {
+    "index": "668",
+    "length": "16",
+    "writer_rva": "0x31dcf1",
+    "source_a": "0xaa80ec71b0",
+    "source_b": "0xaa80ec70c0"
+  },
+  {
+    "index": "669",
+    "length": "16",
+    "writer_rva": "0x31dd48",
+    "source_a": "0xaa80ec71b0",
+    "source_b": "0xaa80ec70c0"
+  },
+  {
+    "index": "670",
+    "length": "16",
+    "writer_rva": "0x31dda1",
+    "source_a": "0xaa80ec71b0",
+    "source_b": "0xaa80ec70c0"
+  },
+  {
+    "index": "671",
+    "length": "16",
+    "writer_rva": "0x31ddf5",
+    "source_a": "0xaa80ec71b0",
+    "source_b": "0xaa80ec70c0"
+  },
+  {
+    "index": "674",
+    "length": "4",
+    "writer_rva": "0x3217ec",
+    "source_a": "0xaa80ec71e0",
+    "source_b": "0xaa80ec70f0"
+  },
+  {
+    "index": "717",
+    "length": "4",
+    "writer_rva": "0x3217ec",
+    "source_a": "0xaa80ec71e0",
+    "source_b": "0xaa80ec70f0"
+  },
+  {
+    "index": "759",
+    "length": "4",
+    "writer_rva": "0x321814",
+    "source_a": "0xaa80ec71e0",
+    "source_b": "0xaa80ec70f0"
+  },
+  {
+    "index": "760",
+    "length": "4",
+    "writer_rva": "0x3217ec",
+    "source_a": "0xaa80ec71e0",
+    "source_b": "0xaa80ec70f0"
+  },
+  {
+    "index": "804",
+    "length": "4",
+    "writer_rva": "0x3217ec",
+    "source_a": "0xaa80ec71e0",
+    "source_b": "0xaa80ec70f0"
+  },
+  {
+    "index": "850",
+    "length": "4",
+    "writer_rva": "0x340f59",
+    "source_a": "0xaa80ec7190",
+    "source_b": "0xaa80ec70a0"
+  },
+  {
+    "index": "851",
+    "length": "4",
+    "writer_rva": "0x3217ec",
+    "source_a": "0xaa80ec71e0",
+    "source_b": "0xaa80ec70f0"
+  },
+  {
+    "index": "894",
+    "length": "4",
+    "writer_rva": "0x317c17",
+    "source_a": "0xaa80ec7198",
+    "source_b": "0xaa80ec70a8"
+  },
+  {
+    "index": "895",
+    "length": "4",
+    "writer_rva": "0x317c60",
+    "source_a": "0xaa80ec7190",
+    "source_b": "0xaa80ec70a0"
+  },
+  {
+    "index": "896",
+    "length": "4",
+    "writer_rva": "0x3217ec",
+    "source_a": "0xaa80ec71e0",
+    "source_b": "0xaa80ec70f0"
+  },
+  {
+    "index": "942",
+    "length": "4",
+    "writer_rva": "0x340f59",
+    "source_a": "0xaa80ec7190",
+    "source_b": "0xaa80ec70a0"
+  },
+  {
+    "index": "943",
+    "length": "4",
+    "writer_rva": "0x3217ec",
+    "source_a": "0xaa80ec71e0",
+    "source_b": "0xaa80ec70f0"
+  },
+  {
+    "index": "988",
+    "length": "4",
+    "writer_rva": "0x341183",
+    "source_a": "0xaa80ec7190",
+    "source_b": "0xaa80ec70a0"
+  },
+  {
+    "index": "989",
+    "length": "4",
+    "writer_rva": "0x3217ec",
+    "source_a": "0xaa80ec71e0",
+    "source_b": "0xaa80ec70f0"
+  },
+  {
+    "index": "1035",
+    "length": "4",
+    "writer_rva": "0x340f59",
+    "source_a": "0xaa80ec7190",
+    "source_b": "0xaa80ec70a0"
+  },
+  {
+    "index": "1036",
+    "length": "4",
+    "writer_rva": "0x321814",
+    "source_a": "0xaa80ec71e0",
+    "source_b": "0xaa80ec70f0"
+  },
+  {
+    "index": "1037",
+    "length": "4",
+    "writer_rva": "0x321814",
+    "source_a": "0xaa80ec71e0",
+    "source_b": "0xaa80ec70f0"
+  },
+  {
+    "index": "1038",
+    "length": "4",
+    "writer_rva": "0x321814",
+    "source_a": "0xaa80ec71e0",
+    "source_b": "0xaa80ec70f0"
+  },
+  {
+    "index": "1039",
+    "length": "4",
+    "writer_rva": "0x321814",
+    "source_a": "0xaa80ec71e0",
+    "source_b": "0xaa80ec70f0"
+  },
+  {
+    "index": "1040",
+    "length": "4",
+    "writer_rva": "0x321814",
+    "source_a": "0xaa80ec71e0",
+    "source_b": "0xaa80ec70f0"
+  },
+  {
+    "index": "1041",
+    "length": "4",
+    "writer_rva": "0x321814",
+    "source_a": "0xaa80ec71e0",
+    "source_b": "0xaa80ec70f0"
+  },
+  {
+    "index": "1042",
+    "length": "4",
+    "writer_rva": "0x321814",
+    "source_a": "0xaa80ec71e0",
+    "source_b": "0xaa80ec70f0"
+  },
+  {
+    "index": "1045",
+    "length": "16",
+    "writer_rva": "0x32ac76",
+    "source_a": "0xaa80ec7138",
+    "source_b": "0xaa80ec7048"
+  },
+  {
+    "index": "1046",
+    "length": "8",
+    "writer_rva": "0x32acac",
+    "source_a": "0xaa80ec7130",
+    "source_b": "0xaa80ec7040"
+  },
+  {
+    "index": "1292",
+    "length": "16",
+    "writer_rva": "0x390765",
+    "source_a": "0xaa80ec71a0",
+    "source_b": "0xaa80ec70b0"
+  },
+  {
+    "index": "1293",
+    "length": "16",
+    "writer_rva": "0x3907b6",
+    "source_a": "0xaa80ec71a0",
+    "source_b": "0xaa80ec70b0"
+  },
+  {
+    "index": "1294",
+    "length": "16",
+    "writer_rva": "0x390765",
+    "source_a": "0xaa80ec71a0",
+    "source_b": "0xaa80ec70b0"
+  },
+  {
+    "index": "1295",
+    "length": "16",
+    "writer_rva": "0x3907b6",
+    "source_a": "0xaa80ec71a0",
+    "source_b": "0xaa80ec70b0"
+  },
+  {
+    "index": "1308",
+    "length": "16",
+    "writer_rva": "0x301a75",
+    "source_a": "0xaa80ec71b0",
+    "source_b": "0xaa80ec70c0"
+  },
+  {
+    "index": "1309",
+    "length": "16",
+    "writer_rva": "0x301ad2",
+    "source_a": "0xaa80ec71b0",
+    "source_b": "0xaa80ec70c0"
+  }
+]

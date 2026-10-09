@@ -1,0 +1,72 @@
+[
+  {
+    "case": "A+G throw freeze",
+    "capture": "save-54696-18134562",
+    "bytes": 106766,
+    "transfers": 1310,
+    "microseconds": 37.8,
+    "rows": 600,
+    "outerGaps": 0,
+    "sha256": "FBCCFF84B9BBEE056FFF6BF0E226271E0435756FFFFFD0B4ABE835ABC0F7B4A6",
+    "firstMove": "487",
+    "opponentMove": "10041",
+    "multiplier": "0",
+    "selector": "-1"
+  },
+  {
+    "case": "Soul Charge activation",
+    "capture": "save-54696-18326562",
+    "bytes": 106766,
+    "transfers": 1310,
+    "microseconds": 32.199999999999996,
+    "rows": 600,
+    "outerGaps": 0,
+    "sha256": "617E929DEF977D6F492059F600A195DEDA7936F1C4BB593D228B4A332113C5E8",
+    "firstMove": "219",
+    "opponentMove": "65535",
+    "multiplier": "0",
+    "selector": "0"
+  },
+  {
+    "case": "Soul Attack activation",
+    "capture": "save-54696-18383562",
+    "bytes": 107094,
+    "transfers": 1356,
+    "microseconds": 42.0,
+    "rows": 600,
+    "outerGaps": 0,
+    "sha256": "A98C544F210AF3E2AAB9BC3FF60AB78878648AB2689EF85ADEF54979AD384F4C",
+    "firstMove": "679",
+    "opponentMove": "65535",
+    "multiplier": "0",
+    "selector": "0"
+  },
+  {
+    "case": "Critical Edge activation",
+    "capture": "save-54696-18436812",
+    "bytes": 107078,
+    "transfers": 1351,
+    "microseconds": 33.1,
+    "rows": 600,
+    "outerGaps": 0,
+    "sha256": "25929C455D34CAA35E0BD3C3D5397AE6D4AA67D91FC1F9867A75932BD69973F8",
+    "firstMove": "656",
+    "opponentMove": "65535",
+    "multiplier": "0",
+    "selector": "0"
+  },
+  {
+    "case": "Reversal Edge slowdown",
+    "capture": "save-54696-18494562",
+    "bytes": 107094,
+    "transfers": 1356,
+    "microseconds": 35.9,
+    "rows": 600,
+    "outerGaps": 0,
+    "sha256": "753ED5FF2A268E74B95ABA6572C0C11F0B6765659B56D8376A629ECE182DA8C6",
+    "firstMove": "187",
+    "opponentMove": "193",
+    "multiplier": "0.049987793",
+    "selector": "-1"
+  }
+]

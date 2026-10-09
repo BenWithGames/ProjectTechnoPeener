@@ -1,0 +1,114 @@
+{
+  "rows": 600,
+  "counter_gaps": 0,
+  "threads": [
+    "56832"
+  ],
+  "duration_s": 9.9693423,
+  "holds": [
+    {
+      "samples": [
+        102,
+        106
+      ],
+      "count": 5,
+      "outer": [
+        "14296",
+        "14300"
+      ],
+      "multiplier": [
+        "0",
+        "0.5"
+      ],
+      "side1_scale": [
+        "0",
+        "0.5"
+      ],
+      "side1_countdown": [
+        "4",
+        "8"
+      ],
+      "selector": [
+        "-1"
+      ]
+    },
+    {
+      "samples": [
+        242,
+        246
+      ],
+      "count": 5,
+      "outer": [
+        "14436",
+        "14440"
+      ],
+      "multiplier": [
+        "0",
+        "0.5"
+      ],
+      "side1_scale": [
+        "0",
+        "0.5"
+      ],
+      "side1_countdown": [
+        "4",
+        "8"
+      ],
+      "selector": [
+        "-1"
+      ]
+    },
+    {
+      "samples": [
+        397,
+        401
+      ],
+      "count": 5,
+      "outer": [
+        "14591",
+        "14595"
+      ],
+      "multiplier": [
+        "0",
+        "0.5"
+      ],
+      "side1_scale": [
+        "0",
+        "0.5"
+      ],
+      "side1_countdown": [
+        "4",
+        "8"
+      ],
+      "selector": [
+        "-1"
+      ]
+    },
+    {
+      "samples": [
+        549,
+        553
+      ],
+      "count": 5,
+      "outer": [
+        "14743",
+        "14747"
+      ],
+      "multiplier": [
+        "0",
+        "0.5"
+      ],
+      "side1_scale": [
+        "0",
+        "0.5"
+      ],
+      "side1_countdown": [
+        "4",
+        "8"
+      ],
+      "selector": [
+        "-1"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "supported_rows": 600,
+  "readable_rows": 600,
+  "active_rows": 599,
+  "position_min": 1.0,
+  "position_max": 124.0,
+  "distinct_positions": 124,
+  "output_fields_with_changes": [
+    "camera_output_1f0_bits",
+    "camera_output_1f4_bits",
+    "camera_output_1f8_bits",
+    "camera_output_200_bits",
+    "camera_output_204_bits",
+    "camera_output_208_bits",
+    "camera_output_220_bits",
+    "camera_output_248_bits"
+  ]
+}

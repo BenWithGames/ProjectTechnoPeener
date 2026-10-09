@@ -1,0 +1,522 @@
+{
+  "schema": 2,
+  "pid": 56848,
+  "module_base": "0x7ff6d31a0000",
+  "read_only": true,
+  "atomic": false,
+  "listener_count": 4,
+  "listeners": [
+    {
+      "index": 0,
+      "active": 3,
+      "bound_method_rva": "0x3c6050",
+      "object": "0x20caf878890",
+      "vtable": "0x7ff6d68eb760",
+      "vtable_relative_to_exe": "0x374b760",
+      "methods_relative_to_exe": {
+        "0x68": "0x3ef060"
+      },
+      "weak_target": "0x20cdd648080",
+      "target_details": {
+        "object": "0x20cdd648080",
+        "vtable": "0x7ff6d6408078",
+        "vtable_relative_to_exe": "0x3268078",
+        "methods_relative_to_exe": {
+          "0x5f8": "0x3bf540",
+          "0x600": "0x3bf8a0",
+          "0x680": "0x3be3a0",
+          "0x698": "0x3be670"
+        },
+        "side_index": 0,
+        "component_count": 22,
+        "components": [
+          {
+            "index": 0,
+            "object": "0x20c84ae8080",
+            "vtable": "0x7ff6d6a229c0",
+            "vtable_relative_to_exe": "0x38829c0",
+            "methods_relative_to_exe": {
+              "0x308": "0x1d5dbe0",
+              "0x3a8": "0x1daca60"
+            }
+          },
+          {
+            "index": 1,
+            "object": "0x20c84ae0100",
+            "vtable": "0x7ff6d6a229c0",
+            "vtable_relative_to_exe": "0x38829c0",
+            "methods_relative_to_exe": {
+              "0x308": "0x1d5dbe0",
+              "0x3a8": "0x1daca60"
+            }
+          },
+          {
+            "index": 2,
+            "object": "0x20cb8e5d030",
+            "vtable": "0x7ff6d6a229c0",
+            "vtable_relative_to_exe": "0x38829c0",
+            "methods_relative_to_exe": {
+              "0x308": "0x1d5dbe0",
+              "0x3a8": "0x1daca60"
+            }
+          },
+          {
+            "index": 3,
+            "object": "0x20cb92c20e0",
+            "vtable": "0x7ff6d6a229c0",
+            "vtable_relative_to_exe": "0x38829c0",
+            "methods_relative_to_exe": {
+              "0x308": "0x1d5dbe0",
+              "0x3a8": "0x1daca60"
+            }
+          },
+          {
+            "index": 4,
+            "object": "0x20cb985a060",
+            "vtable": "0x7ff6d6a229c0",
+            "vtable_relative_to_exe": "0x38829c0",
+            "methods_relative_to_exe": {
+              "0x308": "0x1d5dbe0",
+              "0x3a8": "0x1daca60"
+            }
+          },
+          {
+            "index": 5,
+            "object": "0x20c8256d030",
+            "vtable": "0x7ff6d6a229c0",
+            "vtable_relative_to_exe": "0x38829c0",
+            "methods_relative_to_exe": {
+              "0x308": "0x1d5dbe0",
+              "0x3a8": "0x1daca60"
+            }
+          },
+          {
+            "index": 6,
+            "object": "0x20c825630d0",
+            "vtable": "0x7ff6d6a229c0",
+            "vtable_relative_to_exe": "0x38829c0",
+            "methods_relative_to_exe": {
+              "0x308": "0x1d5dbe0",
+              "0x3a8": "0x1daca60"
+            }
+          },
+          {
+            "index": 7,
+            "object": "0x20c85ec9070",
+            "vtable": "0x7ff6d6a229c0",
+            "vtable_relative_to_exe": "0x38829c0",
+            "methods_relative_to_exe": {
+              "0x308": "0x1d5dbe0",
+              "0x3a8": "0x1daca60"
+            }
+          },
+          {
+            "index": 8,
+            "object": "0x20c85ec0100",
+            "vtable": "0x7ff6d6a229c0",
+            "vtable_relative_to_exe": "0x38829c0",
+            "methods_relative_to_exe": {
+              "0x308": "0x1d5dbe0",
+              "0x3a8": "0x1daca60"
+            }
+          },
+          {
+            "index": 9,
+            "object": "0x20cb754e020",
+            "vtable": "0x7ff6d6a229c0",
+            "vtable_relative_to_exe": "0x38829c0",
+            "methods_relative_to_exe": {
+              "0x308": "0x1d5dbe0",
+              "0x3a8": "0x1daca60"
+            }
+          },
+          {
+            "index": 10,
+            "object": "0x20cb75450b0",
+            "vtable": "0x7ff6d6a229c0",
+            "vtable_relative_to_exe": "0x38829c0",
+            "methods_relative_to_exe": {
+              "0x308": "0x1d5dbe0",
+              "0x3a8": "0x1daca60"
+            }
+          },
+          {
+            "index": 11,
+            "object": "0x20bff35e020",
+            "vtable": "0x7ff6d6a229c0",
+            "vtable_relative_to_exe": "0x38829c0",
+            "methods_relative_to_exe": {
+              "0x308": "0x1d5dbe0",
+              "0x3a8": "0x1daca60"
+            }
+          },
+          {
+            "index": 12,
+            "object": "0x20bff3560a0",
+            "vtable": "0x7ff6d6a229c0",
+            "vtable_relative_to_exe": "0x38829c0",
+            "methods_relative_to_exe": {
+              "0x308": "0x1d5dbe0",
+              "0x3a8": "0x1daca60"
+            }
+          },
+          {
+            "index": 13,
+            "object": "0x20bff358080",
+            "vtable": "0x7ff6d6a229c0",
+            "vtable_relative_to_exe": "0x38829c0",
+            "methods_relative_to_exe": {
+              "0x308": "0x1d5dbe0",
+              "0x3a8": "0x1daca60"
+            }
+          },
+          {
+            "index": 14,
+            "object": "0x20bff3550b0",
+            "vtable": "0x7ff6d6a229c0",
+            "vtable_relative_to_exe": "0x38829c0",
+            "methods_relative_to_exe": {
+              "0x308": "0x1d5dbe0",
+              "0x3a8": "0x1daca60"
+            }
+          },
+          {
+            "index": 15,
+            "object": "0x20bff35f010",
+            "vtable": "0x7ff6d6a229c0",
+            "vtable_relative_to_exe": "0x38829c0",
+            "methods_relative_to_exe": {
+              "0x308": "0x1d5dbe0",
+              "0x3a8": "0x1daca60"
+            }
+          },
+          {
+            "index": 16,
+            "object": "0x20bff350100",
+            "vtable": "0x7ff6d6a229c0",
+            "vtable_relative_to_exe": "0x38829c0",
+            "methods_relative_to_exe": {
+              "0x308": "0x1d5dbe0",
+              "0x3a8": "0x1daca60"
+            }
+          },
+          {
+            "index": 17,
+            "object": "0x20bff35a060",
+            "vtable": "0x7ff6d6a229c0",
+            "vtable_relative_to_exe": "0x38829c0",
+            "methods_relative_to_exe": {
+              "0x308": "0x1d5dbe0",
+              "0x3a8": "0x1daca60"
+            }
+          },
+          {
+            "index": 18,
+            "object": "0x20bff35d030",
+            "vtable": "0x7ff6d6a229c0",
+            "vtable_relative_to_exe": "0x38829c0",
+            "methods_relative_to_exe": {
+              "0x308": "0x1d5dbe0",
+              "0x3a8": "0x1daca60"
+            }
+          },
+          {
+            "index": 19,
+            "object": "0x20bff35b050",
+            "vtable": "0x7ff6d6a229c0",
+            "vtable_relative_to_exe": "0x38829c0",
+            "methods_relative_to_exe": {
+              "0x308": "0x1d5dbe0",
+              "0x3a8": "0x1daca60"
+            }
+          },
+          {
+            "index": 20,
+            "object": "0x20bff3530d0",
+            "vtable": "0x7ff6d6a229c0",
+            "vtable_relative_to_exe": "0x38829c0",
+            "methods_relative_to_exe": {
+              "0x308": "0x1d5dbe0",
+              "0x3a8": "0x1daca60"
+            }
+          },
+          {
+            "index": 21,
+            "object": "0x20bff3540c0",
+            "vtable": "0x7ff6d6a229c0",
+            "vtable_relative_to_exe": "0x38829c0",
+            "methods_relative_to_exe": {
+              "0x308": "0x1d5dbe0",
+              "0x3a8": "0x1daca60"
+            }
+          }
+        ],
+        "attachment_count": 0
+      }
+    },
+    {
+      "index": 1,
+      "active": 3,
+      "bound_method_rva": "0x3c6050",
+      "object": "0x20caf8793a0",
+      "vtable": "0x7ff6d68eb760",
+      "vtable_relative_to_exe": "0x374b760",
+      "methods_relative_to_exe": {
+        "0x68": "0x3ef060"
+      },
+      "weak_target": "0x20cdb1a1a80",
+      "target_details": {
+        "object": "0x20cdb1a1a80",
+        "vtable": "0x7ff6d6408078",
+        "vtable_relative_to_exe": "0x3268078",
+        "methods_relative_to_exe": {
+          "0x5f8": "0x3bf540",
+          "0x600": "0x3bf8a0",
+          "0x680": "0x3be3a0",
+          "0x698": "0x3be670"
+        },
+        "side_index": 1,
+        "component_count": 21,
+        "components": [
+          {
+            "index": 0,
+            "object": "0x20c823dd030",
+            "vtable": "0x7ff6d6a229c0",
+            "vtable_relative_to_exe": "0x38829c0",
+            "methods_relative_to_exe": {
+              "0x308": "0x1d5dbe0",
+              "0x3a8": "0x1daca60"
+            }
+          },
+          {
+            "index": 1,
+            "object": "0x20c823db050",
+            "vtable": "0x7ff6d6a229c0",
+            "vtable_relative_to_exe": "0x38829c0",
+            "methods_relative_to_exe": {
+              "0x308": "0x1d5dbe0",
+              "0x3a8": "0x1daca60"
+            }
+          },
+          {
+            "index": 2,
+            "object": "0x20c823d8080",
+            "vtable": "0x7ff6d6a229c0",
+            "vtable_relative_to_exe": "0x38829c0",
+            "methods_relative_to_exe": {
+              "0x308": "0x1d5dbe0",
+              "0x3a8": "0x1daca60"
+            }
+          },
+          {
+            "index": 3,
+            "object": "0x20c823d40c0",
+            "vtable": "0x7ff6d6a229c0",
+            "vtable_relative_to_exe": "0x38829c0",
+            "methods_relative_to_exe": {
+              "0x308": "0x1d5dbe0",
+              "0x3a8": "0x1daca60"
+            }
+          },
+          {
+            "index": 4,
+            "object": "0x20c823d50b0",
+            "vtable": "0x7ff6d6a229c0",
+            "vtable_relative_to_exe": "0x38829c0",
+            "methods_relative_to_exe": {
+              "0x308": "0x1d5dbe0",
+              "0x3a8": "0x1daca60"
+            }
+          },
+          {
+            "index": 5,
+            "object": "0x20c823df010",
+            "vtable": "0x7ff6d6a229c0",
+            "vtable_relative_to_exe": "0x38829c0",
+            "methods_relative_to_exe": {
+              "0x308": "0x1d5dbe0",
+              "0x3a8": "0x1daca60"
+            }
+          },
+          {
+            "index": 6,
+            "object": "0x20c823da060",
+            "vtable": "0x7ff6d6a229c0",
+            "vtable_relative_to_exe": "0x38829c0",
+            "methods_relative_to_exe": {
+              "0x308": "0x1d5dbe0",
+              "0x3a8": "0x1daca60"
+            }
+          },
+          {
+            "index": 7,
+            "object": "0x20cb92d30d0",
+            "vtable": "0x7ff6d6a229c0",
+            "vtable_relative_to_exe": "0x38829c0",
+            "methods_relative_to_exe": {
+              "0x308": "0x1d5dbe0",
+              "0x3a8": "0x1daca60"
+            }
+          },
+          {
+            "index": 8,
+            "object": "0x20cb92d50b0",
+            "vtable": "0x7ff6d6a229c0",
+            "vtable_relative_to_exe": "0x38829c0",
+            "methods_relative_to_exe": {
+              "0x308": "0x1d5dbe0",
+              "0x3a8": "0x1daca60"
+            }
+          },
+          {
+            "index": 9,
+            "object": "0x20cb92d0100",
+            "vtable": "0x7ff6d6a229c0",
+            "vtable_relative_to_exe": "0x38829c0",
+            "methods_relative_to_exe": {
+              "0x308": "0x1d5dbe0",
+              "0x3a8": "0x1daca60"
+            }
+          },
+          {
+            "index": 10,
+            "object": "0x20cb92de020",
+            "vtable": "0x7ff6d6a229c0",
+            "vtable_relative_to_exe": "0x38829c0",
+            "methods_relative_to_exe": {
+              "0x308": "0x1d5dbe0",
+              "0x3a8": "0x1daca60"
+            }
+          },
+          {
+            "index": 11,
+            "object": "0x20c80b1f010",
+            "vtable": "0x7ff6d6a229c0",
+            "vtable_relative_to_exe": "0x38829c0",
+            "methods_relative_to_exe": {
+              "0x308": "0x1d5dbe0",
+              "0x3a8": "0x1daca60"
+            }
+          },
+          {
+            "index": 12,
+            "object": "0x20c80b140c0",
+            "vtable": "0x7ff6d6a229c0",
+            "vtable_relative_to_exe": "0x38829c0",
+            "methods_relative_to_exe": {
+              "0x308": "0x1d5dbe0",
+              "0x3a8": "0x1daca60"
+            }
+          },
+          {
+            "index": 13,
+            "object": "0x20c80b1b050",
+            "vtable": "0x7ff6d6a229c0",
+            "vtable_relative_to_exe": "0x38829c0",
+            "methods_relative_to_exe": {
+              "0x308": "0x1d5dbe0",
+              "0x3a8": "0x1daca60"
+            }
+          },
+          {
+            "index": 14,
+            "object": "0x20c80b1d030",
+            "vtable": "0x7ff6d6a229c0",
+            "vtable_relative_to_exe": "0x38829c0",
+            "methods_relative_to_exe": {
+              "0x308": "0x1d5dbe0",
+              "0x3a8": "0x1daca60"
+            }
+          },
+          {
+            "index": 15,
+            "object": "0x20c80b17090",
+            "vtable": "0x7ff6d6a229c0",
+            "vtable_relative_to_exe": "0x38829c0",
+            "methods_relative_to_exe": {
+              "0x308": "0x1d5dbe0",
+              "0x3a8": "0x1daca60"
+            }
+          },
+          {
+            "index": 16,
+            "object": "0x20c80b130d0",
+            "vtable": "0x7ff6d6a229c0",
+            "vtable_relative_to_exe": "0x38829c0",
+            "methods_relative_to_exe": {
+              "0x308": "0x1d5dbe0",
+              "0x3a8": "0x1daca60"
+            }
+          },
+          {
+            "index": 17,
+            "object": "0x20c80b1c040",
+            "vtable": "0x7ff6d6a229c0",
+            "vtable_relative_to_exe": "0x38829c0",
+            "methods_relative_to_exe": {
+              "0x308": "0x1d5dbe0",
+              "0x3a8": "0x1daca60"
+            }
+          },
+          {
+            "index": 18,
+            "object": "0x20cbb0150b0",
+            "vtable": "0x7ff6d6a229c0",
+            "vtable_relative_to_exe": "0x38829c0",
+            "methods_relative_to_exe": {
+              "0x308": "0x1d5dbe0",
+              "0x3a8": "0x1daca60"
+            }
+          },
+          {
+            "index": 19,
+            "object": "0x20cbb01e020",
+            "vtable": "0x7ff6d6a229c0",
+            "vtable_relative_to_exe": "0x38829c0",
+            "methods_relative_to_exe": {
+              "0x308": "0x1d5dbe0",
+              "0x3a8": "0x1daca60"
+            }
+          },
+          {
+            "index": 20,
+            "object": "0x20c807e8080",
+            "vtable": "0x7ff6d6a229c0",
+            "vtable_relative_to_exe": "0x38829c0",
+            "methods_relative_to_exe": {
+              "0x308": "0x1d5dbe0",
+              "0x3a8": "0x1daca60"
+            }
+          }
+        ],
+        "attachment_count": 0
+      }
+    },
+    {
+      "index": 2,
+      "active": 3,
+      "bound_method_rva": "0x5112a0",
+      "object": "0x20caf87da80",
+      "vtable": "0x7ff6d68eb760",
+      "vtable_relative_to_exe": "0x374b760",
+      "methods_relative_to_exe": {
+        "0x68": "0x3ef060"
+      },
+      "weak_target": "0x20cd9510650",
+      "target_vtable_rva": "0x32c3210"
+    },
+    {
+      "index": 3,
+      "active": 3,
+      "bound_method_rva": "0x3c6020",
+      "object": "0x20cbe41b6e0",
+      "vtable": "0x7ff6d68eb760",
+      "vtable_relative_to_exe": "0x374b760",
+      "methods_relative_to_exe": {
+        "0x68": "0x3ef060"
+      },
+      "weak_target": "0x20c83581750",
+      "target_vtable_rva": "0x326a6c8"
+    }
+  ]
+}

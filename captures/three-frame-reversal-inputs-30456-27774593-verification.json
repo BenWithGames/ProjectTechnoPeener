@@ -1,0 +1,128 @@
+[
+  {
+    "hop": 0,
+    "reference": "blend-original_b.bin",
+    "replay": "blend-replay.bin",
+    "equal": true
+  },
+  {
+    "hop": 0,
+    "reference": "transforms-original_b.bin",
+    "replay": "transforms-replay.bin",
+    "equal": true
+  },
+  {
+    "hop": 0,
+    "reference": "rings-2.bin",
+    "replay": "replay-rings.bin",
+    "equal": true
+  },
+  {
+    "hop": 0,
+    "reference": "camera-1.bin",
+    "replay": "camera-3.bin",
+    "equal": true
+  },
+  {
+    "hop": 0,
+    "reference": "camera-1-response-1.bin",
+    "replay": "camera-3-response-1.bin",
+    "equal": true
+  },
+  {
+    "hop": 0,
+    "reference": "camera-1-smoothing-1.bin",
+    "replay": "camera-3-smoothing-1.bin",
+    "equal": true
+  },
+  {
+    "hop": 0,
+    "reference": "camera-1-targets-1.bin",
+    "replay": "camera-3-targets-1.bin",
+    "equal": true
+  },
+  {
+    "hop": 1,
+    "reference": "blend-original_b.bin",
+    "replay": "blend-replay.bin",
+    "equal": true
+  },
+  {
+    "hop": 1,
+    "reference": "transforms-original_b.bin",
+    "replay": "transforms-replay.bin",
+    "equal": true
+  },
+  {
+    "hop": 1,
+    "reference": "rings-2.bin",
+    "replay": "replay-rings.bin",
+    "equal": true
+  },
+  {
+    "hop": 1,
+    "reference": "camera-1.bin",
+    "replay": "camera-3.bin",
+    "equal": true
+  },
+  {
+    "hop": 1,
+    "reference": "camera-1-response-1.bin",
+    "replay": "camera-3-response-1.bin",
+    "equal": true
+  },
+  {
+    "hop": 1,
+    "reference": "camera-1-smoothing-1.bin",
+    "replay": "camera-3-smoothing-1.bin",
+    "equal": true
+  },
+  {
+    "hop": 1,
+    "reference": "camera-1-targets-1.bin",
+    "replay": "camera-3-targets-1.bin",
+    "equal": true
+  },
+  {
+    "hop": 2,
+    "reference": "blend-original_b.bin",
+    "replay": "blend-replay.bin",
+    "equal": true
+  },
+  {
+    "hop": 2,
+    "reference": "transforms-original_b.bin",
+    "replay": "transforms-replay.bin",
+    "equal": true
+  },
+  {
+    "hop": 2,
+    "reference": "rings-2.bin",
+    "replay": "replay-rings.bin",
+    "equal": true
+  },
+  {
+    "hop": 2,
+    "reference": "camera-1.bin",
+    "replay": "camera-3.bin",
+    "equal": true
+  },
+  {
+    "hop": 2,
+    "reference": "camera-1-response-1.bin",
+    "replay": "camera-3-response-1.bin",
+    "equal": true
+  },
+  {
+    "hop": 2,
+    "reference": "camera-1-smoothing-1.bin",
+    "replay": "camera-3-smoothing-1.bin",
+    "equal": true
+  },
+  {
+    "hop": 2,
+    "reference": "camera-1-targets-1.bin",
+    "replay": "camera-3-targets-1.bin",
+    "equal": true
+  }
+]

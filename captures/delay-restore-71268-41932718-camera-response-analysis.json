@@ -1,0 +1,132 @@
+{
+  "response_phases": {
+    "A": {
+      "floats": [
+        0.0,
+        0.375,
+        0.0
+      ],
+      "words": [
+        0,
+        1052770304,
+        0
+      ]
+    },
+    "B": {
+      "floats": [
+        0.0,
+        0.375,
+        0.0
+      ],
+      "words": [
+        0,
+        1052770304,
+        0
+      ]
+    },
+    "restored": {
+      "floats": [
+        0.375,
+        0.375,
+        0.375
+      ],
+      "words": [
+        1052770304,
+        1052770304,
+        1052770304
+      ]
+    },
+    "replay": {
+      "floats": [
+        0.3149999976158142,
+        0.375,
+        0.3149999976158142
+      ],
+      "words": [
+        1050757038,
+        1052770304,
+        1050757038
+      ]
+    },
+    "corrected": {
+      "floats": [
+        0.375,
+        0.375,
+        0.375
+      ],
+      "words": [
+        1052770304,
+        1052770304,
+        1052770304
+      ]
+    }
+  },
+  "ring_equal": true,
+  "targets_replay_differences": [],
+  "smoothing_replay_differences": [],
+  "camera_common_replay": [
+    {
+      "record": 0,
+      "offsets": []
+    },
+    {
+      "record": 1,
+      "offsets": [
+        "0x60",
+        "0x61",
+        "0x68",
+        "0x69",
+        "0x110",
+        "0x111",
+        "0x118",
+        "0x119"
+      ]
+    },
+    {
+      "record": 2,
+      "offsets": []
+    },
+    {
+      "record": 3,
+      "offsets": []
+    },
+    {
+      "record": 4,
+      "offsets": []
+    },
+    {
+      "record": 5,
+      "offsets": []
+    },
+    {
+      "record": 6,
+      "offsets": []
+    },
+    {
+      "record": 7,
+      "offsets": []
+    }
+  ],
+  "native": [
+    {
+      "transfer": "6",
+      "bytes": 6,
+      "writer_rva": "0x30aa54"
+    },
+    {
+      "transfer": "354",
+      "bytes": 6,
+      "writer_rva": "0x30aa54"
+    },
+    {
+      "transfer": "726",
+      "bytes": 4,
+      "writer_rva": "0x33fc7b"
+    },
+    {
+      "transfer": "749",
+      "bytes": 4,
+      "writer_rva": "0x33fe69"
+    }
+  ]
+}

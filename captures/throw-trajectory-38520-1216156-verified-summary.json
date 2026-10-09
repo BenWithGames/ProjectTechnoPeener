@@ -1,0 +1,50 @@
+{
+  "capture": "throw-trajectory-38520-1216156",
+  "restore_invoked": 0,
+  "frames": [
+    {
+      "outer": 1317,
+      "rng": 882268839,
+      "native_bytes": 106766,
+      "transfers": 1310,
+      "transforms": 2047,
+      "cameras": 8,
+      "ring_indices": [
+        0,
+        2,
+        0,
+        2
+      ]
+    },
+    {
+      "outer": 1318,
+      "rng": 882268839,
+      "native_bytes": 106766,
+      "transfers": 1310,
+      "transforms": 2047,
+      "cameras": 8,
+      "ring_indices": [
+        2,
+        1,
+        2,
+        1
+      ]
+    },
+    {
+      "outer": 1319,
+      "rng": 882268839,
+      "native_bytes": 106766,
+      "transfers": 1310,
+      "transforms": 2047,
+      "cameras": 8,
+      "ring_indices": [
+        1,
+        0,
+        1,
+        0
+      ]
+    }
+  ],
+  "inputs_equal": true,
+  "stable_topology_and_camera_identity": true
+}

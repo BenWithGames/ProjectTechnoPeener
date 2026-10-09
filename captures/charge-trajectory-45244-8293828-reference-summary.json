@@ -1,0 +1,39 @@
+{
+  "inputs_all_equal": true,
+  "aux_flags": [
+    "0x807",
+    "0x807",
+    "0x807",
+    "0x807"
+  ],
+  "frames": [
+    {
+      "native": 106766,
+      "rings": 307200,
+      "blend": 2760,
+      "transforms": 85572,
+      "camera": 3648
+    },
+    {
+      "native": 106766,
+      "rings": 307200,
+      "blend": 2760,
+      "transforms": 85572,
+      "camera": 3648
+    },
+    {
+      "native": 106766,
+      "rings": 307200,
+      "blend": 2760,
+      "transforms": 85572,
+      "camera": 3648
+    },
+    {
+      "native": 106766,
+      "rings": 307200,
+      "blend": 2760,
+      "transforms": 85572,
+      "camera": 3648
+    }
+  ]
+}

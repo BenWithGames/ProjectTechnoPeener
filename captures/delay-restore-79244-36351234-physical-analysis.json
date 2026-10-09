@@ -1,0 +1,98 @@
+[
+  {
+    "player": 1,
+    "kind": "large",
+    "slot": 0,
+    "different_bytes": 0,
+    "first": null,
+    "last": null
+  },
+  {
+    "player": 1,
+    "kind": "large",
+    "slot": 1,
+    "different_bytes": 963,
+    "first": "0x2940",
+    "last": "0x35f9"
+  },
+  {
+    "player": 1,
+    "kind": "large",
+    "slot": 2,
+    "different_bytes": 0,
+    "first": null,
+    "last": null
+  },
+  {
+    "player": 1,
+    "kind": "small",
+    "slot": 0,
+    "different_bytes": 0,
+    "first": null,
+    "last": null
+  },
+  {
+    "player": 1,
+    "kind": "small",
+    "slot": 1,
+    "different_bytes": 0,
+    "first": null,
+    "last": null
+  },
+  {
+    "player": 1,
+    "kind": "small",
+    "slot": 2,
+    "different_bytes": 0,
+    "first": null,
+    "last": null
+  },
+  {
+    "player": 2,
+    "kind": "large",
+    "slot": 0,
+    "different_bytes": 0,
+    "first": null,
+    "last": null
+  },
+  {
+    "player": 2,
+    "kind": "large",
+    "slot": 1,
+    "different_bytes": 0,
+    "first": null,
+    "last": null
+  },
+  {
+    "player": 2,
+    "kind": "large",
+    "slot": 2,
+    "different_bytes": 0,
+    "first": null,
+    "last": null
+  },
+  {
+    "player": 2,
+    "kind": "small",
+    "slot": 0,
+    "different_bytes": 0,
+    "first": null,
+    "last": null
+  },
+  {
+    "player": 2,
+    "kind": "small",
+    "slot": 1,
+    "different_bytes": 0,
+    "first": null,
+    "last": null
+  },
+  {
+    "player": 2,
+    "kind": "small",
+    "slot": 2,
+    "different_bytes": 0,
+    "first": null,
+    "last": null
+  }
+]

@@ -1,0 +1,38 @@
+[
+  {
+    "transfer": "1043",
+    "field": "0x8",
+    "pointer_delta_to_changed": "0x1350",
+    "value": "0x197f2661020"
+  },
+  {
+    "transfer": "1043",
+    "field": "0x10",
+    "pointer_delta_to_changed": "0x1350",
+    "value": "0x197f2661020"
+  },
+  {
+    "transfer": "1043",
+    "field": "0x18",
+    "pointer_delta_to_changed": "0xf70",
+    "value": "0x197f2661400"
+  },
+  {
+    "transfer": "1043",
+    "field": "0x20",
+    "pointer_delta_to_changed": "0xb90",
+    "value": "0x197f26617e0"
+  },
+  {
+    "transfer": "1043",
+    "field": "0x28",
+    "pointer_delta_to_changed": "0x7b0",
+    "value": "0x197f2661bc0"
+  },
+  {
+    "transfer": "1043",
+    "field": "0x30",
+    "pointer_delta_to_changed": "0x3d0",
+    "value": "0x197f2661fa0"
+  }
+]

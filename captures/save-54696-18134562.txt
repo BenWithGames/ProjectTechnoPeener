@@ -1,0 +1,11 @@
+schema=1
+boundary=before_RVA_0x2DBC60
+mode=user_confirmed_offline_training
+complete_snapshot=false
+samples=600
+skipped_entries=0
+stop=limit
+fault=0
+outer_discontinuities=0
+qpc_frequency=10000000
+csv_written=1

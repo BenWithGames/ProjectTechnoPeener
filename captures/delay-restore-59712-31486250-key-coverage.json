@@ -1,0 +1,45 @@
+{
+  "selected_key_read_coverage": [
+    {
+      "rva": "0x470d0c4",
+      "read_transfer_indices": []
+    },
+    {
+      "rva": "0x475a038",
+      "read_transfer_indices": [
+        7
+      ]
+    },
+    {
+      "rva": "0x47f1428",
+      "read_transfer_indices": [
+        355
+      ]
+    },
+    {
+      "rva": "0x48462d0",
+      "read_transfer_indices": [
+        663
+      ]
+    },
+    {
+      "rva": "0x48462d4",
+      "read_transfer_indices": [
+        663
+      ]
+    },
+    {
+      "rva": "0x48462f4",
+      "read_transfer_indices": [
+        663
+      ]
+    },
+    {
+      "rva": "0x4846458",
+      "read_transfer_indices": [
+        664
+      ]
+    }
+  ],
+  "limitation": "Actual loaded key values were not exported by this build; coverage alone cannot identify the mismatching value."
+}

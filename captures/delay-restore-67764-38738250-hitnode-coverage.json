@@ -1,0 +1,60 @@
+{
+  "root_heads": [
+    {
+      "side": "0",
+      "head08": "0x7ff6d78fadf0",
+      "head18": "0x0"
+    },
+    {
+      "side": "1",
+      "head08": "0x7ff6d79921e0",
+      "head18": "0x0"
+    }
+  ],
+  "referenced_objects": [
+    {
+      "address": "0x7ff6d7900160",
+      "forward_transform_native_overlaps": []
+    },
+    {
+      "address": "0x7ff6d7900250",
+      "forward_transform_native_overlaps": []
+    },
+    {
+      "address": "0x7ff6d79033a0",
+      "forward_transform_native_overlaps": []
+    },
+    {
+      "address": "0x7ff6d7903490",
+      "forward_transform_native_overlaps": []
+    },
+    {
+      "address": "0x7ff6d7903580",
+      "forward_transform_native_overlaps": []
+    },
+    {
+      "address": "0x7ff6d7997550",
+      "forward_transform_native_overlaps": []
+    },
+    {
+      "address": "0x7ff6d799e9d0",
+      "forward_transform_native_overlaps": []
+    },
+    {
+      "address": "0x7ff6d799fae0",
+      "forward_transform_native_overlaps": []
+    },
+    {
+      "address": "0x7ff6d799fbd0",
+      "forward_transform_native_overlaps": []
+    },
+    {
+      "address": "0x7ff6d799fcc0",
+      "forward_transform_native_overlaps": []
+    },
+    {
+      "address": "0x7ff6d799fdb0",
+      "forward_transform_native_overlaps": []
+    }
+  ]
+}

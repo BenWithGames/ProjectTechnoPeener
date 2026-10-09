@@ -1,0 +1,48 @@
+{
+  "blend_quartet": {
+    "0x3c": [
+      1.0,
+      1.0
+    ],
+    "0x40": [
+      1.0,
+      1.0
+    ],
+    "0x6c": [
+      1.0,
+      1.0
+    ],
+    "0x70": [
+      1.0,
+      1.0
+    ]
+  },
+  "input_changes": [
+    {
+      "offset": 37,
+      "before": 0,
+      "after": 1
+    },
+    {
+      "offset": 38,
+      "before": 129,
+      "after": 128
+    },
+    {
+      "offset": 39,
+      "before": 187,
+      "after": 59
+    }
+  ],
+  "input_lengths": [
+    40,
+    40,
+    40
+  ],
+  "buttons_unchanged": true,
+  "last_float": [
+    -0.003936767578125,
+    -0.003936767578125,
+    0.003906369209289551
+  ]
+}

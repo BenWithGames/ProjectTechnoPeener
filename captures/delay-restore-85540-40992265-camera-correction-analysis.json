@@ -1,0 +1,73 @@
+{
+  "records": [
+    {
+      "record": "0",
+      "A_corrected": [
+        "0x154",
+        "0x155",
+        "0x156",
+        "0x157"
+      ],
+      "B_replay": []
+    },
+    {
+      "record": "1",
+      "A_corrected": [],
+      "B_replay": [
+        "0x54",
+        "0x55",
+        "0x60",
+        "0x61",
+        "0x62",
+        "0x68",
+        "0x69",
+        "0x6a",
+        "0x110",
+        "0x111",
+        "0x112",
+        "0x118",
+        "0x119",
+        "0x11a",
+        "0x134",
+        "0x135"
+      ]
+    },
+    {
+      "record": "2",
+      "A_corrected": [],
+      "B_replay": []
+    },
+    {
+      "record": "3",
+      "A_corrected": [],
+      "B_replay": []
+    },
+    {
+      "record": "4",
+      "A_corrected": [],
+      "B_replay": []
+    },
+    {
+      "record": "5",
+      "A_corrected": [],
+      "B_replay": []
+    },
+    {
+      "record": "6",
+      "A_corrected": [],
+      "B_replay": []
+    },
+    {
+      "record": "7",
+      "A_corrected": [],
+      "B_replay": []
+    }
+  ],
+  "history_corrected_equal": true,
+  "history_replay_equal": false,
+  "history_replay_offsets": [
+    8,
+    9,
+    10
+  ]
+}

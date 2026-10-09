@@ -1,0 +1,190 @@
+{
+  "capture": "throw-audit-92620-46748859",
+  "topology_equal": true,
+  "shockwave_records": [
+    {
+      "record": 2038,
+      "address": "2116093719832",
+      "bytes": 360,
+      "changed_byte_offsets": [
+        50,
+        64,
+        65,
+        66,
+        68,
+        69,
+        70,
+        72,
+        73,
+        74,
+        76,
+        77,
+        78,
+        80,
+        81,
+        82,
+        84,
+        85,
+        86,
+        88,
+        89,
+        90,
+        96,
+        102,
+        216,
+        217,
+        218,
+        240,
+        241,
+        242,
+        248,
+        249,
+        250,
+        296,
+        297,
+        298,
+        352,
+        353,
+        354,
+        360,
+        361,
+        362,
+        368,
+        369,
+        370,
+        376,
+        377,
+        378
+      ],
+      "changed_words": [
+        {
+          "object_offset": "0x30",
+          "before_hex": "00002042",
+          "after_hex": "00001c42",
+          "before_float": 40.0,
+          "after_float": 39.0
+        },
+        {
+          "object_offset": "0x40",
+          "before_hex": "6ce3153c",
+          "after_hex": "8a9b1f3c",
+          "before_float": 0.009148459881544113,
+          "after_float": 0.009741673246026039
+        },
+        {
+          "object_offset": "0x44",
+          "before_hex": "f40434bb",
+          "after_hex": "9d613dbb",
+          "before_float": -0.002746877260506153,
+          "after_float": -0.0028897293377667665
+        },
+        {
+          "object_offset": "0x48",
+          "before_hex": "3c12123c",
+          "after_hex": "11a21b3c",
+          "before_float": 0.008915480226278305,
+          "after_float": 0.009499088861048222
+        },
+        {
+          "object_offset": "0x4c",
+          "before_hex": "88cb3c3f",
+          "after_hex": "2483503f",
+          "before_float": 0.737480640411377,
+          "after_float": 0.8145010471343994
+        },
+        {
+          "object_offset": "0x50",
+          "before_hex": "6a3e4b3c",
+          "after_hex": "1ef5433c",
+          "before_float": 0.012405017390847206,
+          "after_float": 0.011960295960307121
+        },
+        {
+          "object_offset": "0x54",
+          "before_hex": "b61974bb",
+          "after_hex": "158368bb",
+          "before_float": -0.0037246770225465298,
+          "after_float": -0.003547852160409093
+        },
+        {
+          "object_offset": "0x58",
+          "before_hex": "6111463c",
+          "after_hex": "eb133f3c",
+          "before_float": 0.012089104391634464,
+          "after_float": 0.011662463657557964
+        },
+        {
+          "object_offset": "0x60",
+          "before_hex": "04000000",
+          "after_hex": "05000000",
+          "before_float": 5.605193857299268e-45,
+          "after_float": 7.006492321624085e-45
+        },
+        {
+          "object_offset": "0x64",
+          "before_hex": "00002442",
+          "after_hex": "00002042",
+          "before_float": 41.0,
+          "after_float": 40.0
+        },
+        {
+          "object_offset": "0xd8",
+          "before_hex": "9cd3c63f",
+          "after_hex": "7277d73f",
+          "before_float": 1.553332805633545,
+          "after_float": 1.6833326816558838
+        },
+        {
+          "object_offset": "0xf0",
+          "before_hex": "ffaf6240",
+          "after_hex": "b2076c40",
+          "before_float": 3.541991949081421,
+          "after_float": 3.68796968460083
+        },
+        {
+          "object_offset": "0xf8",
+          "before_hex": "77d170bf",
+          "after_hex": "f47374bf",
+          "before_float": -0.9406961798667908,
+          "after_float": -0.9548943042755127
+        },
+        {
+          "object_offset": "0x128",
+          "before_hex": "b6c02841",
+          "after_hex": "6b0f2241",
+          "before_float": 10.547048568725586,
+          "after_float": 10.128764152526855
+        },
+        {
+          "object_offset": "0x160",
+          "before_hex": "ffaf6240",
+          "after_hex": "b2076c40",
+          "before_float": 3.541991949081421,
+          "after_float": 3.68796968460083
+        },
+        {
+          "object_offset": "0x168",
+          "before_hex": "77d170bf",
+          "after_hex": "f47374bf",
+          "before_float": -0.9406961798667908,
+          "after_float": -0.9548943042755127
+        },
+        {
+          "object_offset": "0x170",
+          "before_hex": "ffaf6240",
+          "after_hex": "b2076c40",
+          "before_float": 3.541991949081421,
+          "after_float": 3.68796968460083
+        },
+        {
+          "object_offset": "0x178",
+          "before_hex": "77d170bf",
+          "after_hex": "f47374bf",
+          "before_float": -0.9406961798667908,
+          "after_float": -0.9548943042755127
+        }
+      ]
+    }
+  ],
+  "restore_invoked": false
+}

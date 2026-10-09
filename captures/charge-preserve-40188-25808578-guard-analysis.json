@@ -1,0 +1,18 @@
+{
+  "save_fields_unchanged": true,
+  "expected_rng": 578276275,
+  "observed_rng": 578276275,
+  "rng_matches": true,
+  "unexpected_changes": [
+    {
+      "side": 1,
+      "offset": "0x97220",
+      "before": 1,
+      "after": 0
+    }
+  ],
+  "rebuilt_pointers": [
+    140698154915568,
+    140698155535072
+  ]
+}

@@ -1,0 +1,38 @@
+[
+  {
+    "transfer": 6,
+    "length": 48,
+    "different_bytes": 6,
+    "writer_rva": "0x30aa54"
+  },
+  {
+    "transfer": 354,
+    "length": 48,
+    "different_bytes": 6,
+    "writer_rva": "0x30aa54"
+  },
+  {
+    "transfer": 725,
+    "length": 16,
+    "different_bytes": 2,
+    "writer_rva": "0x33fc68"
+  },
+  {
+    "transfer": 726,
+    "length": 16,
+    "different_bytes": 6,
+    "writer_rva": "0x33fc7b"
+  },
+  {
+    "transfer": 749,
+    "length": 16,
+    "different_bytes": 6,
+    "writer_rva": "0x33fe69"
+  },
+  {
+    "transfer": 751,
+    "length": 16,
+    "different_bytes": 2,
+    "writer_rva": "0x33fe95"
+  }
+]

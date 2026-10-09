@@ -1,0 +1,22 @@
+[
+  {
+    "player": 140698154915568,
+    "subobject": "0x35a0",
+    "header_overlapping_transfers": []
+  },
+  {
+    "player": 140698154915568,
+    "subobject": "0x27760",
+    "header_overlapping_transfers": []
+  },
+  {
+    "player": 140698155535072,
+    "subobject": "0x35a0",
+    "header_overlapping_transfers": []
+  },
+  {
+    "player": 140698155535072,
+    "subobject": "0x27760",
+    "header_overlapping_transfers": []
+  }
+]

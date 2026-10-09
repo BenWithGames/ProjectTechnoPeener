@@ -1,0 +1,36 @@
+[
+  {
+    "index": 6,
+    "length": 48,
+    "writer_rva": "0x30aa54",
+    "changed_offsets": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5
+    ]
+  },
+  {
+    "index": 354,
+    "length": 48,
+    "writer_rva": "0x30aa54",
+    "changed_offsets": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5
+    ]
+  },
+  {
+    "index": 1045,
+    "length": 16,
+    "writer_rva": "0x32ac76",
+    "changed_offsets": [
+      4
+    ]
+  }
+]

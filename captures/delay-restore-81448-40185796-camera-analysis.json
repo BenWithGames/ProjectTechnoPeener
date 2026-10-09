@@ -1,0 +1,151 @@
+[
+  {
+    "record": "0",
+    "owner": "2309865382464",
+    "offset": "0",
+    "length": "456",
+    "type": ".?AVCCameraGameClass@@",
+    "vtable_rva": "0x3e881c8",
+    "comparisons": {
+      "A_B": [],
+      "A_restored": [
+        "0x154",
+        "0x155",
+        "0x156",
+        "0x157"
+      ],
+      "B_replay": []
+    }
+  },
+  {
+    "record": "1",
+    "owner": "2309865383264",
+    "offset": "456",
+    "length": "456",
+    "type": ".?AVCCameraEBVClass@@",
+    "vtable_rva": "0x3e87eb0",
+    "comparisons": {
+      "A_B": [
+        "0x54",
+        "0x134"
+      ],
+      "A_restored": [
+        "0x154",
+        "0x155",
+        "0x156",
+        "0x157"
+      ],
+      "B_replay": [
+        "0x50",
+        "0x51",
+        "0x54",
+        "0x55",
+        "0x56",
+        "0x60",
+        "0x61",
+        "0x62",
+        "0x68",
+        "0x69",
+        "0x6a",
+        "0x70",
+        "0x71",
+        "0x72",
+        "0x110",
+        "0x111",
+        "0x112",
+        "0x118",
+        "0x119",
+        "0x11a",
+        "0x120",
+        "0x121",
+        "0x122",
+        "0x130",
+        "0x131",
+        "0x134",
+        "0x135",
+        "0x136",
+        "0x154",
+        "0x155",
+        "0x156"
+      ]
+    }
+  },
+  {
+    "record": "2",
+    "owner": "2309865384864",
+    "offset": "912",
+    "length": "456",
+    "type": ".?AVCCameraMotionClass@@",
+    "vtable_rva": "0x3e88488",
+    "comparisons": {
+      "A_B": [],
+      "A_restored": [],
+      "B_replay": []
+    }
+  },
+  {
+    "record": "3",
+    "owner": "2309865385664",
+    "offset": "1368",
+    "length": "456",
+    "type": ".?AVGT_AttentionCameraClass@@",
+    "vtable_rva": "0x3e885e0",
+    "comparisons": {
+      "A_B": [],
+      "A_restored": [],
+      "B_replay": []
+    }
+  },
+  {
+    "record": "4",
+    "owner": "2309865386464",
+    "offset": "1824",
+    "length": "456",
+    "type": ".?AVCCameraPlayerWatchClass@@",
+    "vtable_rva": "0x3e87d90",
+    "comparisons": {
+      "A_B": [],
+      "A_restored": [],
+      "B_replay": []
+    }
+  },
+  {
+    "record": "5",
+    "owner": "2309865387264",
+    "offset": "2280",
+    "length": "456",
+    "type": ".?AVGT_AttentionCameraClass@@",
+    "vtable_rva": "0x3e885e0",
+    "comparisons": {
+      "A_B": [],
+      "A_restored": [],
+      "B_replay": []
+    }
+  },
+  {
+    "record": "6",
+    "owner": "2309865388064",
+    "offset": "2736",
+    "length": "456",
+    "type": ".?AVGT_FreeCameraClass@@",
+    "vtable_rva": "0x3e88328",
+    "comparisons": {
+      "A_B": [],
+      "A_restored": [],
+      "B_replay": []
+    }
+  },
+  {
+    "record": "7",
+    "owner": "2309865388864",
+    "offset": "3192",
+    "length": "456",
+    "type": ".?AVGT_AttentionCameraClass@@",
+    "vtable_rva": "0x3e885e0",
+    "comparisons": {
+      "A_B": [],
+      "A_restored": [],
+      "B_replay": []
+    }
+  }
+]

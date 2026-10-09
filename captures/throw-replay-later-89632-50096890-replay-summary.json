@@ -1,0 +1,56 @@
+{
+  "capture": "throw-replay-later-89632-50096890",
+  "comparisons": {
+    "rings": {
+      "bytes": 307200,
+      "equal": true
+    },
+    "blend": {
+      "bytes": 2760,
+      "equal": true
+    },
+    "camera": {
+      "bytes": 3648,
+      "equal": true
+    },
+    "response": {
+      "bytes": 12,
+      "equal": true
+    },
+    "smoothing": {
+      "bytes": 80,
+      "equal": true
+    },
+    "targets": {
+      "bytes": 128,
+      "equal": true
+    }
+  },
+  "native_differences": [
+    {
+      "transfer": 6,
+      "writer_rva": "0x30aa54",
+      "offsets": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "transfer": 354,
+      "writer_rva": "0x30aa54",
+      "offsets": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    }
+  ],
+  "transform_changed_records": 0
+}

@@ -1,0 +1,37 @@
+{
+  "pass_mask": 249,
+  "failed_checks": [
+    "inputs",
+    "blend"
+  ],
+  "input_changed_byte_indices": [
+    24,
+    25,
+    26,
+    27
+  ],
+  "blend_issues": [
+    {
+      "side": 0,
+      "block": 0,
+      "unexpected_offsets": [
+        60,
+        61,
+        62,
+        63,
+        64,
+        65,
+        66,
+        67,
+        108,
+        109,
+        110,
+        111,
+        112,
+        113,
+        114,
+        115
+      ]
+    }
+  ]
+}

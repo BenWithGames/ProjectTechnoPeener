@@ -1,0 +1,376 @@
+module_base=0x7ff6d31a0000 timer=0x7ff6d78ad0c4 mode=outer-smoke
+slot1=outer_entry slot2=player_entry slot4=outer_counter_write timer_field=outer_counter
+hit=1 ms=6 tid=43684 timer=34335 timer_ok=1 slots=1 entry_rip_rva=0x2dbc60
+regs rcx=e241ecf2a8 rdx=e241ecf2a8 rbx=29c5d81a300 rsi=1 rdi=29b9d23aab0 r8=29b6ed58d88 r9=4d8f2
+p1_timer_candidate=10382 p1_ok=1 return_ok=1 return_abs=0x7ff6d359e816
+  stack_abs=0x7ff6d347bc60 game_rva=0x2dbc60
+  stack_abs=0x7ff6d359e816 game_rva=0x3fe816
+  stack_abs=0x7ff6d359bf66 game_rva=0x3fbf66
+  stack_abs=0x7ff6d4dcd39d game_rva=0x1c2d39d
+  stack_abs=0x7ff6d52fd323 game_rva=0x215d323
+  stack_abs=0x7ff6d52fed4d game_rva=0x215ed4d
+  stack_abs=0x7ff6d3ecd00e game_rva=0xd2d00e
+  stack_abs=0x7ff6d3ecd1cc game_rva=0xd2d1cc
+  stack_abs=0x7ff6d3ed8081 game_rva=0xd38081
+  stack_abs=0x7ff6d5304681 game_rva=0x2164681
+  stack_abs=0x7ff6d5305d47 game_rva=0x2165d47
+  stack_abs=0x7ff6d50a2953 game_rva=0x1f02953
+hit=2 ms=7 tid=43684 timer=34335 timer_ok=1 slots=2 entry_rip_rva=0x34da70
+regs rcx=7ff6d78af1a0 rdx=0 rbx=7ff6d78af1a0 rsi=2 rdi=2 r8=0 r9=7ff6d78adea0
+p1_timer_candidate=10382 p1_ok=1 return_ok=1 return_abs=0x7ff6d347c098
+  stack_abs=0x7ff6d34eda70 game_rva=0x34da70
+  stack_abs=0x7ff6d347c098 game_rva=0x2dc098
+  stack_abs=0x7ff6d359e816 game_rva=0x3fe816
+  stack_abs=0x7ff6d359bf66 game_rva=0x3fbf66
+  stack_abs=0x7ff6d4dcd39d game_rva=0x1c2d39d
+  stack_abs=0x7ff6d52fd323 game_rva=0x215d323
+  stack_abs=0x7ff6d52fed4d game_rva=0x215ed4d
+  stack_abs=0x7ff6d3ecd00e game_rva=0xd2d00e
+  stack_abs=0x7ff6d3ecd1cc game_rva=0xd2d1cc
+  stack_abs=0x7ff6d3ed8081 game_rva=0xd38081
+  stack_abs=0x7ff6d5304681 game_rva=0x2164681
+  stack_abs=0x7ff6d5305d47 game_rva=0x2165d47
+hit=3 ms=8 tid=43684 timer=34335 timer_ok=1 slots=2 entry_rip_rva=0x34da70
+regs rcx=7ff6d78af1a8 rdx=7ff6d78d0d00 rbx=7ff6d78af1a8 rsi=1 rdi=2 r8=a0 r9=0
+p1_timer_candidate=10383 p1_ok=1 return_ok=1 return_abs=0x7ff6d347c098
+  stack_abs=0x7ff6d34eda70 game_rva=0x34da70
+  stack_abs=0x7ff6d347c098 game_rva=0x2dc098
+  stack_abs=0x7ff6d359e816 game_rva=0x3fe816
+  stack_abs=0x7ff6d359bf66 game_rva=0x3fbf66
+  stack_abs=0x7ff6d4dcd39d game_rva=0x1c2d39d
+  stack_abs=0x7ff6d52fd323 game_rva=0x215d323
+  stack_abs=0x7ff6d52fed4d game_rva=0x215ed4d
+  stack_abs=0x7ff6d3ecd00e game_rva=0xd2d00e
+  stack_abs=0x7ff6d3ecd1cc game_rva=0xd2d1cc
+  stack_abs=0x7ff6d3ed8081 game_rva=0xd38081
+  stack_abs=0x7ff6d5304681 game_rva=0x2164681
+  stack_abs=0x7ff6d5305d47 game_rva=0x2165d47
+hit=4 ms=9 tid=43684 timer=34336 timer_ok=1 slots=4 next_rip_rva=0x2dc352
+regs rcx=0 rdx=39f76212 rbx=29b69ec3160 rsi=0 rdi=0 r8=7ff6d794cae0 r9=0
+p1_timer_candidate=10383 p1_ok=1 return_ok=0 return_abs=0x0
+  stack_abs=0x7ff6d347c352 game_rva=0x2dc352
+  stack_abs=0x7ff6d359e816 game_rva=0x3fe816
+  stack_abs=0x7ff6d359bf66 game_rva=0x3fbf66
+  stack_abs=0x7ff6d4dcd39d game_rva=0x1c2d39d
+  stack_abs=0x7ff6d52fd323 game_rva=0x215d323
+  stack_abs=0x7ff6d52fed4d game_rva=0x215ed4d
+  stack_abs=0x7ff6d3ecd00e game_rva=0xd2d00e
+  stack_abs=0x7ff6d3ecd1cc game_rva=0xd2d1cc
+  stack_abs=0x7ff6d3ed8081 game_rva=0xd38081
+  stack_abs=0x7ff6d5304681 game_rva=0x2164681
+  stack_abs=0x7ff6d5305d47 game_rva=0x2165d47
+  stack_abs=0x7ff6d50a2953 game_rva=0x1f02953
+hit=5 ms=23 tid=43684 timer=34336 timer_ok=1 slots=1 entry_rip_rva=0x2dbc60
+regs rcx=e241ecf2a8 rdx=e241ecf2a8 rbx=29c5d81a300 rsi=1 rdi=29b9d23aab0 r8=29b6ed58d88 r9=4d8f2
+p1_timer_candidate=10383 p1_ok=1 return_ok=1 return_abs=0x7ff6d359e816
+  stack_abs=0x7ff6d347bc60 game_rva=0x2dbc60
+  stack_abs=0x7ff6d359e816 game_rva=0x3fe816
+  stack_abs=0x7ff6d359bf66 game_rva=0x3fbf66
+  stack_abs=0x7ff6d4dcd39d game_rva=0x1c2d39d
+  stack_abs=0x7ff6d52fd323 game_rva=0x215d323
+  stack_abs=0x7ff6d52fed4d game_rva=0x215ed4d
+  stack_abs=0x7ff6d3ecd00e game_rva=0xd2d00e
+  stack_abs=0x7ff6d3ecd1cc game_rva=0xd2d1cc
+  stack_abs=0x7ff6d3ed8081 game_rva=0xd38081
+  stack_abs=0x7ff6d5304681 game_rva=0x2164681
+  stack_abs=0x7ff6d5305d47 game_rva=0x2165d47
+  stack_abs=0x7ff6d50a2953 game_rva=0x1f02953
+hit=6 ms=24 tid=43684 timer=34336 timer_ok=1 slots=2 entry_rip_rva=0x34da70
+regs rcx=7ff6d78af1a0 rdx=0 rbx=7ff6d78af1a0 rsi=2 rdi=2 r8=0 r9=7ff6d78adea0
+p1_timer_candidate=10383 p1_ok=1 return_ok=1 return_abs=0x7ff6d347c098
+  stack_abs=0x7ff6d34eda70 game_rva=0x34da70
+  stack_abs=0x7ff6d347c098 game_rva=0x2dc098
+  stack_abs=0x7ff6d359e816 game_rva=0x3fe816
+  stack_abs=0x7ff6d359bf66 game_rva=0x3fbf66
+  stack_abs=0x7ff6d4dcd39d game_rva=0x1c2d39d
+  stack_abs=0x7ff6d52fd323 game_rva=0x215d323
+  stack_abs=0x7ff6d52fed4d game_rva=0x215ed4d
+  stack_abs=0x7ff6d3ecd00e game_rva=0xd2d00e
+  stack_abs=0x7ff6d3ecd1cc game_rva=0xd2d1cc
+  stack_abs=0x7ff6d3ed8081 game_rva=0xd38081
+  stack_abs=0x7ff6d5304681 game_rva=0x2164681
+  stack_abs=0x7ff6d5305d47 game_rva=0x2165d47
+hit=7 ms=25 tid=43684 timer=34336 timer_ok=1 slots=2 entry_rip_rva=0x34da70
+regs rcx=7ff6d78af1a8 rdx=7ff6d78c4d00 rbx=7ff6d78af1a8 rsi=1 rdi=2 r8=a0 r9=0
+p1_timer_candidate=10384 p1_ok=1 return_ok=1 return_abs=0x7ff6d347c098
+hit=8 ms=25 tid=43684 timer=34337 timer_ok=1 slots=4 next_rip_rva=0x2dc352
+regs rcx=0 rdx=39bf0222 rbx=29b69ec3160 rsi=0 rdi=0 r8=7ff6d794cae0 r9=0
+p1_timer_candidate=10384 p1_ok=1 return_ok=0 return_abs=0x0
+hit=9 ms=40 tid=43684 timer=34337 timer_ok=1 slots=1 entry_rip_rva=0x2dbc60
+regs rcx=e241ecf2a8 rdx=e241ecf2a8 rbx=29c5d81a300 rsi=1 rdi=29b9d23aab0 r8=29b6ed58d88 r9=4d8f2
+p1_timer_candidate=10384 p1_ok=1 return_ok=1 return_abs=0x7ff6d359e816
+hit=10 ms=40 tid=43684 timer=34337 timer_ok=1 slots=2 entry_rip_rva=0x34da70
+regs rcx=7ff6d78af1a0 rdx=0 rbx=7ff6d78af1a0 rsi=2 rdi=2 r8=0 r9=7ff6d78adea0
+p1_timer_candidate=10384 p1_ok=1 return_ok=1 return_abs=0x7ff6d347c098
+hit=11 ms=40 tid=43684 timer=34337 timer_ok=1 slots=2 entry_rip_rva=0x34da70
+regs rcx=7ff6d78af1a8 rdx=7ff6d78b8d00 rbx=7ff6d78af1a8 rsi=1 rdi=2 r8=a0 r9=0
+p1_timer_candidate=10385 p1_ok=1 return_ok=1 return_abs=0x7ff6d347c098
+hit=12 ms=40 tid=43684 timer=34338 timer_ok=1 slots=4 next_rip_rva=0x2dc352
+regs rcx=0 rdx=3a297c6e rbx=29b69ec3160 rsi=0 rdi=0 r8=7ff6d794cae0 r9=0
+p1_timer_candidate=10385 p1_ok=1 return_ok=0 return_abs=0x0
+hit=13 ms=56 tid=43684 timer=34338 timer_ok=1 slots=1 entry_rip_rva=0x2dbc60
+regs rcx=e241ecf2a8 rdx=e241ecf2a8 rbx=29c5d81a300 rsi=1 rdi=29b9d23aab0 r8=29b6ed58d88 r9=4d8f2
+p1_timer_candidate=10385 p1_ok=1 return_ok=1 return_abs=0x7ff6d359e816
+hit=14 ms=56 tid=43684 timer=34338 timer_ok=1 slots=2 entry_rip_rva=0x34da70
+regs rcx=7ff6d78af1a0 rdx=0 rbx=7ff6d78af1a0 rsi=2 rdi=2 r8=0 r9=7ff6d78adea0
+p1_timer_candidate=10385 p1_ok=1 return_ok=1 return_abs=0x7ff6d347c098
+hit=15 ms=56 tid=43684 timer=34338 timer_ok=1 slots=2 entry_rip_rva=0x34da70
+regs rcx=7ff6d78af1a8 rdx=7ff6d78d0d00 rbx=7ff6d78af1a8 rsi=1 rdi=2 r8=a0 r9=0
+p1_timer_candidate=10386 p1_ok=1 return_ok=1 return_abs=0x7ff6d347c098
+hit=16 ms=57 tid=43684 timer=34339 timer_ok=1 slots=4 next_rip_rva=0x2dc352
+regs rcx=0 rdx=39abc6c4 rbx=29b69ec3160 rsi=0 rdi=0 r8=7ff6d794cae0 r9=0
+p1_timer_candidate=10386 p1_ok=1 return_ok=0 return_abs=0x0
+hit=17 ms=73 tid=43684 timer=34339 timer_ok=1 slots=1 entry_rip_rva=0x2dbc60
+regs rcx=e241ecf2a8 rdx=e241ecf2a8 rbx=29c5d81a300 rsi=1 rdi=29b9d23aab0 r8=29b6ed58d88 r9=4d8f2
+p1_timer_candidate=10386 p1_ok=1 return_ok=1 return_abs=0x7ff6d359e816
+hit=18 ms=73 tid=43684 timer=34339 timer_ok=1 slots=2 entry_rip_rva=0x34da70
+regs rcx=7ff6d78af1a0 rdx=0 rbx=7ff6d78af1a0 rsi=2 rdi=2 r8=0 r9=7ff6d78adea0
+p1_timer_candidate=10386 p1_ok=1 return_ok=1 return_abs=0x7ff6d347c098
+hit=19 ms=73 tid=43684 timer=34339 timer_ok=1 slots=2 entry_rip_rva=0x34da70
+regs rcx=7ff6d78af1a8 rdx=7ff6d78c4d00 rbx=7ff6d78af1a8 rsi=1 rdi=2 r8=a0 r9=0
+p1_timer_candidate=10387 p1_ok=1 return_ok=1 return_abs=0x7ff6d347c098
+hit=20 ms=74 tid=43684 timer=34340 timer_ok=1 slots=4 next_rip_rva=0x2dc352
+regs rcx=0 rdx=398844ee rbx=29b69ec3160 rsi=0 rdi=0 r8=7ff6d794cae0 r9=0
+p1_timer_candidate=10387 p1_ok=1 return_ok=0 return_abs=0x0
+hit=21 ms=90 tid=43684 timer=34340 timer_ok=1 slots=1 entry_rip_rva=0x2dbc60
+regs rcx=e241ecf2a8 rdx=e241ecf2a8 rbx=29c5d81a300 rsi=1 rdi=29b9d23aab0 r8=29b6ed58d88 r9=4d8f2
+p1_timer_candidate=10387 p1_ok=1 return_ok=1 return_abs=0x7ff6d359e816
+hit=22 ms=90 tid=43684 timer=34340 timer_ok=1 slots=2 entry_rip_rva=0x34da70
+regs rcx=7ff6d78af1a0 rdx=0 rbx=7ff6d78af1a0 rsi=2 rdi=2 r8=0 r9=7ff6d78adea0
+p1_timer_candidate=10387 p1_ok=1 return_ok=1 return_abs=0x7ff6d347c098
+hit=23 ms=90 tid=43684 timer=34340 timer_ok=1 slots=2 entry_rip_rva=0x34da70
+regs rcx=7ff6d78af1a8 rdx=7ff6d78b8d00 rbx=7ff6d78af1a8 rsi=1 rdi=2 r8=a0 r9=0
+p1_timer_candidate=10388 p1_ok=1 return_ok=1 return_abs=0x7ff6d347c098
+hit=24 ms=90 tid=43684 timer=34341 timer_ok=1 slots=4 next_rip_rva=0x2dc352
+regs rcx=0 rdx=3977c0c2 rbx=29b69ec3160 rsi=0 rdi=0 r8=7ff6d794cae0 r9=0
+p1_timer_candidate=10388 p1_ok=1 return_ok=0 return_abs=0x0
+hit=25 ms=106 tid=43684 timer=34341 timer_ok=1 slots=1 entry_rip_rva=0x2dbc60
+regs rcx=e241ecf2a8 rdx=e241ecf2a8 rbx=29c5d81a300 rsi=1 rdi=29b9d23aab0 r8=29b6ed58d88 r9=4d8f2
+p1_timer_candidate=10388 p1_ok=1 return_ok=1 return_abs=0x7ff6d359e816
+hit=26 ms=106 tid=43684 timer=34341 timer_ok=1 slots=2 entry_rip_rva=0x34da70
+regs rcx=7ff6d78af1a0 rdx=0 rbx=7ff6d78af1a0 rsi=2 rdi=2 r8=0 r9=7ff6d78adea0
+p1_timer_candidate=10388 p1_ok=1 return_ok=1 return_abs=0x7ff6d347c098
+hit=27 ms=106 tid=43684 timer=34341 timer_ok=1 slots=2 entry_rip_rva=0x34da70
+regs rcx=7ff6d78af1a8 rdx=7ff6d78d0d00 rbx=7ff6d78af1a8 rsi=1 rdi=2 r8=a0 r9=0
+p1_timer_candidate=10389 p1_ok=1 return_ok=1 return_abs=0x7ff6d347c098
+hit=28 ms=107 tid=43684 timer=34342 timer_ok=1 slots=4 next_rip_rva=0x2dc352
+regs rcx=0 rdx=394ce5f9 rbx=29b69ec3160 rsi=0 rdi=0 r8=7ff6d794cae0 r9=0
+p1_timer_candidate=10389 p1_ok=1 return_ok=0 return_abs=0x0
+hit=29 ms=123 tid=43684 timer=34342 timer_ok=1 slots=1 entry_rip_rva=0x2dbc60
+regs rcx=e241ecf2a8 rdx=e241ecf2a8 rbx=29c5d81a300 rsi=1 rdi=29b9d23aab0 r8=29b6ed58d88 r9=4d8f2
+p1_timer_candidate=10389 p1_ok=1 return_ok=1 return_abs=0x7ff6d359e816
+hit=30 ms=123 tid=43684 timer=34342 timer_ok=1 slots=2 entry_rip_rva=0x34da70
+regs rcx=7ff6d78af1a0 rdx=0 rbx=7ff6d78af1a0 rsi=2 rdi=2 r8=0 r9=7ff6d78adea0
+p1_timer_candidate=10389 p1_ok=1 return_ok=1 return_abs=0x7ff6d347c098
+hit=31 ms=123 tid=43684 timer=34342 timer_ok=1 slots=2 entry_rip_rva=0x34da70
+regs rcx=7ff6d78af1a8 rdx=7ff6d78c4d00 rbx=7ff6d78af1a8 rsi=1 rdi=2 r8=a0 r9=0
+p1_timer_candidate=10390 p1_ok=1 return_ok=1 return_abs=0x7ff6d347c098
+hit=32 ms=124 tid=43684 timer=34343 timer_ok=1 slots=4 next_rip_rva=0x2dc352
+regs rcx=0 rdx=324c814a rbx=29b69ec3160 rsi=0 rdi=0 r8=7ff6d794cae0 r9=0
+p1_timer_candidate=10390 p1_ok=1 return_ok=0 return_abs=0x0
+hit=33 ms=140 tid=43684 timer=34343 timer_ok=1 slots=1 entry_rip_rva=0x2dbc60
+regs rcx=e241ecf2a8 rdx=e241ecf2a8 rbx=29c5d81a300 rsi=1 rdi=29b9d23aab0 r8=29b6ed58d88 r9=4d8f2
+p1_timer_candidate=10390 p1_ok=1 return_ok=1 return_abs=0x7ff6d359e816
+hit=34 ms=140 tid=43684 timer=34343 timer_ok=1 slots=2 entry_rip_rva=0x34da70
+regs rcx=7ff6d78af1a0 rdx=0 rbx=7ff6d78af1a0 rsi=2 rdi=2 r8=0 r9=7ff6d78adea0
+p1_timer_candidate=10390 p1_ok=1 return_ok=1 return_abs=0x7ff6d347c098
+hit=35 ms=140 tid=43684 timer=34343 timer_ok=1 slots=2 entry_rip_rva=0x34da70
+regs rcx=7ff6d78af1a8 rdx=7ff6d78b8d00 rbx=7ff6d78af1a8 rsi=1 rdi=2 r8=a0 r9=0
+p1_timer_candidate=10391 p1_ok=1 return_ok=1 return_abs=0x7ff6d347c098
+hit=36 ms=140 tid=43684 timer=34344 timer_ok=1 slots=4 next_rip_rva=0x2dc352
+regs rcx=0 rdx=39987339 rbx=29b69ec3160 rsi=0 rdi=0 r8=7ff6d794cae0 r9=0
+p1_timer_candidate=10391 p1_ok=1 return_ok=0 return_abs=0x0
+hit=37 ms=156 tid=43684 timer=34344 timer_ok=1 slots=1 entry_rip_rva=0x2dbc60
+regs rcx=e241ecf2a8 rdx=e241ecf2a8 rbx=29c5d81a300 rsi=1 rdi=29b9d23aab0 r8=29b6ed58d88 r9=4d8f2
+p1_timer_candidate=10391 p1_ok=1 return_ok=1 return_abs=0x7ff6d359e816
+hit=38 ms=156 tid=43684 timer=34344 timer_ok=1 slots=2 entry_rip_rva=0x34da70
+regs rcx=7ff6d78af1a0 rdx=0 rbx=7ff6d78af1a0 rsi=2 rdi=2 r8=0 r9=7ff6d78adea0
+p1_timer_candidate=10391 p1_ok=1 return_ok=1 return_abs=0x7ff6d347c098
+hit=39 ms=156 tid=43684 timer=34344 timer_ok=1 slots=2 entry_rip_rva=0x34da70
+regs rcx=7ff6d78af1a8 rdx=7ff6d78d0d00 rbx=7ff6d78af1a8 rsi=1 rdi=2 r8=a0 r9=0
+p1_timer_candidate=10392 p1_ok=1 return_ok=1 return_abs=0x7ff6d347c098
+hit=40 ms=157 tid=43684 timer=34345 timer_ok=1 slots=4 next_rip_rva=0x2dc352
+regs rcx=0 rdx=39e7d1e5 rbx=29b69ec3160 rsi=0 rdi=0 r8=7ff6d794cae0 r9=0
+p1_timer_candidate=10392 p1_ok=1 return_ok=0 return_abs=0x0
+hit=41 ms=173 tid=43684 timer=34345 timer_ok=1 slots=1 entry_rip_rva=0x2dbc60
+regs rcx=e241ecf2a8 rdx=e241ecf2a8 rbx=29c5d81a300 rsi=1 rdi=29b9d23aab0 r8=29b6ed58d88 r9=4d8f2
+p1_timer_candidate=10392 p1_ok=1 return_ok=1 return_abs=0x7ff6d359e816
+hit=42 ms=173 tid=43684 timer=34345 timer_ok=1 slots=2 entry_rip_rva=0x34da70
+regs rcx=7ff6d78af1a0 rdx=0 rbx=7ff6d78af1a0 rsi=2 rdi=2 r8=0 r9=7ff6d78adea0
+p1_timer_candidate=10392 p1_ok=1 return_ok=1 return_abs=0x7ff6d347c098
+hit=43 ms=173 tid=43684 timer=34345 timer_ok=1 slots=2 entry_rip_rva=0x34da70
+regs rcx=7ff6d78af1a8 rdx=7ff6d78c4d00 rbx=7ff6d78af1a8 rsi=1 rdi=2 r8=a0 r9=0
+p1_timer_candidate=10393 p1_ok=1 return_ok=1 return_abs=0x7ff6d347c098
+hit=44 ms=174 tid=43684 timer=34346 timer_ok=1 slots=4 next_rip_rva=0x2dc352
+regs rcx=0 rdx=3acf2b7e rbx=29b69ec3160 rsi=0 rdi=0 r8=7ff6d794cae0 r9=0
+p1_timer_candidate=10393 p1_ok=1 return_ok=0 return_abs=0x0
+hit=45 ms=189 tid=43684 timer=34346 timer_ok=1 slots=1 entry_rip_rva=0x2dbc60
+regs rcx=e241ecf2a8 rdx=e241ecf2a8 rbx=29c5d81a300 rsi=1 rdi=29b9d23aab0 r8=29b6ed58d88 r9=4d8f2
+p1_timer_candidate=10393 p1_ok=1 return_ok=1 return_abs=0x7ff6d359e816
+hit=46 ms=190 tid=43684 timer=34346 timer_ok=1 slots=2 entry_rip_rva=0x34da70
+regs rcx=7ff6d78af1a0 rdx=0 rbx=7ff6d78af1a0 rsi=2 rdi=2 r8=0 r9=7ff6d78adea0
+p1_timer_candidate=10393 p1_ok=1 return_ok=1 return_abs=0x7ff6d347c098
+hit=47 ms=190 tid=43684 timer=34346 timer_ok=1 slots=2 entry_rip_rva=0x34da70
+regs rcx=7ff6d78af1a8 rdx=7ff6d78b8d00 rbx=7ff6d78af1a8 rsi=1 rdi=2 r8=a0 r9=0
+p1_timer_candidate=10394 p1_ok=1 return_ok=1 return_abs=0x7ff6d347c098
+hit=48 ms=190 tid=43684 timer=34347 timer_ok=1 slots=4 next_rip_rva=0x2dc352
+regs rcx=0 rdx=3b649ae5 rbx=29b69ec3160 rsi=0 rdi=0 r8=7ff6d794cae0 r9=0
+p1_timer_candidate=10394 p1_ok=1 return_ok=0 return_abs=0x0
+hit=49 ms=206 tid=43684 timer=34347 timer_ok=1 slots=1 entry_rip_rva=0x2dbc60
+regs rcx=e241ecf2a8 rdx=e241ecf2a8 rbx=29c5d81a300 rsi=1 rdi=29b9d23aab0 r8=29b6ed58d88 r9=4d8f2
+p1_timer_candidate=10394 p1_ok=1 return_ok=1 return_abs=0x7ff6d359e816
+hit=50 ms=206 tid=43684 timer=34347 timer_ok=1 slots=2 entry_rip_rva=0x34da70
+regs rcx=7ff6d78af1a0 rdx=0 rbx=7ff6d78af1a0 rsi=2 rdi=2 r8=0 r9=7ff6d78adea0
+p1_timer_candidate=10394 p1_ok=1 return_ok=1 return_abs=0x7ff6d347c098
+hit=51 ms=206 tid=43684 timer=34347 timer_ok=1 slots=2 entry_rip_rva=0x34da70
+regs rcx=7ff6d78af1a8 rdx=7ff6d78d0d00 rbx=7ff6d78af1a8 rsi=1 rdi=2 r8=a0 r9=0
+p1_timer_candidate=10395 p1_ok=1 return_ok=1 return_abs=0x7ff6d347c098
+hit=52 ms=207 tid=43684 timer=34348 timer_ok=1 slots=4 next_rip_rva=0x2dc352
+regs rcx=0 rdx=3b7ada35 rbx=29b69ec3160 rsi=0 rdi=0 r8=7ff6d794cae0 r9=0
+p1_timer_candidate=10395 p1_ok=1 return_ok=0 return_abs=0x0
+hit=53 ms=223 tid=43684 timer=34348 timer_ok=1 slots=1 entry_rip_rva=0x2dbc60
+regs rcx=e241ecf2a8 rdx=e241ecf2a8 rbx=29c5d81a300 rsi=1 rdi=29b9d23aab0 r8=29b6ed58d88 r9=4d8f2
+p1_timer_candidate=10395 p1_ok=1 return_ok=1 return_abs=0x7ff6d359e816
+hit=54 ms=223 tid=43684 timer=34348 timer_ok=1 slots=2 entry_rip_rva=0x34da70
+regs rcx=7ff6d78af1a0 rdx=0 rbx=7ff6d78af1a0 rsi=2 rdi=2 r8=0 r9=7ff6d78adea0
+p1_timer_candidate=10395 p1_ok=1 return_ok=1 return_abs=0x7ff6d347c098
+hit=55 ms=223 tid=43684 timer=34348 timer_ok=1 slots=2 entry_rip_rva=0x34da70
+regs rcx=7ff6d78af1a8 rdx=7ff6d78c4d00 rbx=7ff6d78af1a8 rsi=1 rdi=2 r8=a0 r9=0
+p1_timer_candidate=10396 p1_ok=1 return_ok=1 return_abs=0x7ff6d347c098
+hit=56 ms=223 tid=43684 timer=34349 timer_ok=1 slots=4 next_rip_rva=0x2dc352
+regs rcx=0 rdx=3b54af60 rbx=29b69ec3160 rsi=0 rdi=0 r8=7ff6d794cae0 r9=0
+p1_timer_candidate=10396 p1_ok=1 return_ok=0 return_abs=0x0
+hit=57 ms=240 tid=43684 timer=34349 timer_ok=1 slots=1 entry_rip_rva=0x2dbc60
+regs rcx=e241ecf2a8 rdx=e241ecf2a8 rbx=29c5d81a300 rsi=1 rdi=29b9d23aab0 r8=29b6ed58d88 r9=4d8f2
+p1_timer_candidate=10396 p1_ok=1 return_ok=1 return_abs=0x7ff6d359e816
+hit=58 ms=240 tid=43684 timer=34349 timer_ok=1 slots=2 entry_rip_rva=0x34da70
+regs rcx=7ff6d78af1a0 rdx=0 rbx=7ff6d78af1a0 rsi=2 rdi=2 r8=0 r9=7ff6d78adea0
+p1_timer_candidate=10396 p1_ok=1 return_ok=1 return_abs=0x7ff6d347c098
+hit=59 ms=240 tid=43684 timer=34349 timer_ok=1 slots=2 entry_rip_rva=0x34da70
+regs rcx=7ff6d78af1a8 rdx=7ff6d78b8d00 rbx=7ff6d78af1a8 rsi=1 rdi=2 r8=a0 r9=0
+p1_timer_candidate=10397 p1_ok=1 return_ok=1 return_abs=0x7ff6d347c098
+hit=60 ms=240 tid=43684 timer=34350 timer_ok=1 slots=4 next_rip_rva=0x2dc352
+regs rcx=0 rdx=3b680052 rbx=29b69ec3160 rsi=0 rdi=0 r8=7ff6d794cae0 r9=0
+p1_timer_candidate=10397 p1_ok=1 return_ok=0 return_abs=0x0
+hit=61 ms=256 tid=43684 timer=34350 timer_ok=1 slots=1 entry_rip_rva=0x2dbc60
+regs rcx=e241ecf2a8 rdx=e241ecf2a8 rbx=29c5d81a300 rsi=1 rdi=29b9d23aab0 r8=29b6ed58d88 r9=4d8f2
+p1_timer_candidate=10397 p1_ok=1 return_ok=1 return_abs=0x7ff6d359e816
+hit=62 ms=256 tid=43684 timer=34350 timer_ok=1 slots=2 entry_rip_rva=0x34da70
+regs rcx=7ff6d78af1a0 rdx=0 rbx=7ff6d78af1a0 rsi=2 rdi=2 r8=0 r9=7ff6d78adea0
+p1_timer_candidate=10397 p1_ok=1 return_ok=1 return_abs=0x7ff6d347c098
+hit=63 ms=256 tid=43684 timer=34350 timer_ok=1 slots=2 entry_rip_rva=0x34da70
+regs rcx=7ff6d78af1a8 rdx=7ff6d78d0d00 rbx=7ff6d78af1a8 rsi=1 rdi=2 r8=a0 r9=0
+p1_timer_candidate=10398 p1_ok=1 return_ok=1 return_abs=0x7ff6d347c098
+hit=64 ms=257 tid=43684 timer=34351 timer_ok=1 slots=4 next_rip_rva=0x2dc352
+regs rcx=0 rdx=3b82b497 rbx=29b69ec3160 rsi=0 rdi=0 r8=7ff6d794cae0 r9=0
+p1_timer_candidate=10398 p1_ok=1 return_ok=0 return_abs=0x0
+hit=65 ms=273 tid=43684 timer=34351 timer_ok=1 slots=1 entry_rip_rva=0x2dbc60
+regs rcx=e241ecf2a8 rdx=e241ecf2a8 rbx=29c5d81a300 rsi=1 rdi=29b9d23aab0 r8=29b6ed58d88 r9=4d8f2
+p1_timer_candidate=10398 p1_ok=1 return_ok=1 return_abs=0x7ff6d359e816
+hit=66 ms=273 tid=43684 timer=34351 timer_ok=1 slots=2 entry_rip_rva=0x34da70
+regs rcx=7ff6d78af1a0 rdx=0 rbx=7ff6d78af1a0 rsi=2 rdi=2 r8=0 r9=7ff6d78adea0
+p1_timer_candidate=10398 p1_ok=1 return_ok=1 return_abs=0x7ff6d347c098
+hit=67 ms=273 tid=43684 timer=34351 timer_ok=1 slots=2 entry_rip_rva=0x34da70
+regs rcx=7ff6d78af1a8 rdx=7ff6d78c4d00 rbx=7ff6d78af1a8 rsi=1 rdi=2 r8=a0 r9=0
+p1_timer_candidate=10399 p1_ok=1 return_ok=1 return_abs=0x7ff6d347c098
+hit=68 ms=273 tid=43684 timer=34352 timer_ok=1 slots=4 next_rip_rva=0x2dc352
+regs rcx=0 rdx=3b7ec6cd rbx=29b69ec3160 rsi=0 rdi=0 r8=7ff6d794cae0 r9=0
+p1_timer_candidate=10399 p1_ok=1 return_ok=0 return_abs=0x0
+hit=69 ms=289 tid=43684 timer=34352 timer_ok=1 slots=1 entry_rip_rva=0x2dbc60
+regs rcx=e241ecf2a8 rdx=e241ecf2a8 rbx=29c5d81a300 rsi=1 rdi=29b9d23aab0 r8=29b6ed58d88 r9=4d8f2
+p1_timer_candidate=10399 p1_ok=1 return_ok=1 return_abs=0x7ff6d359e816
+hit=70 ms=290 tid=43684 timer=34352 timer_ok=1 slots=2 entry_rip_rva=0x34da70
+regs rcx=7ff6d78af1a0 rdx=0 rbx=7ff6d78af1a0 rsi=2 rdi=2 r8=0 r9=7ff6d78adea0
+p1_timer_candidate=10399 p1_ok=1 return_ok=1 return_abs=0x7ff6d347c098
+hit=71 ms=290 tid=43684 timer=34352 timer_ok=1 slots=2 entry_rip_rva=0x34da70
+regs rcx=7ff6d78af1a8 rdx=7ff6d78b8d00 rbx=7ff6d78af1a8 rsi=1 rdi=2 r8=a0 r9=0
+p1_timer_candidate=10400 p1_ok=1 return_ok=1 return_abs=0x7ff6d347c098
+hit=72 ms=290 tid=43684 timer=34353 timer_ok=1 slots=4 next_rip_rva=0x2dc352
+regs rcx=0 rdx=3b9613f4 rbx=29b69ec3160 rsi=0 rdi=0 r8=7ff6d794cae0 r9=0
+p1_timer_candidate=10400 p1_ok=1 return_ok=0 return_abs=0x0
+hit=73 ms=306 tid=43684 timer=34353 timer_ok=1 slots=1 entry_rip_rva=0x2dbc60
+regs rcx=e241ecf2a8 rdx=e241ecf2a8 rbx=29c5d81a300 rsi=1 rdi=29b9d23aab0 r8=29b6ed58d88 r9=4d8f2
+p1_timer_candidate=10400 p1_ok=1 return_ok=1 return_abs=0x7ff6d359e816
+hit=74 ms=306 tid=43684 timer=34353 timer_ok=1 slots=2 entry_rip_rva=0x34da70
+regs rcx=7ff6d78af1a0 rdx=0 rbx=7ff6d78af1a0 rsi=2 rdi=2 r8=0 r9=7ff6d78adea0
+p1_timer_candidate=10400 p1_ok=1 return_ok=1 return_abs=0x7ff6d347c098
+hit=75 ms=306 tid=43684 timer=34353 timer_ok=1 slots=2 entry_rip_rva=0x34da70
+regs rcx=7ff6d78af1a8 rdx=7ff6d78d0d00 rbx=7ff6d78af1a8 rsi=1 rdi=2 r8=a0 r9=0
+p1_timer_candidate=10401 p1_ok=1 return_ok=1 return_abs=0x7ff6d347c098
+hit=76 ms=307 tid=43684 timer=34354 timer_ok=1 slots=4 next_rip_rva=0x2dc352
+regs rcx=0 rdx=3b6e403f rbx=29b69ec3160 rsi=0 rdi=0 r8=7ff6d794cae0 r9=0
+p1_timer_candidate=10401 p1_ok=1 return_ok=0 return_abs=0x0
+hit=77 ms=323 tid=43684 timer=34354 timer_ok=1 slots=1 entry_rip_rva=0x2dbc60
+regs rcx=e241ecf2a8 rdx=e241ecf2a8 rbx=29c5d81a300 rsi=1 rdi=29b9d23aab0 r8=29b6ed58d88 r9=4d8f2
+p1_timer_candidate=10401 p1_ok=1 return_ok=1 return_abs=0x7ff6d359e816
+hit=78 ms=323 tid=43684 timer=34354 timer_ok=1 slots=2 entry_rip_rva=0x34da70
+regs rcx=7ff6d78af1a0 rdx=0 rbx=7ff6d78af1a0 rsi=2 rdi=2 r8=0 r9=7ff6d78adea0
+p1_timer_candidate=10401 p1_ok=1 return_ok=1 return_abs=0x7ff6d347c098
+hit=79 ms=323 tid=43684 timer=34354 timer_ok=1 slots=2 entry_rip_rva=0x34da70
+regs rcx=7ff6d78af1a8 rdx=7ff6d78c4d00 rbx=7ff6d78af1a8 rsi=1 rdi=2 r8=a0 r9=0
+p1_timer_candidate=10402 p1_ok=1 return_ok=1 return_abs=0x7ff6d347c098
+hit=80 ms=323 tid=43684 timer=34355 timer_ok=1 slots=4 next_rip_rva=0x2dc352
+regs rcx=0 rdx=39540aaa rbx=29b69ec3160 rsi=0 rdi=0 r8=7ff6d794cae0 r9=0
+p1_timer_candidate=10402 p1_ok=1 return_ok=0 return_abs=0x0
+hit=81 ms=340 tid=43684 timer=34355 timer_ok=1 slots=1 entry_rip_rva=0x2dbc60
+regs rcx=e241ecf2a8 rdx=e241ecf2a8 rbx=29c5d81a300 rsi=1 rdi=29b9d23aab0 r8=29b6ed58d88 r9=4d8f2
+p1_timer_candidate=10402 p1_ok=1 return_ok=1 return_abs=0x7ff6d359e816
+hit=82 ms=340 tid=43684 timer=34355 timer_ok=1 slots=2 entry_rip_rva=0x34da70
+regs rcx=7ff6d78af1a0 rdx=0 rbx=7ff6d78af1a0 rsi=2 rdi=2 r8=0 r9=7ff6d78adea0
+p1_timer_candidate=10402 p1_ok=1 return_ok=1 return_abs=0x7ff6d347c098
+hit=83 ms=340 tid=43684 timer=34355 timer_ok=1 slots=2 entry_rip_rva=0x34da70
+regs rcx=7ff6d78af1a8 rdx=7ff6d78b8d00 rbx=7ff6d78af1a8 rsi=1 rdi=2 r8=a0 r9=0
+p1_timer_candidate=10403 p1_ok=1 return_ok=1 return_abs=0x7ff6d347c098
+hit=84 ms=340 tid=43684 timer=34356 timer_ok=1 slots=4 next_rip_rva=0x2dc352
+regs rcx=0 rdx=37431f70 rbx=29b69ec3160 rsi=0 rdi=0 r8=7ff6d794cae0 r9=0
+p1_timer_candidate=10403 p1_ok=1 return_ok=0 return_abs=0x0
+hit=85 ms=356 tid=43684 timer=34356 timer_ok=1 slots=1 entry_rip_rva=0x2dbc60
+regs rcx=e241ecf2a8 rdx=e241ecf2a8 rbx=29c5d81a300 rsi=1 rdi=29b9d23aab0 r8=29b6ed58d88 r9=4d8f2
+p1_timer_candidate=10403 p1_ok=1 return_ok=1 return_abs=0x7ff6d359e816
+hit=86 ms=356 tid=43684 timer=34356 timer_ok=1 slots=2 entry_rip_rva=0x34da70
+regs rcx=7ff6d78af1a0 rdx=0 rbx=7ff6d78af1a0 rsi=2 rdi=2 r8=0 r9=7ff6d78adea0
+p1_timer_candidate=10403 p1_ok=1 return_ok=1 return_abs=0x7ff6d347c098
+hit=87 ms=356 tid=43684 timer=34356 timer_ok=1 slots=2 entry_rip_rva=0x34da70
+regs rcx=7ff6d78af1a8 rdx=7ff6d78d0d00 rbx=7ff6d78af1a8 rsi=1 rdi=2 r8=a0 r9=0
+p1_timer_candidate=10404 p1_ok=1 return_ok=1 return_abs=0x7ff6d347c098
+hit=88 ms=357 tid=43684 timer=34357 timer_ok=1 slots=4 next_rip_rva=0x2dc352
+regs rcx=0 rdx=354a593e rbx=29b69ec3160 rsi=0 rdi=0 r8=7ff6d794cae0 r9=0
+p1_timer_candidate=10404 p1_ok=1 return_ok=0 return_abs=0x0
+hit=89 ms=373 tid=43684 timer=34357 timer_ok=1 slots=1 entry_rip_rva=0x2dbc60
+regs rcx=e241ecf2a8 rdx=e241ecf2a8 rbx=29c5d81a300 rsi=1 rdi=29b9d23aab0 r8=29b6ed58d88 r9=4d8f2
+p1_timer_candidate=10404 p1_ok=1 return_ok=1 return_abs=0x7ff6d359e816
+hit=90 ms=373 tid=43684 timer=34357 timer_ok=1 slots=2 entry_rip_rva=0x34da70
+regs rcx=7ff6d78af1a0 rdx=0 rbx=7ff6d78af1a0 rsi=2 rdi=2 r8=0 r9=7ff6d78adea0
+p1_timer_candidate=10404 p1_ok=1 return_ok=1 return_abs=0x7ff6d347c098
+hit=91 ms=373 tid=43684 timer=34357 timer_ok=1 slots=2 entry_rip_rva=0x34da70
+regs rcx=7ff6d78af1a8 rdx=7ff6d78c4d00 rbx=7ff6d78af1a8 rsi=1 rdi=2 r8=a0 r9=0
+p1_timer_candidate=10405 p1_ok=1 return_ok=1 return_abs=0x7ff6d347c098
+hit=92 ms=373 tid=43684 timer=34358 timer_ok=1 slots=4 next_rip_rva=0x2dc352
+regs rcx=0 rdx=339f4e24 rbx=29b69ec3160 rsi=0 rdi=0 r8=7ff6d794cae0 r9=0
+p1_timer_candidate=10405 p1_ok=1 return_ok=0 return_abs=0x0
+hit=93 ms=389 tid=43684 timer=34358 timer_ok=1 slots=1 entry_rip_rva=0x2dbc60
+regs rcx=e241ecf2a8 rdx=e241ecf2a8 rbx=29c5d81a300 rsi=1 rdi=29b9d23aab0 r8=29b6ed58d88 r9=4d8f2
+p1_timer_candidate=10405 p1_ok=1 return_ok=1 return_abs=0x7ff6d359e816
+hit=94 ms=390 tid=43684 timer=34358 timer_ok=1 slots=2 entry_rip_rva=0x34da70
+regs rcx=7ff6d78af1a0 rdx=0 rbx=7ff6d78af1a0 rsi=2 rdi=2 r8=0 r9=7ff6d78adea0
+p1_timer_candidate=10405 p1_ok=1 return_ok=1 return_abs=0x7ff6d347c098
+hit=95 ms=390 tid=43684 timer=34358 timer_ok=1 slots=2 entry_rip_rva=0x34da70
+regs rcx=7ff6d78af1a8 rdx=7ff6d78b8d00 rbx=7ff6d78af1a8 rsi=1 rdi=2 r8=a0 r9=0
+p1_timer_candidate=10406 p1_ok=1 return_ok=1 return_abs=0x7ff6d347c098
+hit=96 ms=390 tid=43684 timer=34359 timer_ok=1 slots=4 next_rip_rva=0x2dc352
+regs rcx=0 rdx=32bfeb06 rbx=29b69ec3160 rsi=0 rdi=0 r8=7ff6d794cae0 r9=0
+p1_timer_candidate=10406 p1_ok=1 return_ok=0 return_abs=0x0
+hit=97 ms=406 tid=43684 timer=34359 timer_ok=1 slots=1 entry_rip_rva=0x2dbc60
+regs rcx=e241ecf2a8 rdx=e241ecf2a8 rbx=29c5d81a300 rsi=1 rdi=29b9d23aab0 r8=29b6ed58d88 r9=4d8f2
+p1_timer_candidate=10406 p1_ok=1 return_ok=1 return_abs=0x7ff6d359e816
+hit=98 ms=406 tid=43684 timer=34359 timer_ok=1 slots=2 entry_rip_rva=0x34da70
+regs rcx=7ff6d78af1a0 rdx=0 rbx=7ff6d78af1a0 rsi=2 rdi=2 r8=0 r9=7ff6d78adea0
+p1_timer_candidate=10406 p1_ok=1 return_ok=1 return_abs=0x7ff6d347c098
+hit=99 ms=406 tid=43684 timer=34359 timer_ok=1 slots=2 entry_rip_rva=0x34da70
+regs rcx=7ff6d78af1a8 rdx=7ff6d78d0d00 rbx=7ff6d78af1a8 rsi=1 rdi=2 r8=a0 r9=0
+p1_timer_candidate=10407 p1_ok=1 return_ok=1 return_abs=0x7ff6d347c098
+hit=100 ms=407 tid=43684 timer=34360 timer_ok=1 slots=4 next_rip_rva=0x2dc352
+regs rcx=0 rdx=328c3e28 rbx=29b69ec3160 rsi=0 rdi=0 r8=7ff6d794cae0 r9=0
+p1_timer_candidate=10407 p1_ok=1 return_ok=0 return_abs=0x0
+hits=100 restored=1 detached=1 failed=0 routine_calls=25 caller_calls=50 timer_writes=25
+game_alive_and_timer_progressed=1 before=34367 after=34487

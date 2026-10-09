@@ -1,0 +1,2 @@
+module_base=0x7ff6d31a0000 timer=0x7ff6d78ad0c4 mode=outer-smoke
+attach_failed=5

@@ -1,0 +1,41 @@
+{
+  "capture": "throw-preserve-62856-24545203",
+  "before_sha256": "de6c83ed74d9363376e31373b5a1cac4c6e2d71936a09290bf6ad4621d02d6d6",
+  "after_sha256": "ecca01d2fbfb54a3ff5242ee6490799c8642d7e87f887178b8084e80fe87fd1b",
+  "player_starts": [
+    0,
+    36860
+  ],
+  "different_bytes": 13,
+  "category_bytes": {
+    "rebuilt_self_pointer": 12
+  },
+  "fields": [
+    {
+      "player": 1,
+      "player_offset": "0x43df0",
+      "file_offset": 22128,
+      "width": 8,
+      "classification": "rebuilt_self_pointer",
+      "evidence": "30B12A stores player pointer",
+      "before_hex": "0000000000000000",
+      "after_hex": "f0568bd7f67f0000",
+      "different_bytes": 6
+    },
+    {
+      "player": 2,
+      "player_offset": "0x43df0",
+      "file_offset": 58988,
+      "width": 8,
+      "classification": "rebuilt_self_pointer",
+      "evidence": "30B12A stores player pointer",
+      "before_hex": "0000000000000000",
+      "after_hex": "e0ca94d7f67f0000",
+      "different_bytes": 6
+    }
+  ],
+  "unmapped_offsets": [
+    89872
+  ],
+  "limitation": "Mapping explains observed writes, not gameplay harmlessness, complete state coverage, or rewind correctness."
+}

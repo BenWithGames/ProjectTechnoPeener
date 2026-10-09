@@ -1,0 +1,132 @@
+{
+  "0": {
+    "native_differences": [
+      {
+        "transfer": 6,
+        "writer_rva": "0x30aa54",
+        "kind": "rebuilt_self_pointer",
+        "offsets": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5
+        ]
+      },
+      {
+        "transfer": 354,
+        "writer_rva": "0x30aa54",
+        "kind": "rebuilt_self_pointer",
+        "offsets": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5
+        ]
+      }
+    ],
+    "comparisons": {
+      "rings": {
+        "bytes": 307200,
+        "equal": true
+      },
+      "blend": {
+        "bytes": 2760,
+        "equal": true
+      },
+      "camera": {
+        "bytes": 3648,
+        "equal": true
+      },
+      "smoothing": {
+        "bytes": 80,
+        "equal": true
+      },
+      "targets": {
+        "bytes": 128,
+        "equal": true
+      },
+      "response": {
+        "bytes": 12,
+        "equal": true
+      },
+      "transforms": {
+        "bytes": 85572,
+        "equal": true
+      }
+    },
+    "transform_records": 2045
+  },
+  "1": {
+    "native_differences": [
+      {
+        "transfer": 6,
+        "writer_rva": "0x30aa54",
+        "kind": "rebuilt_self_pointer",
+        "offsets": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5
+        ]
+      },
+      {
+        "transfer": 354,
+        "writer_rva": "0x30aa54",
+        "kind": "rebuilt_self_pointer",
+        "offsets": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5
+        ]
+      },
+      {
+        "transfer": 1045,
+        "writer_rva": "0x32ac76",
+        "kind": "verified_padding",
+        "offsets": [
+          4
+        ]
+      }
+    ],
+    "comparisons": {
+      "rings": {
+        "bytes": 307200,
+        "equal": true
+      },
+      "blend": {
+        "bytes": 2760,
+        "equal": true
+      },
+      "camera": {
+        "bytes": 3648,
+        "equal": true
+      },
+      "smoothing": {
+        "bytes": 80,
+        "equal": true
+      },
+      "targets": {
+        "bytes": 128,
+        "equal": true
+      },
+      "response": {
+        "bytes": 12,
+        "equal": true
+      },
+      "transforms": {
+        "bytes": 85572,
+        "equal": true
+      }
+    },
+    "transform_records": 2045
+  }
+}

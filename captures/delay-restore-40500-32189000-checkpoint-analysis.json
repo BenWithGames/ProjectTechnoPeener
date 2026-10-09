@@ -1,0 +1,107 @@
+{
+  "before_vs_restored": {
+    "shape_and_writer_equal": true,
+    "source_addresses_equal": false,
+    "different_bytes": 12,
+    "changes": [
+      {
+        "index": 6,
+        "offset": 22128,
+        "length": 48,
+        "different_bytes": 6,
+        "writer_rva": "0x30aa54"
+      },
+      {
+        "index": 354,
+        "offset": 58988,
+        "length": 48,
+        "different_bytes": 6,
+        "writer_rva": "0x30aa54"
+      }
+    ]
+  },
+  "after_vs_replay": {
+    "shape_and_writer_equal": true,
+    "source_addresses_equal": false,
+    "different_bytes": 1515,
+    "changes": [
+      {
+        "index": 2,
+        "offset": 13712,
+        "length": 6208,
+        "different_bytes": 670,
+        "writer_rva": "0x30a9f0"
+      },
+      {
+        "index": 3,
+        "offset": 19920,
+        "length": 2048,
+        "different_bytes": 282,
+        "writer_rva": "0x30aa12"
+      },
+      {
+        "index": 6,
+        "offset": 22128,
+        "length": 48,
+        "different_bytes": 6,
+        "writer_rva": "0x30aa54"
+      },
+      {
+        "index": 350,
+        "offset": 50572,
+        "length": 6208,
+        "different_bytes": 527,
+        "writer_rva": "0x30a9f0"
+      },
+      {
+        "index": 354,
+        "offset": 58988,
+        "length": 48,
+        "different_bytes": 6,
+        "writer_rva": "0x30aa54"
+      },
+      {
+        "index": 725,
+        "offset": 81884,
+        "length": 16,
+        "different_bytes": 5,
+        "writer_rva": "0x33fc68"
+      },
+      {
+        "index": 726,
+        "offset": 81900,
+        "length": 16,
+        "different_bytes": 5,
+        "writer_rva": "0x33fc7b"
+      },
+      {
+        "index": 727,
+        "offset": 81916,
+        "length": 4,
+        "different_bytes": 2,
+        "writer_rva": "0x33fc8e"
+      },
+      {
+        "index": 749,
+        "offset": 82052,
+        "length": 16,
+        "different_bytes": 5,
+        "writer_rva": "0x33fe69"
+      },
+      {
+        "index": 750,
+        "offset": 82068,
+        "length": 4,
+        "different_bytes": 2,
+        "writer_rva": "0x33fe7f"
+      },
+      {
+        "index": 751,
+        "offset": 82072,
+        "length": 16,
+        "different_bytes": 5,
+        "writer_rva": "0x33fe95"
+      }
+    ]
+  }
+}

@@ -1,0 +1,16 @@
+schema=1
+scope=two_update_idle_replay_via_adjacent_restores
+complete_snapshot=false
+prepared=1
+restoration_started=1
+completed_restores=2
+rewound=1
+compared_frames=2
+frame_1_scalars_match=1
+frame_2_scalars_match=1
+frame_1_matches=1
+frame_2_matches=1
+done=1
+fault=0
+exception=0
+phase=5

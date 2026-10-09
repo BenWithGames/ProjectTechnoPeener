@@ -1,0 +1,22 @@
+{
+  "button_sections_unchanged": true,
+  "auxiliary_float_offset": 8,
+  "auxiliary_float_before_after": [
+    0.011749626137316227,
+    0.003906369209289551
+  ],
+  "entry_copy_source": "argument[2]+8",
+  "entry_copy_destination_rva": "0x470D110",
+  "blend_block": 0,
+  "blend_offsets": [
+    "0x3c",
+    "0x40",
+    "0x6c",
+    "0x70"
+  ],
+  "blend_before_after": [
+    0.1553376317024231,
+    1.0
+  ],
+  "limitation": "Auxiliary float meaning and blend transition cause remain unproven; no causality established."
+}

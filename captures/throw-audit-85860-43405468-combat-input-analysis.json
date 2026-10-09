@@ -1,0 +1,808 @@
+{
+  "topology_equal": true,
+  "records": 2046,
+  "changed_records_by_kind": {
+    "0": 2,
+    "12": 138,
+    "15": 225,
+    "18": 225,
+    "19": 225,
+    "22": 74,
+    "1": 1,
+    "10": 1,
+    "11": 1,
+    "7": 2
+  },
+  "blend": [
+    {
+      "side": 0,
+      "field": "weights",
+      "changed_bytes": 118
+    },
+    {
+      "side": 0,
+      "field": "blocks",
+      "changed_bytes": 3
+    },
+    {
+      "side": 0,
+      "field": "history_pointer",
+      "changed_bytes": 2
+    },
+    {
+      "side": 1,
+      "field": "weights",
+      "changed_bytes": 0
+    },
+    {
+      "side": 1,
+      "field": "blocks",
+      "changed_bytes": 0
+    },
+    {
+      "side": 1,
+      "field": "history_pointer",
+      "changed_bytes": 1
+    }
+  ],
+  "response": [
+    [
+      0.21999996900558472,
+      0.375,
+      0.13999998569488525
+    ],
+    [
+      0.23999996483325958,
+      0.375,
+      0.15999998152256012
+    ]
+  ],
+  "ring_source_checks": [
+    {
+      "transfer": "2",
+      "matching_ring_headers": [
+        0
+      ]
+    },
+    {
+      "transfer": "3",
+      "matching_ring_headers": [
+        1
+      ]
+    },
+    {
+      "transfer": "350",
+      "matching_ring_headers": [
+        2
+      ]
+    },
+    {
+      "transfer": "351",
+      "matching_ring_headers": [
+        3
+      ]
+    }
+  ],
+  "inputs": [
+    {
+      "phase": "0",
+      "section": "0",
+      "offset": "0",
+      "source": "2435802162240",
+      "baseline": "0",
+      "observed": "0",
+      "changed": "0"
+    },
+    {
+      "phase": "0",
+      "section": "0",
+      "offset": "1",
+      "source": "2435802162240",
+      "baseline": "0",
+      "observed": "0",
+      "changed": "0"
+    },
+    {
+      "phase": "0",
+      "section": "0",
+      "offset": "2",
+      "source": "2435802162240",
+      "baseline": "0",
+      "observed": "0",
+      "changed": "0"
+    },
+    {
+      "phase": "0",
+      "section": "0",
+      "offset": "3",
+      "source": "2435802162240",
+      "baseline": "0",
+      "observed": "0",
+      "changed": "0"
+    },
+    {
+      "phase": "0",
+      "section": "0",
+      "offset": "4",
+      "source": "2435802162240",
+      "baseline": "0",
+      "observed": "0",
+      "changed": "0"
+    },
+    {
+      "phase": "0",
+      "section": "0",
+      "offset": "5",
+      "source": "2435802162240",
+      "baseline": "0",
+      "observed": "0",
+      "changed": "0"
+    },
+    {
+      "phase": "0",
+      "section": "0",
+      "offset": "6",
+      "source": "2435802162240",
+      "baseline": "0",
+      "observed": "0",
+      "changed": "0"
+    },
+    {
+      "phase": "0",
+      "section": "0",
+      "offset": "7",
+      "source": "2435802162240",
+      "baseline": "0",
+      "observed": "0",
+      "changed": "0"
+    },
+    {
+      "phase": "0",
+      "section": "1",
+      "offset": "0",
+      "source": "2435802162248",
+      "baseline": "0",
+      "observed": "0",
+      "changed": "0"
+    },
+    {
+      "phase": "0",
+      "section": "1",
+      "offset": "1",
+      "source": "2435802162248",
+      "baseline": "0",
+      "observed": "0",
+      "changed": "0"
+    },
+    {
+      "phase": "0",
+      "section": "1",
+      "offset": "2",
+      "source": "2435802162248",
+      "baseline": "0",
+      "observed": "0",
+      "changed": "0"
+    },
+    {
+      "phase": "0",
+      "section": "1",
+      "offset": "3",
+      "source": "2435802162248",
+      "baseline": "0",
+      "observed": "0",
+      "changed": "0"
+    },
+    {
+      "phase": "0",
+      "section": "1",
+      "offset": "4",
+      "source": "2435802162248",
+      "baseline": "0",
+      "observed": "0",
+      "changed": "0"
+    },
+    {
+      "phase": "0",
+      "section": "1",
+      "offset": "5",
+      "source": "2435802162248",
+      "baseline": "0",
+      "observed": "0",
+      "changed": "0"
+    },
+    {
+      "phase": "0",
+      "section": "1",
+      "offset": "6",
+      "source": "2435802162248",
+      "baseline": "0",
+      "observed": "0",
+      "changed": "0"
+    },
+    {
+      "phase": "0",
+      "section": "1",
+      "offset": "7",
+      "source": "2435802162248",
+      "baseline": "0",
+      "observed": "0",
+      "changed": "0"
+    },
+    {
+      "phase": "0",
+      "section": "2",
+      "offset": "0",
+      "source": "2438456290376",
+      "baseline": "0",
+      "observed": "0",
+      "changed": "0"
+    },
+    {
+      "phase": "0",
+      "section": "2",
+      "offset": "1",
+      "source": "2438456290376",
+      "baseline": "0",
+      "observed": "0",
+      "changed": "0"
+    },
+    {
+      "phase": "0",
+      "section": "2",
+      "offset": "2",
+      "source": "2438456290376",
+      "baseline": "0",
+      "observed": "0",
+      "changed": "0"
+    },
+    {
+      "phase": "0",
+      "section": "2",
+      "offset": "3",
+      "source": "2438456290376",
+      "baseline": "0",
+      "observed": "0",
+      "changed": "0"
+    },
+    {
+      "phase": "0",
+      "section": "2",
+      "offset": "4",
+      "source": "2438456290376",
+      "baseline": "0",
+      "observed": "0",
+      "changed": "0"
+    },
+    {
+      "phase": "0",
+      "section": "2",
+      "offset": "5",
+      "source": "2438456290376",
+      "baseline": "0",
+      "observed": "0",
+      "changed": "0"
+    },
+    {
+      "phase": "0",
+      "section": "2",
+      "offset": "6",
+      "source": "2438456290376",
+      "baseline": "0",
+      "observed": "0",
+      "changed": "0"
+    },
+    {
+      "phase": "0",
+      "section": "2",
+      "offset": "7",
+      "source": "2438456290376",
+      "baseline": "0",
+      "observed": "0",
+      "changed": "0"
+    },
+    {
+      "phase": "0",
+      "section": "2",
+      "offset": "8",
+      "source": "2438456290376",
+      "baseline": "0",
+      "observed": "0",
+      "changed": "0"
+    },
+    {
+      "phase": "0",
+      "section": "2",
+      "offset": "9",
+      "source": "2438456290376",
+      "baseline": "1",
+      "observed": "1",
+      "changed": "0"
+    },
+    {
+      "phase": "0",
+      "section": "2",
+      "offset": "10",
+      "source": "2438456290376",
+      "baseline": "128",
+      "observed": "128",
+      "changed": "0"
+    },
+    {
+      "phase": "0",
+      "section": "2",
+      "offset": "11",
+      "source": "2438456290376",
+      "baseline": "59",
+      "observed": "59",
+      "changed": "0"
+    },
+    {
+      "phase": "0",
+      "section": "2",
+      "offset": "12",
+      "source": "2438456290376",
+      "baseline": "0",
+      "observed": "0",
+      "changed": "0"
+    },
+    {
+      "phase": "0",
+      "section": "2",
+      "offset": "13",
+      "source": "2438456290376",
+      "baseline": "0",
+      "observed": "0",
+      "changed": "0"
+    },
+    {
+      "phase": "0",
+      "section": "2",
+      "offset": "14",
+      "source": "2438456290376",
+      "baseline": "129",
+      "observed": "129",
+      "changed": "0"
+    },
+    {
+      "phase": "0",
+      "section": "2",
+      "offset": "15",
+      "source": "2438456290376",
+      "baseline": "187",
+      "observed": "187",
+      "changed": "0"
+    },
+    {
+      "phase": "0",
+      "section": "2",
+      "offset": "16",
+      "source": "2438456290376",
+      "baseline": "0",
+      "observed": "0",
+      "changed": "0"
+    },
+    {
+      "phase": "0",
+      "section": "2",
+      "offset": "17",
+      "source": "2438456290376",
+      "baseline": "192",
+      "observed": "192",
+      "changed": "0"
+    },
+    {
+      "phase": "0",
+      "section": "2",
+      "offset": "18",
+      "source": "2438456290376",
+      "baseline": "160",
+      "observed": "160",
+      "changed": "0"
+    },
+    {
+      "phase": "0",
+      "section": "2",
+      "offset": "19",
+      "source": "2438456290376",
+      "baseline": "188",
+      "observed": "188",
+      "changed": "0"
+    },
+    {
+      "phase": "0",
+      "section": "2",
+      "offset": "20",
+      "source": "2438456290376",
+      "baseline": "0",
+      "observed": "0",
+      "changed": "0"
+    },
+    {
+      "phase": "0",
+      "section": "2",
+      "offset": "21",
+      "source": "2438456290376",
+      "baseline": "0",
+      "observed": "0",
+      "changed": "0"
+    },
+    {
+      "phase": "0",
+      "section": "2",
+      "offset": "22",
+      "source": "2438456290376",
+      "baseline": "129",
+      "observed": "129",
+      "changed": "0"
+    },
+    {
+      "phase": "0",
+      "section": "2",
+      "offset": "23",
+      "source": "2438456290376",
+      "baseline": "187",
+      "observed": "187",
+      "changed": "0"
+    },
+    {
+      "phase": "1",
+      "section": "0",
+      "offset": "0",
+      "source": "2435802162240",
+      "baseline": "0",
+      "observed": "0",
+      "changed": "0"
+    },
+    {
+      "phase": "1",
+      "section": "0",
+      "offset": "1",
+      "source": "2435802162240",
+      "baseline": "0",
+      "observed": "0",
+      "changed": "0"
+    },
+    {
+      "phase": "1",
+      "section": "0",
+      "offset": "2",
+      "source": "2435802162240",
+      "baseline": "0",
+      "observed": "0",
+      "changed": "0"
+    },
+    {
+      "phase": "1",
+      "section": "0",
+      "offset": "3",
+      "source": "2435802162240",
+      "baseline": "0",
+      "observed": "0",
+      "changed": "0"
+    },
+    {
+      "phase": "1",
+      "section": "0",
+      "offset": "4",
+      "source": "2435802162240",
+      "baseline": "0",
+      "observed": "0",
+      "changed": "0"
+    },
+    {
+      "phase": "1",
+      "section": "0",
+      "offset": "5",
+      "source": "2435802162240",
+      "baseline": "0",
+      "observed": "0",
+      "changed": "0"
+    },
+    {
+      "phase": "1",
+      "section": "0",
+      "offset": "6",
+      "source": "2435802162240",
+      "baseline": "0",
+      "observed": "0",
+      "changed": "0"
+    },
+    {
+      "phase": "1",
+      "section": "0",
+      "offset": "7",
+      "source": "2435802162240",
+      "baseline": "0",
+      "observed": "0",
+      "changed": "0"
+    },
+    {
+      "phase": "1",
+      "section": "1",
+      "offset": "0",
+      "source": "2435802162248",
+      "baseline": "0",
+      "observed": "0",
+      "changed": "0"
+    },
+    {
+      "phase": "1",
+      "section": "1",
+      "offset": "1",
+      "source": "2435802162248",
+      "baseline": "0",
+      "observed": "0",
+      "changed": "0"
+    },
+    {
+      "phase": "1",
+      "section": "1",
+      "offset": "2",
+      "source": "2435802162248",
+      "baseline": "0",
+      "observed": "0",
+      "changed": "0"
+    },
+    {
+      "phase": "1",
+      "section": "1",
+      "offset": "3",
+      "source": "2435802162248",
+      "baseline": "0",
+      "observed": "0",
+      "changed": "0"
+    },
+    {
+      "phase": "1",
+      "section": "1",
+      "offset": "4",
+      "source": "2435802162248",
+      "baseline": "0",
+      "observed": "0",
+      "changed": "0"
+    },
+    {
+      "phase": "1",
+      "section": "1",
+      "offset": "5",
+      "source": "2435802162248",
+      "baseline": "0",
+      "observed": "0",
+      "changed": "0"
+    },
+    {
+      "phase": "1",
+      "section": "1",
+      "offset": "6",
+      "source": "2435802162248",
+      "baseline": "0",
+      "observed": "0",
+      "changed": "0"
+    },
+    {
+      "phase": "1",
+      "section": "1",
+      "offset": "7",
+      "source": "2435802162248",
+      "baseline": "0",
+      "observed": "0",
+      "changed": "0"
+    },
+    {
+      "phase": "1",
+      "section": "2",
+      "offset": "0",
+      "source": "2438456290376",
+      "baseline": "0",
+      "observed": "0",
+      "changed": "0"
+    },
+    {
+      "phase": "1",
+      "section": "2",
+      "offset": "1",
+      "source": "2438456290376",
+      "baseline": "0",
+      "observed": "0",
+      "changed": "0"
+    },
+    {
+      "phase": "1",
+      "section": "2",
+      "offset": "2",
+      "source": "2438456290376",
+      "baseline": "0",
+      "observed": "0",
+      "changed": "0"
+    },
+    {
+      "phase": "1",
+      "section": "2",
+      "offset": "3",
+      "source": "2438456290376",
+      "baseline": "0",
+      "observed": "0",
+      "changed": "0"
+    },
+    {
+      "phase": "1",
+      "section": "2",
+      "offset": "4",
+      "source": "2438456290376",
+      "baseline": "0",
+      "observed": "0",
+      "changed": "0"
+    },
+    {
+      "phase": "1",
+      "section": "2",
+      "offset": "5",
+      "source": "2438456290376",
+      "baseline": "0",
+      "observed": "0",
+      "changed": "0"
+    },
+    {
+      "phase": "1",
+      "section": "2",
+      "offset": "6",
+      "source": "2438456290376",
+      "baseline": "0",
+      "observed": "0",
+      "changed": "0"
+    },
+    {
+      "phase": "1",
+      "section": "2",
+      "offset": "7",
+      "source": "2438456290376",
+      "baseline": "0",
+      "observed": "0",
+      "changed": "0"
+    },
+    {
+      "phase": "1",
+      "section": "2",
+      "offset": "8",
+      "source": "2438456290376",
+      "baseline": "0",
+      "observed": "0",
+      "changed": "0"
+    },
+    {
+      "phase": "1",
+      "section": "2",
+      "offset": "9",
+      "source": "2438456290376",
+      "baseline": "1",
+      "observed": "1",
+      "changed": "0"
+    },
+    {
+      "phase": "1",
+      "section": "2",
+      "offset": "10",
+      "source": "2438456290376",
+      "baseline": "128",
+      "observed": "128",
+      "changed": "0"
+    },
+    {
+      "phase": "1",
+      "section": "2",
+      "offset": "11",
+      "source": "2438456290376",
+      "baseline": "59",
+      "observed": "59",
+      "changed": "0"
+    },
+    {
+      "phase": "1",
+      "section": "2",
+      "offset": "12",
+      "source": "2438456290376",
+      "baseline": "0",
+      "observed": "0",
+      "changed": "0"
+    },
+    {
+      "phase": "1",
+      "section": "2",
+      "offset": "13",
+      "source": "2438456290376",
+      "baseline": "0",
+      "observed": "0",
+      "changed": "0"
+    },
+    {
+      "phase": "1",
+      "section": "2",
+      "offset": "14",
+      "source": "2438456290376",
+      "baseline": "129",
+      "observed": "129",
+      "changed": "0"
+    },
+    {
+      "phase": "1",
+      "section": "2",
+      "offset": "15",
+      "source": "2438456290376",
+      "baseline": "187",
+      "observed": "187",
+      "changed": "0"
+    },
+    {
+      "phase": "1",
+      "section": "2",
+      "offset": "16",
+      "source": "2438456290376",
+      "baseline": "0",
+      "observed": "0",
+      "changed": "0"
+    },
+    {
+      "phase": "1",
+      "section": "2",
+      "offset": "17",
+      "source": "2438456290376",
+      "baseline": "192",
+      "observed": "192",
+      "changed": "0"
+    },
+    {
+      "phase": "1",
+      "section": "2",
+      "offset": "18",
+      "source": "2438456290376",
+      "baseline": "160",
+      "observed": "160",
+      "changed": "0"
+    },
+    {
+      "phase": "1",
+      "section": "2",
+      "offset": "19",
+      "source": "2438456290376",
+      "baseline": "188",
+      "observed": "188",
+      "changed": "0"
+    },
+    {
+      "phase": "1",
+      "section": "2",
+      "offset": "20",
+      "source": "2438456290376",
+      "baseline": "0",
+      "observed": "0",
+      "changed": "0"
+    },
+    {
+      "phase": "1",
+      "section": "2",
+      "offset": "21",
+      "source": "2438456290376",
+      "baseline": "0",
+      "observed": "0",
+      "changed": "0"
+    },
+    {
+      "phase": "1",
+      "section": "2",
+      "offset": "22",
+      "source": "2438456290376",
+      "baseline": "129",
+      "observed": "129",
+      "changed": "0"
+    },
+    {
+      "phase": "1",
+      "section": "2",
+      "offset": "23",
+      "source": "2438456290376",
+      "baseline": "187",
+      "observed": "187",
+      "changed": "0"
+    }
+  ]
+}

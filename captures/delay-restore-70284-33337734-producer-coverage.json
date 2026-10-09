@@ -1,0 +1,30 @@
+[
+  {
+    "player": 1,
+    "field": "producer_header",
+    "address": "0x7ff6d78de810",
+    "size": 512,
+    "direct_source_coverage": []
+  },
+  {
+    "player": 1,
+    "field": "producer_blend_state",
+    "address": "0x7ff6d78dea10",
+    "size": 8376,
+    "direct_source_coverage": []
+  },
+  {
+    "player": 2,
+    "field": "producer_header",
+    "address": "0x7ff6d7975c00",
+    "size": 512,
+    "direct_source_coverage": []
+  },
+  {
+    "player": 2,
+    "field": "producer_blend_state",
+    "address": "0x7ff6d7975e00",
+    "size": 8376,
+    "direct_source_coverage": []
+  }
+]

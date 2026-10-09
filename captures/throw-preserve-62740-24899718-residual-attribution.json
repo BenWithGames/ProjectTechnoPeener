@@ -1,0 +1,24 @@
+{
+  "capture": "throw-preserve-62740-24899718",
+  "rows": 600,
+  "outer_gaps": 0,
+  "residual_file_offset": 89872,
+  "before": 0,
+  "after": 1,
+  "transfer": {
+    "phase": "before",
+    "index": "1044",
+    "offset": "84928",
+    "length": "16864",
+    "source": "1393905320640",
+    "destination": "1393905320640",
+    "writer_return": "140698083674434",
+    "reader_return": "140698083674677",
+    "module_base": "140698080378880"
+  },
+  "block_relative_offset": "0x1350",
+  "ownership": "buffer at *( *( *(module+0x470DF28)+0xA0)+8 )",
+  "writer_return_rva": "0x324942",
+  "reader_return_rva": "0x324A35",
+  "limitation": "Owner and transfer identified; instruction changing the value after deserialization remains unknown."
+}

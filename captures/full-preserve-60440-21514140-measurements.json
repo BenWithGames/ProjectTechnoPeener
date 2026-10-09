@@ -1,0 +1,22 @@
+{
+  "capture": "full-preserve-60440-21514140",
+  "rows": 600,
+  "counter_discontinuities": 0,
+  "nonzero_input_rows": 0,
+  "active_move_rows": 0,
+  "phase_order": [
+    "before_save",
+    "after_save",
+    "after_load",
+    "after_preservation",
+    "after_post_save"
+  ],
+  "field_byte_differences_between_checkpoints": [
+    0,
+    161,
+    149,
+    0
+  ],
+  "all_tracked_nonpointer_bytes_restored": true,
+  "post_save_fields_unchanged": true
+}

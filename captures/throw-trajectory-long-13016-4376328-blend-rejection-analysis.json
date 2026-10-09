@@ -1,0 +1,38 @@
+[
+  {
+    "side": 0,
+    "block": 0,
+    "offset": "0x3c",
+    "before_hex": "d00a913e",
+    "after_hex": "0000803f",
+    "before_float": 0.28328561782836914,
+    "after_float": 1.0
+  },
+  {
+    "side": 0,
+    "block": 0,
+    "offset": "0x40",
+    "before_hex": "d00a913e",
+    "after_hex": "0000803f",
+    "before_float": 0.28328561782836914,
+    "after_float": 1.0
+  },
+  {
+    "side": 0,
+    "block": 0,
+    "offset": "0x6c",
+    "before_hex": "d00a913e",
+    "after_hex": "0000803f",
+    "before_float": 0.28328561782836914,
+    "after_float": 1.0
+  },
+  {
+    "side": 0,
+    "block": 0,
+    "offset": "0x70",
+    "before_hex": "d00a913e",
+    "after_hex": "0000803f",
+    "before_float": 0.28328561782836914,
+    "after_float": 1.0
+  }
+]

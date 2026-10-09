@@ -1,0 +1,17 @@
+[
+  {
+    "frame": 0,
+    "player_bits": "0x807",
+    "aux_flags": "0x807"
+  },
+  {
+    "frame": 1,
+    "player_bits": "0x807",
+    "aux_flags": "0x807"
+  },
+  {
+    "frame": 2,
+    "player_bits": "0x807",
+    "aux_flags": "0x0"
+  }
+]

@@ -1,0 +1,16 @@
+{
+  "changed_bytes": [
+    25,
+    26,
+    27
+  ],
+  "changed_dwords": [
+    {
+      "offset": 24,
+      "before_bits": "0xbb810000",
+      "after_bits": "0x3b800100",
+      "before_float": -0.003936767578125,
+      "after_float": 0.003906369209289551
+    }
+  ]
+}

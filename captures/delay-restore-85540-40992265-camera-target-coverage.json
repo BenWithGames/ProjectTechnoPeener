@@ -1,0 +1,24 @@
+[
+  {
+    "player": "p1_pointer",
+    "address": "0x7ff6d78b7780",
+    "overlaps": [
+      {
+        "index": "1",
+        "source": "140698154915712",
+        "length": "13584"
+      }
+    ]
+  },
+  {
+    "player": "p2_pointer",
+    "address": "0x7ff6d794eb70",
+    "overlaps": [
+      {
+        "index": "349",
+        "source": "140698155535216",
+        "length": "13584"
+      }
+    ]
+  }
+]

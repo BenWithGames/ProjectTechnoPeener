@@ -1,0 +1,56 @@
+{
+  "bytes_per_checkpoint": [
+    307200,
+    307200,
+    307200,
+    307200
+  ],
+  "first_save_unchanged": true,
+  "second_save_unchanged": true,
+  "rings": [
+    {
+      "player": "140698154915568",
+      "kind": "0",
+      "prior_index": 2,
+      "next_index": 1,
+      "changed_bytes_by_physical_slot": [
+        0,
+        7919,
+        0
+      ]
+    },
+    {
+      "player": "140698154915568",
+      "kind": "1",
+      "prior_index": 1,
+      "next_index": 0,
+      "changed_bytes_by_physical_slot": [
+        550,
+        0,
+        0
+      ]
+    },
+    {
+      "player": "140698155535072",
+      "kind": "0",
+      "prior_index": 2,
+      "next_index": 1,
+      "changed_bytes_by_physical_slot": [
+        0,
+        6794,
+        0
+      ]
+    },
+    {
+      "player": "140698155535072",
+      "kind": "1",
+      "prior_index": 1,
+      "next_index": 0,
+      "changed_bytes_by_physical_slot": [
+        70,
+        0,
+        0
+      ]
+    }
+  ]
+}

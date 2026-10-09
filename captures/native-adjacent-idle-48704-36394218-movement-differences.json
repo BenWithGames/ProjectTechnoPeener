@@ -1,0 +1,22 @@
+{
+  "before.bin": {
+    "clean_bytes": 106766,
+    "movement_bytes": 106766,
+    "differing_bytes": 8695
+  },
+  "blend-original_a.bin": {
+    "clean_bytes": 2760,
+    "movement_bytes": 2760,
+    "differing_bytes": 0
+  },
+  "transforms-original_a.bin": {
+    "clean_bytes": 85572,
+    "movement_bytes": 85572,
+    "differing_bytes": 20515
+  },
+  "camera-0.bin": {
+    "clean_bytes": 3648,
+    "movement_bytes": 3648,
+    "differing_bytes": 16
+  }
+}

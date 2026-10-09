@@ -1,0 +1,31 @@
+{
+  "frames": 600,
+  "outer_gaps": 0,
+  "first_moves": [
+    "679",
+    "65535"
+  ],
+  "invalid_rows": 0,
+  "slot4_status": {
+    "1": 600
+  },
+  "nonzero_cursor_samples": 0,
+  "nonzero_progress_samples": 0,
+  "changes": [
+    {
+      "sample": "0",
+      "phase": "before_update",
+      "flag": "0",
+      "mode": "0",
+      "data": "0",
+      "cached": "0",
+      "sequence": "0",
+      "cursor": "0",
+      "length": "0",
+      "target": "1740444588976",
+      "target_length_bits": "0",
+      "target_progress_bits": "0",
+      "progress_status": "1"
+    }
+  ]
+}

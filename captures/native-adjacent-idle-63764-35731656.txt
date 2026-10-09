@@ -1,0 +1,16 @@
+schema=1
+boundary=before_RVA_0x2DBC60
+mode=user_confirmed_offline_training
+complete_snapshot=false
+samples=3
+skipped_entries=0
+stop=native_prediction_failed
+fault=1
+outer_discontinuities=1
+qpc_frequency=10000000
+csv_written=1
+input_trace_written=1
+invalid_input_envelopes=0
+attack_observation_only=0
+charge_observation_only=0
+observation_trigger_matched=0

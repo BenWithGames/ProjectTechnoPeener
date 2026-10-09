@@ -1,0 +1,23 @@
+{
+  "ring_bytes": 307200,
+  "ring_equal": true,
+  "camera_common_replay_differences": [],
+  "targets_replay_differences": [],
+  "targets_corrected_differences": [],
+  "smoothing_replay_differences": [],
+  "smoothing_corrected_differences": [],
+  "response_replay_differences": [],
+  "response_corrected_differences": [],
+  "native": [
+    {
+      "transfer": "6",
+      "bytes": 6,
+      "writer_rva": "0x30aa54"
+    },
+    {
+      "transfer": "354",
+      "bytes": 6,
+      "writer_rva": "0x30aa54"
+    }
+  ]
+}

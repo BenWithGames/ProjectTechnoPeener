@@ -1,0 +1,233 @@
+{
+  "0": {
+    "native_size_equal": true,
+    "native_diffs": [
+      {
+        "transfer": 6,
+        "writer_rva": "0x30aa54",
+        "source": "140698155193568",
+        "length": 48,
+        "changes": [
+          [
+            0,
+            0,
+            240
+          ],
+          [
+            1,
+            0,
+            86
+          ],
+          [
+            2,
+            0,
+            139
+          ],
+          [
+            3,
+            0,
+            215
+          ],
+          [
+            4,
+            0,
+            246
+          ],
+          [
+            5,
+            0,
+            127
+          ]
+        ]
+      },
+      {
+        "transfer": 354,
+        "writer_rva": "0x30aa54",
+        "source": "140698155813072",
+        "length": 48,
+        "changes": [
+          [
+            0,
+            0,
+            224
+          ],
+          [
+            1,
+            0,
+            202
+          ],
+          [
+            2,
+            0,
+            148
+          ],
+          [
+            3,
+            0,
+            215
+          ],
+          [
+            4,
+            0,
+            246
+          ],
+          [
+            5,
+            0,
+            127
+          ]
+        ]
+      }
+    ],
+    "comparisons": {
+      "rings": {
+        "equal": true,
+        "changed_offsets": []
+      },
+      "blend": {
+        "equal": true,
+        "changed_offsets": []
+      },
+      "camera": {
+        "equal": true,
+        "changed_offsets": []
+      },
+      "smoothing": {
+        "equal": true,
+        "changed_offsets": []
+      },
+      "targets": {
+        "equal": true,
+        "changed_offsets": []
+      },
+      "response": {
+        "equal": true,
+        "changed_offsets": []
+      }
+    },
+    "transform_metadata_equal": true,
+    "transform_changes": []
+  },
+  "1": {
+    "native_size_equal": true,
+    "native_diffs": [
+      {
+        "transfer": 6,
+        "writer_rva": "0x30aa54",
+        "source": "140698155193568",
+        "length": 48,
+        "changes": [
+          [
+            0,
+            0,
+            240
+          ],
+          [
+            1,
+            0,
+            86
+          ],
+          [
+            2,
+            0,
+            139
+          ],
+          [
+            3,
+            0,
+            215
+          ],
+          [
+            4,
+            0,
+            246
+          ],
+          [
+            5,
+            0,
+            127
+          ]
+        ]
+      },
+      {
+        "transfer": 354,
+        "writer_rva": "0x30aa54",
+        "source": "140698155813072",
+        "length": 48,
+        "changes": [
+          [
+            0,
+            0,
+            224
+          ],
+          [
+            1,
+            0,
+            202
+          ],
+          [
+            2,
+            0,
+            148
+          ],
+          [
+            3,
+            0,
+            215
+          ],
+          [
+            4,
+            0,
+            246
+          ],
+          [
+            5,
+            0,
+            127
+          ]
+        ]
+      },
+      {
+        "transfer": 1045,
+        "writer_rva": "0x32ac76",
+        "source": "574586909576",
+        "length": 16,
+        "changes": [
+          [
+            4,
+            118,
+            119
+          ]
+        ]
+      }
+    ],
+    "comparisons": {
+      "rings": {
+        "equal": true,
+        "changed_offsets": []
+      },
+      "blend": {
+        "equal": true,
+        "changed_offsets": []
+      },
+      "camera": {
+        "equal": true,
+        "changed_offsets": []
+      },
+      "smoothing": {
+        "equal": true,
+        "changed_offsets": []
+      },
+      "targets": {
+        "equal": true,
+        "changed_offsets": []
+      },
+      "response": {
+        "equal": true,
+        "changed_offsets": []
+      }
+    },
+    "transform_metadata_equal": true,
+    "transform_changes": []
+  }
+}

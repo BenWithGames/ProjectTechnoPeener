@@ -1,0 +1,32 @@
+[
+  {
+    "pair": 0,
+    "offset": "0x68",
+    "matches_binary32_update": true
+  },
+  {
+    "pair": 0,
+    "offset": "0x6c",
+    "matches_binary32_update": true
+  },
+  {
+    "pair": 1,
+    "offset": "0x68",
+    "matches_binary32_update": true
+  },
+  {
+    "pair": 1,
+    "offset": "0x6c",
+    "matches_binary32_update": true
+  },
+  {
+    "pair": 2,
+    "offset": "0x68",
+    "matches_binary32_update": true
+  },
+  {
+    "pair": 2,
+    "offset": "0x6c",
+    "matches_binary32_update": true
+  }
+]

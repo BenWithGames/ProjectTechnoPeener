@@ -1,0 +1,50 @@
+[
+  {
+    "player": 1,
+    "owner": "0x7ff6d78de810",
+    "field": "weights",
+    "address": "0x7ff6d78deccc",
+    "size": 140,
+    "coverage": []
+  },
+  {
+    "player": 1,
+    "owner": "0x7ff6d78de810",
+    "field": "blend_blocks",
+    "address": "0x7ff6d78e05e8",
+    "size": 1232,
+    "coverage": []
+  },
+  {
+    "player": 1,
+    "owner": "0x7ff6d78de810",
+    "field": "previous_pointer",
+    "address": "0x7ff6d78e0ab8",
+    "size": 8,
+    "coverage": []
+  },
+  {
+    "player": 2,
+    "owner": "0x7ff6d7975c00",
+    "field": "weights",
+    "address": "0x7ff6d79760bc",
+    "size": 140,
+    "coverage": []
+  },
+  {
+    "player": 2,
+    "owner": "0x7ff6d7975c00",
+    "field": "blend_blocks",
+    "address": "0x7ff6d79779d8",
+    "size": 1232,
+    "coverage": []
+  },
+  {
+    "player": 2,
+    "owner": "0x7ff6d7975c00",
+    "field": "previous_pointer",
+    "address": "0x7ff6d7977ea8",
+    "size": 8,
+    "coverage": []
+  }
+]

@@ -1,0 +1,60 @@
+{
+  "capture": "idle-trajectory-65208-50914515",
+  "restore_invoked": 0,
+  "frames": [
+    {
+      "outer": 577,
+      "rng": 692208003,
+      "native_bytes": 106766,
+      "transfers": 1310,
+      "transforms": 2045,
+      "cameras": 8,
+      "extended_cameras": [
+        1
+      ],
+      "ring_indices": [
+        2,
+        1,
+        2,
+        1
+      ]
+    },
+    {
+      "outer": 578,
+      "rng": 692208003,
+      "native_bytes": 106766,
+      "transfers": 1310,
+      "transforms": 2045,
+      "cameras": 8,
+      "extended_cameras": [
+        1
+      ],
+      "ring_indices": [
+        1,
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "outer": 579,
+      "rng": 692208003,
+      "native_bytes": 106766,
+      "transfers": 1310,
+      "transforms": 2045,
+      "cameras": 8,
+      "extended_cameras": [
+        1
+      ],
+      "ring_indices": [
+        0,
+        2,
+        0,
+        2
+      ]
+    }
+  ],
+  "inputs_equal": true,
+  "stable_transform_topology": true,
+  "stable_camera_identity": true
+}

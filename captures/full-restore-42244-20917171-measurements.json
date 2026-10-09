@@ -1,0 +1,23 @@
+{
+  "capture": "full-restore-42244-20917171",
+  "rng_before_save": 1334117462,
+  "rng_after_save": 1334117462,
+  "rng_after_load": 2035121593,
+  "rng_after_post_save": 2035121593,
+  "predicted_four_prng_steps": [
+    635425507,
+    160319618,
+    1547326388,
+    2035121593
+  ],
+  "matches_four_steps": true,
+  "field_byte_differences_between_checkpoints": [
+    0,
+    164,
+    0
+  ],
+  "rows": 600,
+  "counter_discontinuities": 0,
+  "nonzero_input_rows": 0,
+  "active_move_rows": 0
+}

@@ -1,0 +1,384 @@
+{
+  "1": [
+    {
+      "original_a": {
+        "index": 12,
+        "mask": "0x7fffdffdf",
+        "table": "0x283c288c010"
+      },
+      "original_b": {
+        "index": 12,
+        "mask": "0x7fffdffdf",
+        "table": "0x283c288c010"
+      },
+      "restored": {
+        "index": 0,
+        "mask": "0x0",
+        "table": "0x283c288c010"
+      },
+      "weights_corrected": {
+        "index": 0,
+        "mask": "0x0",
+        "table": "0x283c288c010"
+      },
+      "replay": {
+        "index": 0,
+        "mask": "0x7fff83f83",
+        "table": "0x283c288c010"
+      }
+    },
+    {
+      "original_a": {
+        "index": 0,
+        "mask": "0x0",
+        "table": "0x283c288c010"
+      },
+      "original_b": {
+        "index": 0,
+        "mask": "0x0",
+        "table": "0x283c288c010"
+      },
+      "restored": {
+        "index": 0,
+        "mask": "0x0",
+        "table": "0x283c288c010"
+      },
+      "weights_corrected": {
+        "index": 0,
+        "mask": "0x0",
+        "table": "0x283c288c010"
+      },
+      "replay": {
+        "index": 0,
+        "mask": "0x0",
+        "table": "0x283c288c010"
+      }
+    },
+    {
+      "original_a": {
+        "index": 3,
+        "mask": "0x0",
+        "table": "0x283c288c010"
+      },
+      "original_b": {
+        "index": 3,
+        "mask": "0x0",
+        "table": "0x283c288c010"
+      },
+      "restored": {
+        "index": 3,
+        "mask": "0x0",
+        "table": "0x283c288c010"
+      },
+      "weights_corrected": {
+        "index": 3,
+        "mask": "0x0",
+        "table": "0x283c288c010"
+      },
+      "replay": {
+        "index": 3,
+        "mask": "0x0",
+        "table": "0x283c288c010"
+      }
+    },
+    {
+      "original_a": {
+        "index": 6,
+        "mask": "0x0",
+        "table": "0x283c288c010"
+      },
+      "original_b": {
+        "index": 6,
+        "mask": "0x0",
+        "table": "0x283c288c010"
+      },
+      "restored": {
+        "index": 0,
+        "mask": "0x0",
+        "table": "0x283c288c010"
+      },
+      "weights_corrected": {
+        "index": 0,
+        "mask": "0x0",
+        "table": "0x283c288c010"
+      },
+      "replay": {
+        "index": 6,
+        "mask": "0x0",
+        "table": "0x283c288c010"
+      }
+    },
+    {
+      "original_a": {
+        "index": 12,
+        "mask": "0x0",
+        "table": "0x283c288c010"
+      },
+      "original_b": {
+        "index": 12,
+        "mask": "0x0",
+        "table": "0x283c288c010"
+      },
+      "restored": {
+        "index": 0,
+        "mask": "0x0",
+        "table": "0x283c288c010"
+      },
+      "weights_corrected": {
+        "index": 0,
+        "mask": "0x0",
+        "table": "0x283c288c010"
+      },
+      "replay": {
+        "index": 0,
+        "mask": "0x0",
+        "table": "0x283c288c010"
+      }
+    },
+    {
+      "original_a": {
+        "index": 0,
+        "mask": "0x0",
+        "table": "0x283c288c010"
+      },
+      "original_b": {
+        "index": 0,
+        "mask": "0x0",
+        "table": "0x283c288c010"
+      },
+      "restored": {
+        "index": 0,
+        "mask": "0x0",
+        "table": "0x283c288c010"
+      },
+      "weights_corrected": {
+        "index": 0,
+        "mask": "0x0",
+        "table": "0x283c288c010"
+      },
+      "replay": {
+        "index": 0,
+        "mask": "0x0",
+        "table": "0x283c288c010"
+      }
+    },
+    {
+      "original_a": {
+        "index": 12,
+        "mask": "0x0",
+        "table": "0x283c288c010"
+      },
+      "original_b": {
+        "index": 12,
+        "mask": "0x0",
+        "table": "0x283c288c010"
+      },
+      "restored": {
+        "index": 0,
+        "mask": "0x0",
+        "table": "0x283c288c010"
+      },
+      "weights_corrected": {
+        "index": 0,
+        "mask": "0x0",
+        "table": "0x283c288c010"
+      },
+      "replay": {
+        "index": 12,
+        "mask": "0x0",
+        "table": "0x283c288c010"
+      }
+    }
+  ],
+  "2": [
+    {
+      "original_a": {
+        "index": 12,
+        "mask": "0x7fffdffdf",
+        "table": "0x28471560040"
+      },
+      "original_b": {
+        "index": 12,
+        "mask": "0x7fffdffdf",
+        "table": "0x28471560040"
+      },
+      "restored": {
+        "index": 0,
+        "mask": "0x0",
+        "table": "0x28471560040"
+      },
+      "weights_corrected": {
+        "index": 0,
+        "mask": "0x0",
+        "table": "0x28471560040"
+      },
+      "replay": {
+        "index": 0,
+        "mask": "0x7fff83f83",
+        "table": "0x28471560040"
+      }
+    },
+    {
+      "original_a": {
+        "index": 0,
+        "mask": "0x0",
+        "table": "0x28471560040"
+      },
+      "original_b": {
+        "index": 0,
+        "mask": "0x0",
+        "table": "0x28471560040"
+      },
+      "restored": {
+        "index": 0,
+        "mask": "0x0",
+        "table": "0x28471560040"
+      },
+      "weights_corrected": {
+        "index": 0,
+        "mask": "0x0",
+        "table": "0x28471560040"
+      },
+      "replay": {
+        "index": 0,
+        "mask": "0x0",
+        "table": "0x28471560040"
+      }
+    },
+    {
+      "original_a": {
+        "index": 3,
+        "mask": "0x0",
+        "table": "0x28471560040"
+      },
+      "original_b": {
+        "index": 3,
+        "mask": "0x0",
+        "table": "0x28471560040"
+      },
+      "restored": {
+        "index": 3,
+        "mask": "0x0",
+        "table": "0x28471560040"
+      },
+      "weights_corrected": {
+        "index": 3,
+        "mask": "0x0",
+        "table": "0x28471560040"
+      },
+      "replay": {
+        "index": 3,
+        "mask": "0x0",
+        "table": "0x28471560040"
+      }
+    },
+    {
+      "original_a": {
+        "index": 6,
+        "mask": "0x0",
+        "table": "0x28471560040"
+      },
+      "original_b": {
+        "index": 6,
+        "mask": "0x0",
+        "table": "0x28471560040"
+      },
+      "restored": {
+        "index": 0,
+        "mask": "0x0",
+        "table": "0x28471560040"
+      },
+      "weights_corrected": {
+        "index": 0,
+        "mask": "0x0",
+        "table": "0x28471560040"
+      },
+      "replay": {
+        "index": 6,
+        "mask": "0x0",
+        "table": "0x28471560040"
+      }
+    },
+    {
+      "original_a": {
+        "index": 12,
+        "mask": "0x0",
+        "table": "0x28471560040"
+      },
+      "original_b": {
+        "index": 12,
+        "mask": "0x0",
+        "table": "0x28471560040"
+      },
+      "restored": {
+        "index": 0,
+        "mask": "0x0",
+        "table": "0x28471560040"
+      },
+      "weights_corrected": {
+        "index": 0,
+        "mask": "0x0",
+        "table": "0x28471560040"
+      },
+      "replay": {
+        "index": 0,
+        "mask": "0x0",
+        "table": "0x28471560040"
+      }
+    },
+    {
+      "original_a": {
+        "index": 0,
+        "mask": "0x0",
+        "table": "0x28471560040"
+      },
+      "original_b": {
+        "index": 0,
+        "mask": "0x0",
+        "table": "0x28471560040"
+      },
+      "restored": {
+        "index": 0,
+        "mask": "0x0",
+        "table": "0x28471560040"
+      },
+      "weights_corrected": {
+        "index": 0,
+        "mask": "0x0",
+        "table": "0x28471560040"
+      },
+      "replay": {
+        "index": 0,
+        "mask": "0x0",
+        "table": "0x28471560040"
+      }
+    },
+    {
+      "original_a": {
+        "index": 12,
+        "mask": "0x0",
+        "table": "0x28471560040"
+      },
+      "original_b": {
+        "index": 12,
+        "mask": "0x0",
+        "table": "0x28471560040"
+      },
+      "restored": {
+        "index": 0,
+        "mask": "0x0",
+        "table": "0x28471560040"
+      },
+      "weights_corrected": {
+        "index": 0,
+        "mask": "0x0",
+        "table": "0x28471560040"
+      },
+      "replay": {
+        "index": 12,
+        "mask": "0x0",
+        "table": "0x28471560040"
+      }
+    }
+  ]
+}

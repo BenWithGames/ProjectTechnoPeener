@@ -1,0 +1,30 @@
+{
+  "rng_steps": [
+    891027113,
+    1089217660,
+    1330604592,
+    1724161533
+  ],
+  "rng_matches": true,
+  "save_fields_equal": true,
+  "unexpected_changed_bytes": [
+    {
+      "side": 1,
+      "field_byte": 156,
+      "player_offset": "0x97204",
+      "before": 0,
+      "after": 1
+    },
+    {
+      "side": 1,
+      "field_byte": 184,
+      "player_offset": "0x97220",
+      "before": 1,
+      "after": 0
+    }
+  ],
+  "rebuilt_pointers": [
+    140698154915568,
+    140698155535072
+  ]
+}

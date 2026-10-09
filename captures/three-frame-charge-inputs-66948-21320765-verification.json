@@ -1,0 +1,73 @@
+{
+  "comparisons": {
+    "0": {
+      "blend-original_b.bin": true,
+      "transforms-original_b.bin": true,
+      "rings-2.bin": true,
+      "camera-1.bin": true,
+      "camera-1-response-1.bin": true,
+      "camera-1-smoothing-1.bin": true,
+      "camera-1-targets-1.bin": true
+    },
+    "1": {
+      "blend-original_b.bin": true,
+      "transforms-original_b.bin": true,
+      "rings-2.bin": true,
+      "camera-1.bin": true,
+      "camera-1-response-1.bin": true,
+      "camera-1-smoothing-1.bin": true,
+      "camera-1-targets-1.bin": true
+    },
+    "2": {
+      "blend-original_b.bin": true,
+      "transforms-original_b.bin": true,
+      "rings-2.bin": true,
+      "camera-1.bin": true,
+      "camera-1-response-1.bin": true,
+      "camera-1-smoothing-1.bin": true,
+      "camera-1-targets-1.bin": true
+    }
+  },
+  "inputs": [
+    {
+      "player": "0x807",
+      "aux": "0x807",
+      "floats": [
+        0.003906369209289551,
+        0.003906369209289551,
+        -0.01177978515625,
+        -0.003936767578125
+      ]
+    },
+    {
+      "player": "0x807",
+      "aux": "0x807",
+      "floats": [
+        0.003906369209289551,
+        0.003906369209289551,
+        -0.01177978515625,
+        -0.003936767578125
+      ]
+    },
+    {
+      "player": "0x807",
+      "aux": "0x0",
+      "floats": [
+        0.003906369209289551,
+        -0.003936767578125,
+        -0.01177978515625,
+        -0.003936767578125
+      ]
+    },
+    {
+      "player": "0x0",
+      "aux": "0x0",
+      "floats": [
+        0.003906369209289551,
+        0.003906369209289551,
+        -0.01177978515625,
+        -0.003936767578125
+      ]
+    }
+  ]
+}

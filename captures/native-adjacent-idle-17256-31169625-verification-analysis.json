@@ -1,0 +1,37 @@
+{
+  "native_differences": [
+    {
+      "index": 6,
+      "length": 48,
+      "writer_rva": "0x30aa54",
+      "changed_offsets": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "index": 354,
+      "length": 48,
+      "writer_rva": "0x30aa54",
+      "changed_offsets": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    }
+  ],
+  "export_comparisons": {
+    "blend-original_a.bin": false,
+    "transforms-original_a.bin": false,
+    "camera-0.bin": false,
+    "rings-0.bin": true,
+    "source-inputs.bin": true
+  }
+}

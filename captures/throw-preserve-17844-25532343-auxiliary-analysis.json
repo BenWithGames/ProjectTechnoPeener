@@ -1,0 +1,48 @@
+{
+  "rows": 10217,
+  "status_counts": {
+    "2": 9616,
+    "1": 601
+  },
+  "invalid_rows": 0,
+  "frame_count": 600,
+  "outer_gaps": 0,
+  "slots": {
+    "4": {
+      "observations": 601,
+      "transitions": [
+        {
+          "sample": 0,
+          "phase": "before_update",
+          "object": "2224656713216",
+          "player": "140698154915568",
+          "cached": "0",
+          "data": "0",
+          "flag": "0",
+          "mode": "0"
+        },
+        {
+          "sample": 0,
+          "phase": "after_probe",
+          "object": "2224656713216",
+          "player": "140698154915568",
+          "cached": "0",
+          "data": "0",
+          "flag": "1",
+          "mode": "0"
+        },
+        {
+          "sample": 146,
+          "phase": "before_update",
+          "object": "2224656713216",
+          "player": "140698154915568",
+          "cached": "0",
+          "data": "0",
+          "flag": "0",
+          "mode": "0"
+        }
+      ],
+      "nonzero_data_count": 0
+    }
+  }
+}

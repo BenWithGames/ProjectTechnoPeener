@@ -1,0 +1,114 @@
+module_base=0x7ff6d31a0000 timer=0x7ff6d7991428
+hit=1 tid=53160 timer=40726 next_rip_rva=0x30009e
+regs rcx=76 rdx=1 rbx=7ff6d794cae0 rsi=75 rdi=7ff6d7990f01
+  stack_abs=0x7ff6d34a009e game_rva=0x30009e
+  stack_abs=0x7ff6d349fe48 game_rva=0x2ffe48
+  stack_abs=0x7ff6d349e069 game_rva=0x2fe069
+  stack_abs=0x7ff6d34ee0a7 game_rva=0x34e0a7
+  stack_abs=0x7ff6d347c098 game_rva=0x2dc098
+  stack_abs=0x7ff6d359e816 game_rva=0x3fe816
+  stack_abs=0x7ff6d359bf66 game_rva=0x3fbf66
+  stack_abs=0x7ff6d4dcd39d game_rva=0x1c2d39d
+  stack_abs=0x7ff6d52fd323 game_rva=0x215d323
+  stack_abs=0x7ff6d52fed4d game_rva=0x215ed4d
+  stack_abs=0x7ff6d3ecd00e game_rva=0xd2d00e
+  stack_abs=0x7ff6d3ecd1cc game_rva=0xd2d1cc
+hit=2 tid=53160 timer=40727 next_rip_rva=0x30009e
+regs rcx=77 rdx=1 rbx=7ff6d794cae0 rsi=76 rdi=7ff6d7990f01
+  stack_abs=0x7ff6d34a009e game_rva=0x30009e
+  stack_abs=0x7ff6d349fe48 game_rva=0x2ffe48
+  stack_abs=0x7ff6d349e069 game_rva=0x2fe069
+  stack_abs=0x7ff6d34ee0a7 game_rva=0x34e0a7
+  stack_abs=0x7ff6d347c098 game_rva=0x2dc098
+  stack_abs=0x7ff6d359e816 game_rva=0x3fe816
+  stack_abs=0x7ff6d359bf66 game_rva=0x3fbf66
+  stack_abs=0x7ff6d4dcd39d game_rva=0x1c2d39d
+  stack_abs=0x7ff6d52fd323 game_rva=0x215d323
+  stack_abs=0x7ff6d52fed4d game_rva=0x215ed4d
+  stack_abs=0x7ff6d3ecd00e game_rva=0xd2d00e
+  stack_abs=0x7ff6d3ecd1cc game_rva=0xd2d1cc
+hit=3 tid=53160 timer=40728 next_rip_rva=0x30009e
+regs rcx=78 rdx=1 rbx=7ff6d794cae0 rsi=77 rdi=7ff6d7990f01
+  stack_abs=0x7ff6d34a009e game_rva=0x30009e
+  stack_abs=0x7ff6d349fe48 game_rva=0x2ffe48
+  stack_abs=0x7ff6d349e069 game_rva=0x2fe069
+  stack_abs=0x7ff6d34ee0a7 game_rva=0x34e0a7
+  stack_abs=0x7ff6d347c098 game_rva=0x2dc098
+  stack_abs=0x7ff6d359e816 game_rva=0x3fe816
+  stack_abs=0x7ff6d359bf66 game_rva=0x3fbf66
+  stack_abs=0x7ff6d4dcd39d game_rva=0x1c2d39d
+  stack_abs=0x7ff6d52fd323 game_rva=0x215d323
+  stack_abs=0x7ff6d52fed4d game_rva=0x215ed4d
+  stack_abs=0x7ff6d3ecd00e game_rva=0xd2d00e
+  stack_abs=0x7ff6d3ecd1cc game_rva=0xd2d1cc
+hit=4 tid=53160 timer=40729 next_rip_rva=0x30009e
+regs rcx=79 rdx=1 rbx=7ff6d794cae0 rsi=78 rdi=7ff6d7990f01
+  stack_abs=0x7ff6d34a009e game_rva=0x30009e
+  stack_abs=0x7ff6d349fe48 game_rva=0x2ffe48
+  stack_abs=0x7ff6d349e069 game_rva=0x2fe069
+  stack_abs=0x7ff6d34ee0a7 game_rva=0x34e0a7
+  stack_abs=0x7ff6d347c098 game_rva=0x2dc098
+  stack_abs=0x7ff6d359e816 game_rva=0x3fe816
+  stack_abs=0x7ff6d359bf66 game_rva=0x3fbf66
+  stack_abs=0x7ff6d4dcd39d game_rva=0x1c2d39d
+  stack_abs=0x7ff6d52fd323 game_rva=0x215d323
+  stack_abs=0x7ff6d52fed4d game_rva=0x215ed4d
+  stack_abs=0x7ff6d3ecd00e game_rva=0xd2d00e
+  stack_abs=0x7ff6d3ecd1cc game_rva=0xd2d1cc
+hit=5 tid=53160 timer=40730 next_rip_rva=0x30009e
+regs rcx=7a rdx=1 rbx=7ff6d794cae0 rsi=79 rdi=7ff6d7990f01
+  stack_abs=0x7ff6d34a009e game_rva=0x30009e
+  stack_abs=0x7ff6d349fe48 game_rva=0x2ffe48
+  stack_abs=0x7ff6d349e069 game_rva=0x2fe069
+  stack_abs=0x7ff6d34ee0a7 game_rva=0x34e0a7
+  stack_abs=0x7ff6d347c098 game_rva=0x2dc098
+  stack_abs=0x7ff6d359e816 game_rva=0x3fe816
+  stack_abs=0x7ff6d359bf66 game_rva=0x3fbf66
+  stack_abs=0x7ff6d4dcd39d game_rva=0x1c2d39d
+  stack_abs=0x7ff6d52fd323 game_rva=0x215d323
+  stack_abs=0x7ff6d52fed4d game_rva=0x215ed4d
+  stack_abs=0x7ff6d3ecd00e game_rva=0xd2d00e
+  stack_abs=0x7ff6d3ecd1cc game_rva=0xd2d1cc
+hit=6 tid=53160 timer=40731 next_rip_rva=0x30009e
+regs rcx=7b rdx=1 rbx=7ff6d794cae0 rsi=7a rdi=7ff6d7990f01
+  stack_abs=0x7ff6d34a009e game_rva=0x30009e
+  stack_abs=0x7ff6d349fe48 game_rva=0x2ffe48
+  stack_abs=0x7ff6d349e069 game_rva=0x2fe069
+  stack_abs=0x7ff6d34ee0a7 game_rva=0x34e0a7
+  stack_abs=0x7ff6d347c098 game_rva=0x2dc098
+  stack_abs=0x7ff6d359e816 game_rva=0x3fe816
+  stack_abs=0x7ff6d359bf66 game_rva=0x3fbf66
+  stack_abs=0x7ff6d4dcd39d game_rva=0x1c2d39d
+  stack_abs=0x7ff6d52fd323 game_rva=0x215d323
+  stack_abs=0x7ff6d52fed4d game_rva=0x215ed4d
+  stack_abs=0x7ff6d3ecd00e game_rva=0xd2d00e
+  stack_abs=0x7ff6d3ecd1cc game_rva=0xd2d1cc
+hit=7 tid=53160 timer=40732 next_rip_rva=0x30009e
+regs rcx=7c rdx=1 rbx=7ff6d794cae0 rsi=7b rdi=7ff6d7990f01
+  stack_abs=0x7ff6d34a009e game_rva=0x30009e
+  stack_abs=0x7ff6d349fe48 game_rva=0x2ffe48
+  stack_abs=0x7ff6d349e069 game_rva=0x2fe069
+  stack_abs=0x7ff6d34ee0a7 game_rva=0x34e0a7
+  stack_abs=0x7ff6d347c098 game_rva=0x2dc098
+  stack_abs=0x7ff6d359e816 game_rva=0x3fe816
+  stack_abs=0x7ff6d359bf66 game_rva=0x3fbf66
+  stack_abs=0x7ff6d4dcd39d game_rva=0x1c2d39d
+  stack_abs=0x7ff6d52fd323 game_rva=0x215d323
+  stack_abs=0x7ff6d52fed4d game_rva=0x215ed4d
+  stack_abs=0x7ff6d3ecd00e game_rva=0xd2d00e
+  stack_abs=0x7ff6d3ecd1cc game_rva=0xd2d1cc
+hit=8 tid=53160 timer=40733 next_rip_rva=0x30009e
+regs rcx=7d rdx=1 rbx=7ff6d794cae0 rsi=7c rdi=7ff6d7990f01
+  stack_abs=0x7ff6d34a009e game_rva=0x30009e
+  stack_abs=0x7ff6d349fe48 game_rva=0x2ffe48
+  stack_abs=0x7ff6d349e069 game_rva=0x2fe069
+  stack_abs=0x7ff6d34ee0a7 game_rva=0x34e0a7
+  stack_abs=0x7ff6d347c098 game_rva=0x2dc098
+  stack_abs=0x7ff6d359e816 game_rva=0x3fe816
+  stack_abs=0x7ff6d359bf66 game_rva=0x3fbf66
+  stack_abs=0x7ff6d4dcd39d game_rva=0x1c2d39d
+  stack_abs=0x7ff6d52fd323 game_rva=0x215d323
+  stack_abs=0x7ff6d52fed4d game_rva=0x215ed4d
+  stack_abs=0x7ff6d3ecd00e game_rva=0xd2d00e
+  stack_abs=0x7ff6d3ecd1cc game_rva=0xd2d1cc
+hits=8 restored=1 detached=1 failed=0

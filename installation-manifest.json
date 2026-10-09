@@ -1,0 +1,22 @@
+[
+  {
+    "Path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\UE4SS.dll",
+    "SHA256": "8AC18FBFFC1EF96B0662D4A2D537B3F224C26D65CAABA7989A9404C566102B26"
+  },
+  {
+    "Path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\dwmapi.dll",
+    "SHA256": "CE596412BEFA68C30B7F88F65BEB77D9BDAD55E9B96A276A5A9CF690C63F24BB"
+  },
+  {
+    "Path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\UE4SS-settings.ini",
+    "SHA256": "AA5F9E221CB174D246ABDCBC602D888C7005A146749AE77DA11997B45B8E9385"
+  },
+  {
+    "Path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\Mods\\mods.txt",
+    "SHA256": "41EDE51249C9976FF296F7AB4EB6569EBF2AECFC4670DABA5490EC0EE8CD2941"
+  },
+  {
+    "Path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\Mods\\SC6Rollback\\dlls\\main.dll",
+    "SHA256": "B44BCD62A9E1236A4A2CD3209F2BEBF65A6CB53EA97ED508ABAA6E39B686AF36"
+  }
+]

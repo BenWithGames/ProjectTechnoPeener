@@ -1,0 +1,9 @@
+{
+  "throw_camera_flag": {
+    "before": 0,
+    "after": 1,
+    "next_frame": 0
+  },
+  "immediate_flag_restore_verified": true,
+  "note": "After snapshot precedes flag correction. Next frame is normal post-load update, not matched no-load baseline or older-state replay."
+}

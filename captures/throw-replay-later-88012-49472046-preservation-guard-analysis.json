@@ -1,0 +1,36 @@
+{
+  "source_write_equal": true,
+  "rng_advance_correct": true,
+  "players": [
+    {
+      "side": 0,
+      "identity_stable": true,
+      "rebuilt_self_correct": true,
+      "unknown_changes": [],
+      "object_and_data_nonzero": true,
+      "mode_before_after": [
+        1,
+        1
+      ],
+      "flag_before_after": [
+        1,
+        0
+      ]
+    },
+    {
+      "side": 1,
+      "identity_stable": true,
+      "rebuilt_self_correct": true,
+      "unknown_changes": [],
+      "object_and_data_nonzero": true,
+      "mode_before_after": [
+        0,
+        1
+      ],
+      "flag_before_after": [
+        1,
+        0
+      ]
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "frames": 600,
+  "outer_gaps": 0,
+  "aux_rows": 10200,
+  "invalid_rows": 0,
+  "slot4_status": {
+    "1": 600
+  },
+  "nonzero_cursor_samples": 0,
+  "nonzero_progress_samples": 0,
+  "changes": [
+    {
+      "sample": "0",
+      "phase": "before_update",
+      "flag": "0",
+      "mode": "0",
+      "data": "0",
+      "cached": "0",
+      "sequence": "0",
+      "cursor": "0",
+      "length": "0",
+      "target": "1700410595312",
+      "target_length_bits": "0",
+      "target_progress_bits": "0",
+      "progress_status": "1"
+    },
+    {
+      "sample": "1",
+      "phase": "before_update",
+      "flag": "0",
+      "mode": "3",
+      "data": "1701061782752",
+      "cached": "0",
+      "sequence": "1701061782752",
+      "cursor": "0",
+      "length": "125",
+      "target": "1700410595312",
+      "target_length_bits": "1123680256",
+      "target_progress_bits": "0",
+      "progress_status": "1"
+    }
+  ]
+}

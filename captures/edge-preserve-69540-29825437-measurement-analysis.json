@@ -1,0 +1,45 @@
+{
+  "unexpected_changes": [
+    {
+      "player": 2,
+      "offset": "0x97220",
+      "before": 1,
+      "after": 0
+    }
+  ],
+  "states": [
+    {
+      "player": 1,
+      "before_pointers": [
+        2165583757328,
+        2165557067328
+      ],
+      "after_pointers": [
+        2165583757328,
+        2165557067328
+      ],
+      "before_mode": 1,
+      "after_mode": 1,
+      "before_flag": 0,
+      "after_flag": 0
+    },
+    {
+      "player": 2,
+      "before_pointers": [
+        2165581807680,
+        2165595687904
+      ],
+      "after_pointers": [
+        2165581807680,
+        2165595687904
+      ],
+      "before_mode": 1,
+      "after_mode": 1,
+      "before_flag": 1,
+      "after_flag": 0
+    }
+  ],
+  "expected_rng_after_four_steps": 1528964368,
+  "observed_rng": 1528964368,
+  "save_unchanged": true
+}

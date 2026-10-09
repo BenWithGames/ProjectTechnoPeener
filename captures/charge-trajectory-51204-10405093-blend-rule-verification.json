@@ -1,0 +1,59 @@
+{
+  "next_weights_from_previous_wrapper": [
+    {
+      "block": 0,
+      "offset": "0x3c",
+      "expected": 0.5521320700645447,
+      "exact_match": true
+    },
+    {
+      "block": 0,
+      "offset": "0x40",
+      "expected": 0.5521320700645447,
+      "exact_match": true
+    },
+    {
+      "block": 0,
+      "offset": "0x6c",
+      "expected": 0.5521320700645447,
+      "exact_match": true
+    },
+    {
+      "block": 0,
+      "offset": "0x70",
+      "expected": 0.5521320700645447,
+      "exact_match": true
+    },
+    {
+      "block": 2,
+      "offset": "0x3c",
+      "expected": 0.4478679299354553,
+      "exact_match": true
+    },
+    {
+      "block": 2,
+      "offset": "0x40",
+      "expected": 0.4478679299354553,
+      "exact_match": true
+    },
+    {
+      "block": 2,
+      "offset": "0x6c",
+      "expected": 0.4478679299354553,
+      "exact_match": true
+    },
+    {
+      "block": 2,
+      "offset": "0x70",
+      "expected": 0.4478679299354553,
+      "exact_match": true
+    }
+  ],
+  "wrapper_step": {
+    "before": 0.4478679299354553,
+    "rate": -0.20000000298023224,
+    "scale": 1.0,
+    "after": 0.24786792695522308
+  },
+  "scope": "Weights computed from prior boundary parameter; do not require current-boundary wrapper equality."
+}

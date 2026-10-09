@@ -1,0 +1,538 @@
+{
+  "changes": [
+    {
+      "player": 1,
+      "offset": "0x43df0",
+      "before": 0,
+      "after": 3616233200,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 1,
+      "offset": "0x43df4",
+      "before": 0,
+      "after": 32758,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 1,
+      "offset": "0x97100",
+      "before": 1040864192,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 1,
+      "offset": "0x97104",
+      "before": 1040864192,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 1,
+      "offset": "0x97108",
+      "before": 1040864192,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 1,
+      "offset": "0x9710c",
+      "before": 1040864192,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 1,
+      "offset": "0x97110",
+      "before": 1040864192,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 1,
+      "offset": "0x97114",
+      "before": 1040864192,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 1,
+      "offset": "0x97118",
+      "before": 1040864192,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 1,
+      "offset": "0x9711c",
+      "before": 1040864192,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 1,
+      "offset": "0x97120",
+      "before": 1040864192,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 1,
+      "offset": "0x97124",
+      "before": 1040864192,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 1,
+      "offset": "0x97128",
+      "before": 1040864192,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 1,
+      "offset": "0x9712c",
+      "before": 1040864192,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 1,
+      "offset": "0x97130",
+      "before": 1040864192,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 1,
+      "offset": "0x97134",
+      "before": 1040864192,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 1,
+      "offset": "0x97138",
+      "before": 1040864192,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 1,
+      "offset": "0x9713c",
+      "before": 1040864192,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 1,
+      "offset": "0x97140",
+      "before": 1040864192,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 1,
+      "offset": "0x97144",
+      "before": 1040864192,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 1,
+      "offset": "0x97148",
+      "before": 1040864192,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 1,
+      "offset": "0x9714c",
+      "before": 1040864192,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 1,
+      "offset": "0x97150",
+      "before": 1040864192,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 1,
+      "offset": "0x97154",
+      "before": 1040864192,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 1,
+      "offset": "0x97158",
+      "before": 1040864192,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 1,
+      "offset": "0x9715c",
+      "before": 1040864192,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 1,
+      "offset": "0x97160",
+      "before": 1040864192,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 1,
+      "offset": "0x97164",
+      "before": 1040864192,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 1,
+      "offset": "0x97168",
+      "before": 1040864192,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 1,
+      "offset": "0x9716c",
+      "before": 1040864192,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 1,
+      "offset": "0x97170",
+      "before": 1040864192,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 1,
+      "offset": "0x97174",
+      "before": 1040864192,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 1,
+      "offset": "0x97208",
+      "before": 3236063835,
+      "after": 3253080710,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 1,
+      "offset": "0x9720c",
+      "before": 3192704205,
+      "after": 1045220557,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 1,
+      "offset": "0x97218",
+      "before": 3248287928,
+      "after": 3253080710,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 1,
+      "offset": "0x9721c",
+      "before": 0,
+      "after": 4294967295,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 1,
+      "offset": "0x97228",
+      "before": 1,
+      "after": 0,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 1,
+      "offset": "0x97238",
+      "before": 0,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 2,
+      "offset": "0x43df0",
+      "before": 0,
+      "after": 3616852704,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 2,
+      "offset": "0x43df4",
+      "before": 0,
+      "after": 32758,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 2,
+      "offset": "0x97100",
+      "before": 0,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 2,
+      "offset": "0x97104",
+      "before": 0,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 2,
+      "offset": "0x97108",
+      "before": 0,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 2,
+      "offset": "0x9710c",
+      "before": 0,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 2,
+      "offset": "0x97110",
+      "before": 0,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 2,
+      "offset": "0x97114",
+      "before": 0,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 2,
+      "offset": "0x97118",
+      "before": 0,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 2,
+      "offset": "0x9711c",
+      "before": 0,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 2,
+      "offset": "0x97120",
+      "before": 0,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 2,
+      "offset": "0x97124",
+      "before": 0,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 2,
+      "offset": "0x97128",
+      "before": 0,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 2,
+      "offset": "0x9712c",
+      "before": 0,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 2,
+      "offset": "0x97130",
+      "before": 0,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 2,
+      "offset": "0x97134",
+      "before": 0,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 2,
+      "offset": "0x97138",
+      "before": 0,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 2,
+      "offset": "0x9713c",
+      "before": 0,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 2,
+      "offset": "0x97140",
+      "before": 0,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 2,
+      "offset": "0x97144",
+      "before": 0,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 2,
+      "offset": "0x97148",
+      "before": 0,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 2,
+      "offset": "0x9714c",
+      "before": 0,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 2,
+      "offset": "0x97150",
+      "before": 0,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 2,
+      "offset": "0x97154",
+      "before": 0,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 2,
+      "offset": "0x97158",
+      "before": 0,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 2,
+      "offset": "0x9715c",
+      "before": 0,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 2,
+      "offset": "0x97160",
+      "before": 0,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 2,
+      "offset": "0x97164",
+      "before": 0,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 2,
+      "offset": "0x97168",
+      "before": 0,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 2,
+      "offset": "0x9716c",
+      "before": 0,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 2,
+      "offset": "0x97170",
+      "before": 0,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 2,
+      "offset": "0x97174",
+      "before": 0,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 2,
+      "offset": "0x97208",
+      "before": 0,
+      "after": 3242648144,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 2,
+      "offset": "0x97218",
+      "before": 3244770680,
+      "after": 3242648144,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 2,
+      "offset": "0x9721c",
+      "before": 1,
+      "after": 4294967295,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 2,
+      "offset": "0x97220",
+      "before": 1,
+      "after": 0,
+      "known_scalar_or_pointer": false
+    },
+    {
+      "player": 2,
+      "offset": "0x97228",
+      "before": 6,
+      "after": 0,
+      "known_scalar_or_pointer": true
+    },
+    {
+      "player": 2,
+      "offset": "0x97238",
+      "before": 0,
+      "after": 1065353216,
+      "known_scalar_or_pointer": true
+    }
+  ],
+  "expected_rng_after_four_steps": 842440412,
+  "observed_rng": 842440412
+}

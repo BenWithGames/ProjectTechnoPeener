@@ -1,0 +1,16 @@
+schema=1
+complete_snapshot=false
+restore_performed=false
+attempted=1
+preflight_ok=1
+invoked=1
+fault=0
+transfer_failures=0
+first_error=0
+transfers=1356
+bytes=107094
+elapsed_qpc=359
+qpc_frequency=10000000
+bookkeeping_before=4326
+bookkeeping_after=4326
+payload_written=1

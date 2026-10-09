@@ -1,0 +1,38 @@
+{
+  "transform_records": 2047,
+  "transform_differences": 0,
+  "serialized_differences": [
+    {
+      "index": 6,
+      "writer_rva": "0x30aa54",
+      "offsets": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "index": 354,
+      "writer_rva": "0x30aa54",
+      "offsets": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    }
+  ],
+  "ring_differences": 0,
+  "blend_differences": 0,
+  "camera_common_differences": 0,
+  "camera_extended": {
+    "smoothing": 0,
+    "targets": 0,
+    "response": 0
+  }
+}

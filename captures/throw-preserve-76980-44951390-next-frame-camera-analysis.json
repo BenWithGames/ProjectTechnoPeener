@@ -1,0 +1,14 @@
+{
+  "throw_camera_flag": {
+    "before": 0,
+    "after": 1,
+    "next_frame": 1
+  },
+  "game_camera_154": {
+    "0": 1.0136886835098267,
+    "2": 0.0,
+    "3": 0.0,
+    "5": 1.0087522268295288
+  },
+  "note": "Next frame is a normal post-load update, not an independently matched no-load baseline or older-state replay."
+}

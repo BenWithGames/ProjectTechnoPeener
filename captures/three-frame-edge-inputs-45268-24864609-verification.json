@@ -1,0 +1,29 @@
+{
+  "0": {
+    "blend-original_b.bin": true,
+    "transforms-original_b.bin": true,
+    "rings-2.bin": true,
+    "camera-1.bin": true,
+    "camera-1-response-1.bin": true,
+    "camera-1-smoothing-1.bin": true,
+    "camera-1-targets-1.bin": true
+  },
+  "1": {
+    "blend-original_b.bin": true,
+    "transforms-original_b.bin": true,
+    "rings-2.bin": true,
+    "camera-1.bin": true,
+    "camera-1-response-1.bin": true,
+    "camera-1-smoothing-1.bin": true,
+    "camera-1-targets-1.bin": true
+  },
+  "2": {
+    "blend-original_b.bin": true,
+    "transforms-original_b.bin": true,
+    "rings-2.bin": true,
+    "camera-1.bin": true,
+    "camera-1-response-1.bin": true,
+    "camera-1-smoothing-1.bin": true,
+    "camera-1-targets-1.bin": true
+  }
+}

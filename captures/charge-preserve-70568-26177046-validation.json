@@ -1,0 +1,43 @@
+{
+  "rows": 600,
+  "outer_gaps": 0,
+  "first_moves": [
+    "219",
+    "65535"
+  ],
+  "tracked_nonpointer_restored": true,
+  "post_save_unchanged": true,
+  "invalid_aux_rows": 0,
+  "slot4_changes": [
+    {
+      "sample": "0",
+      "phase": "before_update",
+      "object": "3208496059392",
+      "player": "140698154915568",
+      "cached": "0",
+      "data": "3210502860000",
+      "flag": "0",
+      "mode": "3"
+    },
+    {
+      "sample": "0",
+      "phase": "after_probe",
+      "object": "3208496059392",
+      "player": "140698154915568",
+      "cached": "0",
+      "data": "3210502860000",
+      "flag": "1",
+      "mode": "3"
+    },
+    {
+      "sample": "1",
+      "phase": "before_update",
+      "object": "3208496059392",
+      "player": "140698154915568",
+      "cached": "0",
+      "data": "3210502860000",
+      "flag": "0",
+      "mode": "3"
+    }
+  ]
+}

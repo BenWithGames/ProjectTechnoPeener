@@ -1,0 +1,353 @@
+[
+  {
+    "pair": 0,
+    "changes": {
+      "native": {
+        "length_a": 106766,
+        "length_b": 106766,
+        "different_bytes": 9197
+      },
+      "rings": {
+        "length_a": 307200,
+        "length_b": 307200,
+        "different_bytes": 14617
+      },
+      "blend": {
+        "length_a": 2760,
+        "length_b": 2760,
+        "different_bytes": 3
+      },
+      "scalars": {
+        "length_a": 448,
+        "length_b": 448,
+        "different_bytes": 125
+      },
+      "transforms": {
+        "length_a": 85572,
+        "length_b": 85572,
+        "different_bytes": 19964
+      },
+      "camera": {
+        "length_a": 3648,
+        "length_b": 3648,
+        "different_bytes": 60
+      }
+    },
+    "blend_unrecognized": [],
+    "transform_changes_by_kind": {
+      "0": 2,
+      "12": 138,
+      "15": 225,
+      "18": 225,
+      "19": 225,
+      "22": 74,
+      "1": 1,
+      "10": 1,
+      "7": 2
+    },
+    "camera_offsets": {
+      "0": [
+        80,
+        81,
+        100,
+        101,
+        276,
+        277,
+        304,
+        305,
+        340,
+        341,
+        342
+      ],
+      "1": [
+        85,
+        309
+      ],
+      "2": [
+        32,
+        33,
+        34,
+        36,
+        37,
+        40,
+        41,
+        42,
+        80,
+        81,
+        82,
+        84,
+        85,
+        86,
+        89,
+        90,
+        96,
+        97,
+        98,
+        100,
+        101,
+        102,
+        104,
+        105,
+        106,
+        112,
+        113,
+        272,
+        273,
+        274,
+        276,
+        277,
+        278,
+        280,
+        281,
+        282,
+        304,
+        305,
+        306,
+        308,
+        309,
+        310,
+        313,
+        314
+      ],
+      "3": [
+        288,
+        289,
+        290
+      ]
+    },
+    "transform_metadata_equal": true,
+    "camera_metadata_equal": true
+  },
+  {
+    "pair": 1,
+    "changes": {
+      "native": {
+        "length_a": 106766,
+        "length_b": 106766,
+        "different_bytes": 9323
+      },
+      "rings": {
+        "length_a": 307200,
+        "length_b": 307200,
+        "different_bytes": 14630
+      },
+      "blend": {
+        "length_a": 2760,
+        "length_b": 2760,
+        "different_bytes": 4
+      },
+      "scalars": {
+        "length_a": 448,
+        "length_b": 448,
+        "different_bytes": 95
+      },
+      "transforms": {
+        "length_a": 85572,
+        "length_b": 85572,
+        "different_bytes": 19986
+      },
+      "camera": {
+        "length_a": 3648,
+        "length_b": 3648,
+        "different_bytes": 58
+      }
+    },
+    "blend_unrecognized": [],
+    "transform_changes_by_kind": {
+      "0": 2,
+      "12": 138,
+      "15": 225,
+      "18": 225,
+      "19": 225,
+      "22": 74,
+      "1": 1,
+      "10": 1,
+      "7": 2
+    },
+    "camera_offsets": {
+      "0": [
+        80,
+        81,
+        100,
+        101,
+        276,
+        277,
+        304,
+        305,
+        340,
+        341
+      ],
+      "1": [
+        84,
+        85,
+        308,
+        309
+      ],
+      "2": [
+        32,
+        33,
+        36,
+        37,
+        40,
+        41,
+        42,
+        80,
+        81,
+        82,
+        84,
+        85,
+        86,
+        89,
+        90,
+        96,
+        97,
+        98,
+        100,
+        101,
+        102,
+        104,
+        105,
+        106,
+        112,
+        113,
+        114,
+        272,
+        273,
+        274,
+        276,
+        277,
+        278,
+        280,
+        281,
+        282,
+        304,
+        305,
+        306,
+        308,
+        309,
+        310,
+        313,
+        314
+      ]
+    },
+    "transform_metadata_equal": true,
+    "camera_metadata_equal": true
+  },
+  {
+    "pair": 2,
+    "changes": {
+      "native": {
+        "length_a": 106766,
+        "length_b": 106766,
+        "different_bytes": 9326
+      },
+      "rings": {
+        "length_a": 307200,
+        "length_b": 307200,
+        "different_bytes": 14741
+      },
+      "blend": {
+        "length_a": 2760,
+        "length_b": 2760,
+        "different_bytes": 4
+      },
+      "scalars": {
+        "length_a": 448,
+        "length_b": 448,
+        "different_bytes": 95
+      },
+      "transforms": {
+        "length_a": 85572,
+        "length_b": 85572,
+        "different_bytes": 20714
+      },
+      "camera": {
+        "length_a": 3648,
+        "length_b": 3648,
+        "different_bytes": 60
+      }
+    },
+    "blend_unrecognized": [],
+    "transform_changes_by_kind": {
+      "0": 2,
+      "12": 138,
+      "15": 225,
+      "18": 225,
+      "19": 225,
+      "22": 74,
+      "1": 1,
+      "10": 1,
+      "7": 2
+    },
+    "camera_offsets": {
+      "0": [
+        80,
+        81,
+        82,
+        100,
+        101,
+        102,
+        276,
+        277,
+        278,
+        304,
+        305,
+        306,
+        340,
+        341
+      ],
+      "1": [
+        84,
+        85,
+        308,
+        309
+      ],
+      "2": [
+        32,
+        33,
+        34,
+        36,
+        37,
+        40,
+        41,
+        42,
+        80,
+        81,
+        82,
+        84,
+        85,
+        86,
+        89,
+        90,
+        96,
+        97,
+        98,
+        100,
+        101,
+        104,
+        105,
+        106,
+        112,
+        113,
+        272,
+        273,
+        274,
+        276,
+        277,
+        280,
+        281,
+        282,
+        304,
+        305,
+        306,
+        308,
+        309,
+        310,
+        313,
+        314
+      ]
+    },
+    "transform_metadata_equal": true,
+    "camera_metadata_equal": true
+  }
+]

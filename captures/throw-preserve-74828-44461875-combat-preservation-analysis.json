@@ -1,0 +1,51 @@
+{
+  "blend_post_differences": [],
+  "transform_records": 2046,
+  "transform_post_differences": [],
+  "rings_post_differences": [],
+  "camera_common_post_differences": [
+    340,
+    341,
+    342,
+    343
+  ],
+  "targets_post_differences": [],
+  "smoothing_post_differences": [],
+  "response_post_differences": [],
+  "native": [
+    {
+      "transfer": "6",
+      "bytes": 6,
+      "offsets": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "writer_rva": "0x30aa54"
+    },
+    {
+      "transfer": "354",
+      "bytes": 6,
+      "offsets": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "writer_rva": "0x30aa54"
+    },
+    {
+      "transfer": "1044",
+      "bytes": 1,
+      "offsets": [
+        4944
+      ],
+      "writer_rva": "0x324942"
+    }
+  ]
+}
