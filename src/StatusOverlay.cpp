@@ -57,9 +57,12 @@ void paint(HWND w,View& v){
 void position(HWND w,View& v){
     if(!v.game || !IsWindow(v.game)){v.game=nullptr;EnumWindows(find_game,reinterpret_cast<LPARAM>(&v));}
     if(!v.game || GetForegroundWindow()!=v.game || IsIconic(v.game)){ShowWindow(w,SW_HIDE);return;}
+    if(GetWindow(w,GW_OWNER)!=v.game){
+        SetWindowLongPtrW(w,GWLP_HWNDPARENT,reinterpret_cast<LONG_PTR>(v.game));
+    }
     RECT client{};GetClientRect(v.game,&client);POINT origin{};ClientToScreen(v.game,&origin);
     unsigned dpi=GetDpiForWindow(v.game);if(!dpi)dpi=96;
-    // Fit the complete four-column layout even in a secondary_fonter game window.
+    // Fit the complete four-column layout even in a smaller game window.
     dpi=std::min(dpi,static_cast<unsigned>(std::max(64L,client.right*96/660)));
     if(v.dpi!=dpi){
         if(v.font)DeleteObject(v.font);if(v.secondary_font)DeleteObject(v.secondary_font);v.dpi=dpi;
@@ -94,7 +97,7 @@ void StatusOverlay::run(){
     View view;
     HWND window=CreateWindowExW(WS_EX_LAYERED|WS_EX_TRANSPARENT|WS_EX_NOACTIVATE|WS_EX_TOOLWINDOW,wc.lpszClassName,L"SC6Rollback status",WS_POPUP,0,0,1,1,nullptr,nullptr,module,&view);
     if(window){
-        SetLayeredWindowAttributes(window,key,235,LWA_COLORKEY|LWA_ALPHA);
+        SetLayeredWindowAttributes(window,key,128,LWA_COLORKEY|LWA_ALPHA);
         MSG msg{};bool quit=false;
         while(!stopping && !quit){
             while(PeekMessageW(&msg,nullptr,0,0,PM_REMOVE)){if(msg.message==WM_QUIT){quit=true;break;}TranslateMessage(&msg);DispatchMessageW(&msg);}

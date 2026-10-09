@@ -2,3 +2,4 @@
 /.vs/
 /vendor/
 *.user
+*.key

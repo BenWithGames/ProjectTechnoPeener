@@ -8,6 +8,12 @@ add_library(sc6_contract INTERFACE)
 target_include_directories(sc6_contract INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/include")
 target_compile_features(sc6_contract INTERFACE cxx_std_20)
 
+if(WIN32)
+    add_executable(SC6NetworkProbe tools/NetworkProbe.cpp)
+    target_compile_features(SC6NetworkProbe PRIVATE cxx_std_20)
+    target_link_libraries(SC6NetworkProbe PRIVATE ws2_32 bcrypt)
+endif()
+
 if(SC6_BUILD_MOD)
     if(NOT WIN32 OR NOT MSVC OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
         message(FATAL_ERROR "The mod requires Windows x64 and MSVC.")

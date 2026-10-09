@@ -3,6 +3,12 @@
 This is an experimental SC6 rollback research mod. Bounded offline movement and
 single-A correction tests have passed; network rollback is not implemented yet.
 
+A standalone [two-peer network diagnostic](docs/NETWORK_DIAGNOSTIC.md) now tests
+authenticated UDP input exchange and late-input replay using the existing bounded
+controller and a synthetic simulation. Local two-process tests passed with added
+latency and packet loss. It is separate from the game DLL; online SC6 rollback
+and real opponent telemetry still require game integration.
+
 The native build includes a click-through status panel at the bottom of the game
 window. It displays **SC6Rollback ENABLED**, network status, opponent ping (ms),
 input delay (frames), and rollback depth (frames). ENABLED means the mod is loaded,
