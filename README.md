@@ -9,12 +9,18 @@ controller and a synthetic simulation. Local two-process tests passed with added
 latency and packet loss. It is separate from the game DLL; online SC6 rollback
 and real opponent telemetry still require game integration.
 
+The opt-in [input observation mode](docs/INPUT_OBSERVATION.md) now captures
+120 actual frame-boundary input envelopes and exchanges them without restoration
+or injection. Transport delivery is tested with mock mappings; real-game capture,
+player mapping and cross-PC frame alignment still need validation.
+
 The native build includes a click-through status panel at the bottom of the game
 window. It displays **SC6Rollback ENABLED**, network status, opponent ping (ms),
 input delay (frames), and rollback depth (frames). ENABLED means the mod is loaded,
 not that online rollback is active. Unmeasured values show `--`; no simulated ping
 or inferred delay is displayed. The panel supports windowed/borderless play;
 exclusive fullscreen may hide it. It hides when SC6 loses focus or is minimized.
+The black panel is 50% transparent; text uses full opacity with antialiased edges.
 
 Future network integration should publish measured values through
 `StatusOverlay::publish(OverlayStats)`. Publish on connection and disconnection;

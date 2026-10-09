@@ -501,6 +501,7 @@ struct FullStateProbe {
         outer_correction_verified=corrected==before_keys && !std::memcmp(players,before_players,sizeof(players));
         return outer_correction_verified;
     }
+    unsigned delayed_failure_line{};
     void delayed_step(uintptr_t b,uintptr_t argument,Routine writer=nullptr,Routine reader=nullptr,Preflight check=nullptr) noexcept {
         if(fault || replay_done)return;
         if(!writer)writer=reinterpret_cast<Routine>(b+0x3841E0);
@@ -513,7 +514,7 @@ struct FullStateProbe {
             auto& input_checkpoint=input_checkpoints[input_check_phase];
             input_checkpoint.attempted=true;
             input_checkpoint.valid=input_bytes(argument,inputs,&input_checkpoint.sources);
-            if(!input_checkpoint.valid){fault=true;__leave;}
+            if(!input_checkpoint.valid){delayed_failure_line=__LINE__;fault=true;__leave;}
             input_checkpoint.bytes=inputs;
             if(!audit_started)delayed_inputs=inputs;
             for(unsigned i=0;i<inputs.size();++i)
@@ -522,9 +523,9 @@ struct FullStateProbe {
             // At phase2 the replayed update is already complete; this envelope
             // belongs to the upcoming update. A/B equality remains mandatory.
             const bool require_input_equality=!combat_replay_requested || !delayed_loaded;
-            if((require_input_equality && !delayed_inputs_equal) || !check(b) || !(combat_replay_requested?combat_state(b):(a_restore_requested && !delayed_loaded?a_state(b):(direction_restore_requested && !delayed_loaded?direction_state(b,direction_bits):idle(b))))){fault=true;__leave;}
+            if((require_input_equality && !delayed_inputs_equal) || !check(b) || !(combat_replay_requested?combat_state(b):(a_restore_requested && !delayed_loaded?a_state(b):(direction_restore_requested && !delayed_loaded?direction_state(b,direction_bits):idle(b))))){delayed_failure_line=__LINE__;fault=true;__leave;}
             if(!audit_done){
-                if(!capture_blend(b,audit_started?1u:0u)){fault=true;__leave;}
+                if(!capture_blend(b,audit_started?1u:0u)){delayed_failure_line=__LINE__;fault=true;__leave;}
                 audit_step(b,writer,check);
                 if(!fault){if(audit_done)cameras[1].capture(after_save,b);else if(save_valid)cameras[0].capture(saved,b);}
                 if(fault || !audit_done)__leave;
@@ -540,18 +541,18 @@ struct FullStateProbe {
                     delayed_guard_ok=delayed_guard_ok &&
                         (combat_preflight_pass_mask | (recorded_input_replay && delayed_inputs_equal?2u:0u))==combat_preflight_required_mask;
                 }
-                if(!delayed_guard_ok){fault=true;__leave;}
+                if(!delayed_guard_ok){delayed_failure_line=__LINE__;fault=true;__leave;}
                 // Restore physical slot selection before native fixups resolve aliases.
-                if(!rings[0].restore(b,delayed_scratch)){fault=true;__leave;}
+                if(!rings[0].restore(b,delayed_scratch)){delayed_failure_line=__LINE__;fault=true;__leave;}
                 restore_invoked=true;reader(&saved.stream);restore_completed=saved.consumed();
                 measure(b,2);
                 keys(b,delayed_loaded_keys.data(),delayed_loaded_players);delayed_keys_captured=true;
                 postflight_ok=check(b);
                 selected_equal=correct_delayed_outer(b);
-                if(!restore_completed || !selected_equal || !postflight_ok || !preserve(b) || !rings[0].restore(b,delayed_scratch)){fault=true;}
+                if(!restore_completed || !selected_equal || !postflight_ok || !preserve(b) || !rings[0].restore(b,delayed_scratch)){delayed_failure_line=__LINE__;fault=true;}
                 else {
                     delayed_loaded=true;measure(b,5);
-                    if(!capture_blend(b,2)){fault=true;__leave;}
+                    if(!capture_blend(b,2)){delayed_failure_line=__LINE__;fault=true;__leave;}
                     if(combat_replay_requested){
                         combat_postload_ready=CombatBlend::ready(blends[0].bytes,blends[1].bytes,blends[2].bytes,blends[0].owners,throw_requested) &&
                             transforms[0].combat_groups_ready(transforms[1],transforms[2]) &&
@@ -560,51 +561,51 @@ struct FullStateProbe {
                             transforms[0].restore_sway(transforms[1],transforms[2],b,true) &&
                             transforms[0].restore_constraints(transforms[1],transforms[2],b,true) &&
                             cameras[2].capture(saved,b) && cameras[0].restore_smoothing(cameras[1],cameras[2],b,false,true,true,charge_requested);
-                        if(!combat_postload_ready){fault=true;__leave;}
-                        if(!CombatBlend::restore(blends[0].bytes,blends[1].bytes,blends[2].bytes,blends[0].owners,throw_requested)){fault=true;__leave;}
+                        if(!combat_postload_ready){delayed_failure_line=__LINE__;fault=true;__leave;}
+                        if(!CombatBlend::restore(blends[0].bytes,blends[1].bytes,blends[2].bytes,blends[0].owners,throw_requested)){delayed_failure_line=__LINE__;fault=true;__leave;}
                         blend_weights_applied=blend_weights_verified=blend_blocks_applied=blend_blocks_verified=true;
                         combat_groups_restored=transforms[0].restore_combat_groups(transforms[1],transforms[2]);
                         combat_root_wind_restored=combat_groups_restored && transforms[0].restore_root_wind(transforms[1],transforms[2]);
-                        if(!combat_root_wind_restored || !capture_blend(b,6)){fault=true;__leave;}
+                        if(!combat_root_wind_restored || !capture_blend(b,6)){delayed_failure_line=__LINE__;fault=true;__leave;}
                     }else{
-                        if(!preserve_blend_weights(b)){fault=true;__leave;}
-                        if(!preserve_blend_blocks(b)){fault=true;__leave;}
+                        if(!preserve_blend_weights(b)){delayed_failure_line=__LINE__;fault=true;__leave;}
+                        if(!preserve_blend_blocks(b)){delayed_failure_line=__LINE__;fault=true;__leave;}
                     }
                     wind_restore_verified=transforms[0].restore_wind(transforms[1],transforms[6],b);
-                    if(!wind_restore_verified || !capture_blend(b,7)){fault=true;__leave;}
+                    if(!wind_restore_verified || !capture_blend(b,7)){delayed_failure_line=__LINE__;fault=true;__leave;}
                     sway_restore_verified=transforms[0].restore_sway(transforms[1],transforms[7],b);
-                    if(!sway_restore_verified || !capture_blend(b,8)){fault=true;__leave;}
+                    if(!sway_restore_verified || !capture_blend(b,8)){delayed_failure_line=__LINE__;fault=true;__leave;}
                     constraint_restore_verified=transforms[0].restore_constraints(transforms[1],transforms[8],b);
-                    if(!constraint_restore_verified || !capture_blend(b,9)){fault=true;__leave;}
-                    if(!restored_rings.capture(b)){fault=true;__leave;}
+                    if(!constraint_restore_verified || !capture_blend(b,9)){delayed_failure_line=__LINE__;fault=true;__leave;}
+                    if(!restored_rings.capture(b)){delayed_failure_line=__LINE__;fault=true;__leave;}
                     restored_ring_equal=restored_rings.same(rings[0]);
                     writer(&restored.stream);measure(b,6);restored_valid=restored.seal();
                     if(restored_valid)cameras[2].capture(restored,b);
-                    if(!capture_blend(b,3)){fault=true;__leave;}
+                    if(!capture_blend(b,3)){delayed_failure_line=__LINE__;fault=true;__leave;}
                     restored_after_rings.capture(b);
                     restored_save_unchanged=measurements[5].rng==measurements[6].rng && measurements[5].fields==measurements[6].fields &&
                         !std::memcmp(measurements[5].players,measurements[6].players,sizeof(measurements[5].players)) && restored_rings.same(restored_after_rings);
                     restored_save_unchanged=restored_save_unchanged && blends[6].bytes==blends[3].bytes;
-                    if(!restored_valid || !restored_save_unchanged){fault=true;__leave;}
+                    if(!restored_valid || !restored_save_unchanged){delayed_failure_line=__LINE__;fault=true;__leave;}
                     if(camera_restore_requested){
                         camera_restore_verified=cameras[0].restore_smoothing(cameras[1],cameras[2],b,false,combat_replay_requested || direction_restore_requested || a_restore_requested,false,charge_requested || direction_restore_requested || a_restore_requested);
-                        if(!camera_restore_verified || !cameras[4].capture(restored,b)){fault=true;__leave;}
+                        if(!camera_restore_verified || !cameras[4].capture(restored,b)){delayed_failure_line=__LINE__;fault=true;__leave;}
                     }
-                    if(combat_replay_requested && !throw_camera_flag.restore(saved,restored,b,attack_requested,edge_requested,reversal_requested)){fault=true;__leave;}
+                    if(combat_replay_requested && !throw_camera_flag.restore(saved,restored,b,attack_requested,edge_requested,reversal_requested)){delayed_failure_line=__LINE__;fault=true;__leave;}
                     auto n=restored.stream.write_position,m=saved.stream.write_position;
                     restored_byte_differences=n>m?n-m:m-n;
                     for(std::uint64_t i=0;i<(n<m?n:m);++i)if(restored.stream.payload[i]!=saved.stream.payload[i])++restored_byte_differences;
                 }
             }else{
                 combat_comparison_attempted=combat_replay_requested;
-                if(!capture_blend(b,4)){fault=true;__leave;}
+                if(!capture_blend(b,4)){delayed_failure_line=__LINE__;fault=true;__leave;}
                 std::array<std::uint32_t,std::size(key_rvas)> replay_keys{};uintptr_t replay_players[2]{};
                 keys(b,replay_keys.data(),replay_players);
                 replay_keys_equal=replay_keys==after_keys && !std::memcmp(replay_players,after_players,sizeof(after_players));
-                if(!replay_rings.capture(b)){fault=true;__leave;}
+                if(!replay_rings.capture(b)){delayed_failure_line=__LINE__;fault=true;__leave;}
                 replay_ring_equal=replay_rings.same(rings[2]);
                 writer(&replay.stream);
-                if(!replay.seal()){fault=true;__leave;}
+                if(!replay.seal()){delayed_failure_line=__LINE__;fault=true;__leave;}
                 cameras[3].capture(replay,b);
                 auto n=replay.stream.write_position,m=after_save.stream.write_position;
                 replay_byte_differences=n>m?n-m:m-n;
@@ -612,9 +613,9 @@ struct FullStateProbe {
                 replay_done=true;
                 // Differences are reported as an experiment result, never silently normalized.
             }
-        }__except(EXCEPTION_EXECUTE_HANDLER){exception=GetExceptionCode();fault=true;}
+        }__except(EXCEPTION_EXECUTE_HANDLER){exception=GetExceptionCode();delayed_failure_line=__LINE__;fault=true;}
         if(captured){__try{*reinterpret_cast<std::uint64_t*>(b+0x470E870)=bookkeeping;}
-            __except(EXCEPTION_EXECUTE_HANDLER){exception=GetExceptionCode();fault=true;}}
+            __except(EXCEPTION_EXECUTE_HANDLER){exception=GetExceptionCode();delayed_failure_line=__LINE__;fault=true;}}
     }
     bool combat_next_attempted{},combat_next_valid{};
     void capture_combat_next(uintptr_t b,Routine writer=nullptr,Preflight check=nullptr) noexcept {

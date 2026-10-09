@@ -40,6 +40,8 @@ struct NativeAdjacentRestore {
     RecordedInput replay_delivery;
     uintptr_t next_argument{};
     bool replay_delivered{},replay_checked{},replay_verified{},replay_scalars_verified{};
+    bool replay_measurement_read{},replay_rng_equal{},replay_players_equal{};
+    std::array<unsigned,2> replay_scalar_differences{};
     // One natural update through the hook, never a recursive/synchronous step.
     bool replay_step(NativeBoundarySnapshot& source,uintptr_t base,uintptr_t argument,
                      bool replacement_available,FullStateProbe::Routine writer=nullptr,
@@ -121,9 +123,15 @@ private:
         __try {
             FullStateProbe::Measurement live{};IdleTrajectoryAudit::measure(base,live);
             const auto& expected=probe->original_next;
-            if(live.rng!=expected.rng || std::memcmp(live.players,expected.players,sizeof(live.players)))return false;
-            for(unsigned side=0;side<2;++side)if(std::memcmp(live.fields[side].data()+8,expected.fields[side].data()+8,216))return false;
-            return true;
+            replay_measurement_read=true;
+            replay_rng_equal=live.rng==expected.rng;
+            replay_players_equal=!std::memcmp(live.players,expected.players,sizeof(live.players));
+            for(unsigned side=0;side<2;++side){
+                replay_scalar_differences[side]=0;
+                for(unsigned byte=8;byte<224;++byte)
+                    if(live.fields[side][byte]!=expected.fields[side][byte])++replay_scalar_differences[side];
+            }
+            return replay_rng_equal && replay_players_equal && !replay_scalar_differences[0] && !replay_scalar_differences[1];
         }__except(EXCEPTION_EXECUTE_HANDLER){return false;}
     }
 public:

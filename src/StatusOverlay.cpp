@@ -1,5 +1,6 @@
 #define NOMINMAX
 #include <Windows.h>
+#include <gdiplus.h>
 #include <algorithm>
 #include <string>
 #include "StatusOverlay.hpp"
@@ -8,7 +9,7 @@ namespace {
 std::mutex stats_mutex;
 OverlayStats latest;
 ULONGLONG updated{};
-constexpr COLORREF key=RGB(1,2,3);
+
 struct View {HWND game{};HFONT font{},secondary_font{};unsigned dpi{};int width{},height{};};
 BOOL CALLBACK find_game(HWND w,LPARAM data){
     DWORD pid{};GetWindowThreadProcessId(w,&pid);
@@ -25,33 +26,53 @@ std::wstring value(const std::optional<unsigned>& v,const wchar_t* unit){
 }
 void paint(HWND w,View& v){
     PAINTSTRUCT ps{};HDC dc=BeginPaint(w,&ps);RECT r{};GetClientRect(w,&r);
-    HDC memory=CreateCompatibleDC(dc);HBITMAP bitmap=CreateCompatibleBitmap(dc,r.right,r.bottom);
+    HDC memory=CreateCompatibleDC(dc);
+    BITMAPINFO info{};info.bmiHeader.biSize=sizeof(BITMAPINFOHEADER);
+    info.bmiHeader.biWidth=r.right;info.bmiHeader.biHeight=-r.bottom;
+    info.bmiHeader.biPlanes=1;info.bmiHeader.biBitCount=32;info.bmiHeader.biCompression=BI_RGB;
+    void* pixels{};HBITMAP bitmap=CreateDIBSection(dc,&info,DIB_RGB_COLORS,&pixels,nullptr,0);
+    if(!memory || !bitmap || !pixels){if(bitmap)DeleteObject(bitmap);if(memory)DeleteDC(memory);EndPaint(w,&ps);return;}
     auto old_bitmap=SelectObject(memory,bitmap);
-    HBRUSH background=CreateSolidBrush(key);FillRect(memory,&r,background);DeleteObject(background);
-    HBRUSH panel=CreateSolidBrush(RGB(18,22,29));auto old_brush=SelectObject(memory,panel);
-    auto old_pen=SelectObject(memory,GetStockObject(NULL_PEN));
-    RoundRect(memory,0,0,r.right,r.bottom,16,16);
-    SelectObject(memory,old_brush);SelectObject(memory,old_pen);DeleteObject(panel);
+    {
+    Gdiplus::Bitmap surface(r.right,r.bottom,r.right*4,PixelFormat32bppPARGB,static_cast<BYTE*>(pixels));
+    Gdiplus::Graphics graphics(&surface);
+    graphics.Clear(Gdiplus::Color(0,0,0,0));
+    graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+    graphics.SetTextRenderingHint(Gdiplus::TextRenderingHintAntiAliasGridFit);
+    Gdiplus::GraphicsPath shape;const float diameter=16.0f;
+    shape.AddArc(0.0f,0.0f,diameter,diameter,180.0f,90.0f);
+    shape.AddArc(r.right-diameter,0.0f,diameter,diameter,270.0f,90.0f);
+    shape.AddArc(r.right-diameter,r.bottom-diameter,diameter,diameter,0.0f,90.0f);
+    shape.AddArc(0.0f,r.bottom-diameter,diameter,diameter,90.0f,90.0f);shape.CloseFigure();
+    Gdiplus::SolidBrush panel(Gdiplus::Color(128,0,0,0));graphics.FillPath(&panel,&shape);
+    Gdiplus::Font primary(memory,v.font),secondary(memory,v.secondary_font);
+    auto draw=[&](const wchar_t* text,const RECT& bounds,bool large,COLORREF color,bool center=false){
+        Gdiplus::SolidBrush brush(Gdiplus::Color(255,GetRValue(color),GetGValue(color),GetBValue(color)));
+        Gdiplus::StringFormat format;format.SetFormatFlags(Gdiplus::StringFormatFlagsNoWrap);
+        format.SetAlignment(center?Gdiplus::StringAlignmentCenter:Gdiplus::StringAlignmentNear);
+        Gdiplus::RectF box(float(bounds.left),float(bounds.top),float(bounds.right-bounds.left),float(bounds.bottom-bounds.top));
+        graphics.DrawString(text,-1,large?&primary:&secondary,box,&format,&brush);
+    };
     OverlayStats stats;ULONGLONG stamp{};{std::lock_guard lock(stats_mutex);stats=latest;stamp=updated;}
     bool stale=stats.connected && GetTickCount64()-stamp>3000;
     if(!stats.connected || stale){stats.ping_ms.reset();stats.delay_frames.reset();stats.rollback_frames.reset();}
-    SetBkMode(memory,TRANSPARENT);auto old_font=SelectObject(memory,v.font);
-    SetTextColor(memory,RGB(109,231,176));
     int pad=MulDiv(16,v.dpi,96),top=MulDiv(10,v.dpi,96);
     RECT label{pad,top,r.right-pad,top+MulDiv(22,v.dpi,96)};
-    DrawTextW(memory,L"SC6Rollback  ENABLED",-1,&label,DT_LEFT|DT_SINGLELINE|DT_NOPREFIX);
-    SelectObject(memory,v.secondary_font);SetTextColor(memory,RGB(156,166,182));
+    draw(L"SC6Rollback  ENABLED",label,true,RGB(109,231,176));
     RECT subtitle{pad,top+MulDiv(24,v.dpi,96),r.right-pad,r.bottom};
-    DrawTextW(memory,stale?L"Network: telemetry stale":stats.connected?L"Network: peer connected":L"Network: inactive",-1,&subtitle,DT_LEFT|DT_SINGLELINE|DT_NOPREFIX);
+    draw(stale?L"Network: telemetry stale":stats.connected?L"Network: peer connected":L"Network: inactive",subtitle,false,RGB(156,166,182));
     int start=MulDiv(255,v.dpi,96),column=(r.right-pad-start)/3;
     const std::wstring texts[]={L"PING",L"DELAY",L"ROLLBACK"};
     const std::wstring values[]={value(stats.ping_ms,L" ms"),value(stats.delay_frames,L" f"),value(stats.rollback_frames,L" f")};
     for(int i=0;i<3;++i){RECT cell{start+i*column,top,start+(i+1)*column,top+MulDiv(20,v.dpi,96)};
-        SelectObject(memory,v.secondary_font);SetTextColor(memory,RGB(156,166,182));DrawTextW(memory,texts[i].c_str(),-1,&cell,DT_CENTER|DT_SINGLELINE);
+        draw(texts[i].c_str(),cell,false,RGB(156,166,182),true);
         cell.top+=MulDiv(23,v.dpi,96);cell.bottom=r.bottom;
-        SelectObject(memory,v.font);SetTextColor(memory,RGB(237,241,248));DrawTextW(memory,values[i].c_str(),-1,&cell,DT_CENTER|DT_SINGLELINE);
+        draw(values[i].c_str(),cell,true,RGB(237,241,248),true);
     }
-    SelectObject(memory,old_font);BitBlt(dc,0,0,r.right,r.bottom,memory,0,0,SRCCOPY);
+    } // Finish GDI+ rendering before presenting the premultiplied pixels.
+    POINT source{};SIZE size{r.right,r.bottom};
+    BLENDFUNCTION blend{AC_SRC_OVER,0,255,AC_SRC_ALPHA};
+    UpdateLayeredWindow(w,dc,nullptr,&size,memory,&source,0,&blend,ULW_ALPHA);
     SelectObject(memory,old_bitmap);DeleteObject(bitmap);DeleteDC(memory);EndPaint(w,&ps);
 }
 void position(HWND w,View& v){
@@ -94,10 +115,11 @@ void StatusOverlay::run(){
     HINSTANCE module{};GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS|GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,reinterpret_cast<LPCWSTR>(&procedure),&module);
     WNDCLASSW wc{};wc.lpfnWndProc=procedure;wc.hInstance=module;wc.lpszClassName=L"SC6RollbackStatusOverlay";
     if(!RegisterClassW(&wc))return;
+    Gdiplus::GdiplusStartupInput startup;ULONG_PTR graphics_token{};
+    if(Gdiplus::GdiplusStartup(&graphics_token,&startup,nullptr)!=Gdiplus::Ok){UnregisterClassW(wc.lpszClassName,module);return;}
     View view;
     HWND window=CreateWindowExW(WS_EX_LAYERED|WS_EX_TRANSPARENT|WS_EX_NOACTIVATE|WS_EX_TOOLWINDOW,wc.lpszClassName,L"SC6Rollback status",WS_POPUP,0,0,1,1,nullptr,nullptr,module,&view);
     if(window){
-        SetLayeredWindowAttributes(window,key,128,LWA_COLORKEY|LWA_ALPHA);
         MSG msg{};bool quit=false;
         while(!stopping && !quit){
             while(PeekMessageW(&msg,nullptr,0,0,PM_REMOVE)){if(msg.message==WM_QUIT){quit=true;break;}TranslateMessage(&msg);DispatchMessageW(&msg);}
@@ -106,6 +128,7 @@ void StatusOverlay::run(){
         if(IsWindow(window))DestroyWindow(window);
     }
     if(view.font)DeleteObject(view.font);if(view.secondary_font)DeleteObject(view.secondary_font);
+    Gdiplus::GdiplusShutdown(graphics_token);
     UnregisterClassW(wc.lpszClassName,module);
 }
 }

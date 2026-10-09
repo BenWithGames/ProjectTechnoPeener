@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <sstream>
 #include <memory>
 #include "FrameRecorder.hpp"
 #include "SaveProbe.hpp"
@@ -18,11 +19,71 @@
 #include "TwoFrameIdleReplay.hpp"
 #include "NativeAdjacentRestore.hpp"
 #include "NativeTwoFrameReplay.hpp"
+#include "NativeImmediateReplay.hpp"
+#include "NativeThreeImmediateReplay.hpp"
 #include "NativePredictionProbe.hpp"
 #include "NativeTwoMovement.hpp"
 #include "RepeatedMovement.hpp"
+#include "InputObservation.hpp"
 
 extern "C" { void* SC6Original=nullptr; void SC6EntryBridge(); }
+extern "C" { void* SC6FieldOriginal=nullptr; void SC6FieldBridge(); }
+extern "C" { void* SC6ResetOriginal=nullptr; void SC6ResetBridge(); }
+extern "C" void SC6TraceFieldReset(const uintptr_t* registers,uintptr_t caller) noexcept {
+    sc6::research::field_update_trace.record_reset(registers,caller);
+}
+extern "C" void SC6TraceFieldUpdate(const uintptr_t* registers,uintptr_t caller) noexcept {
+    sc6::research::field_update_trace.record(registers,caller);
+}
+extern "C" { void* SC6AfterOriginal=nullptr; void SC6AfterBridge(); }
+extern "C" void SC6TraceFieldAfter(uintptr_t player) noexcept {
+    uintptr_t args[]={player,2,0,0};
+    sc6::research::field_update_trace.record(args,sc6::research::field_update_trace.base+0x3793DC,2);
+}
+extern "C" { void* SC6BattleAfterOriginal=nullptr; void SC6BattleAfterBridge(); }
+extern "C" void SC6TraceBattleAfter(uintptr_t outer) noexcept {
+    auto& trace=sc6::research::field_update_trace;
+    const DWORD error=GetLastError();
+    if(trace.enabled.load(std::memory_order_acquire) && GetCurrentThreadId()==trace.owner && trace.count){
+        const auto last=trace.events[trace.count-1];
+        if(last.assignment==2){trace.inspect_callbacks(outer);uintptr_t args[]={last.player,2,0,0};trace.record(args,trace.base+0x3FE816,3);}
+    }
+    SetLastError(error);
+}
+extern "C" { void* SC6CleanupAfterOriginal=nullptr; void SC6CleanupAfterBridge(); }
+extern "C" void SC6TraceCleanupAfter(uintptr_t) noexcept {
+    auto& trace=sc6::research::field_update_trace;
+    const DWORD error=GetLastError();
+    if(trace.enabled.load(std::memory_order_acquire) && GetCurrentThreadId()==trace.owner && trace.count){
+        const auto last=trace.events[trace.count-1];
+        if(last.assignment==3){uintptr_t args[]={last.player,2,0,0};trace.record(args,trace.base+0x3fe822,4);}
+    }
+    SetLastError(error);
+}
+extern "C" { void* SC6EventsAfterOriginal=nullptr; void SC6EventsAfterBridge(); }
+extern "C" void SC6TraceEventsAfter(uintptr_t) noexcept {
+    auto& trace=sc6::research::field_update_trace;
+    const DWORD error=GetLastError();
+    if(trace.enabled.load(std::memory_order_acquire) && GetCurrentThreadId()==trace.owner && trace.count){
+        const auto last=trace.events[trace.count-1];
+        if(last.assignment==4){uintptr_t args[]={last.player,2,0,0};trace.record(args,trace.base+0x3fe82a,5);}
+    }
+    SetLastError(error);
+}
+extern "C" { void* SC6TailAfterOriginal=nullptr; void SC6TailAfterBridge(); }
+extern "C" void SC6TraceTailAfter(uintptr_t) noexcept {
+    auto& trace=sc6::research::field_update_trace;
+    const DWORD error=GetLastError();
+    if(trace.enabled.load(std::memory_order_acquire) && GetCurrentThreadId()==trace.owner && trace.count){
+        const auto last=trace.events[trace.count-1];
+        if(last.assignment==5){uintptr_t args[]={last.player,2,0,0};trace.record(args,trace.base+0x3fe832,6);}
+    }
+    SetLastError(error);
+}
+extern "C" {void* SC6SetterZeroOriginal=nullptr;void SC6SetterZeroBridge();}
+extern "C" void SC6TraceSetterZero(const uintptr_t* registers,uintptr_t site) noexcept {sc6::research::field_update_trace.record_setter(registers,site);}
+extern "C" {void* SC6SetterFullOriginal=nullptr;void SC6SetterFullBridge();}
+extern "C" void SC6TraceSetterFull(const uintptr_t* registers,uintptr_t site) noexcept {sc6::research::field_update_trace.record_setter(registers,site);}
 namespace {
 constexpr unsigned capacity=600;
 // These are research fields, not a complete rollback snapshot.
@@ -67,6 +128,7 @@ struct Row {
     AuxFrame auxiliary;
     std::array<std::byte,40> input_envelope{};
     bool input_valid{};
+    short traced_field[2]{};
 };
 struct Recorder {
     SRWLOCK lock=SRWLOCK_INIT;
@@ -74,6 +136,7 @@ struct Recorder {
     std::atomic<unsigned> skipped{0};
     std::array<Row,capacity> rows{};
     unsigned count{}; DWORD owner{}; bool ready{},hooked{},verified{},fault{};
+    uintptr_t first_return_address{}; unsigned caller_changes{};
     const char* reason="none"; uintptr_t base{}; ULONGLONG deadline{},lastPoll{};
     std::filesystem::path directory;
     std::string stem;
@@ -90,9 +153,14 @@ struct Recorder {
     std::unique_ptr<sc6::research::NativeTwoMovement> native_movement;
     std::unique_ptr<sc6::research::RepeatedMovement> repeated_movement;
     std::unique_ptr<sc6::research::NativeTwoFrameReplay> native_two;
+    std::unique_ptr<sc6::research::NativeImmediateReplay> immediate_replay;
+    std::unique_ptr<sc6::research::NativeThreeImmediateReplay> three_immediate;
     bool full_fields_equal{};
     bool charge_observe{},attack_observe{},observation_started{};
     AuxFrame auxiliary_after_probe;
+    HANDLE observation_mapping{};
+    sc6::observation::Shared* observation{};
+    bool observing{},observation_used{},field_hooked{},reset_hooked{},field_only{},after_hooked{},battle_after_hooked{},cleanup_hooked{},events_hooked{},tail_hooked{},setter_zero_hooked{},setter_full_hooked{};
 };
 Recorder& state() { static auto* r=new Recorder; return *r; }
 bool copy(void* dst, uintptr_t src, size_t n) noexcept {
@@ -159,6 +227,7 @@ void status(const char* message) {
     std::ofstream(state().directory/"status.txt",std::ios::app)<<GetTickCount64()<<" "<<message<<"\n";
 }
 void finish(Recorder& r,const char* why,bool fault=false) noexcept {
+    sc6::research::field_update_trace.stop();
     r.active.store(false,std::memory_order_release);r.ready=true;r.reason=why;r.fault=fault;
 }
 void value(std::ofstream& f,uint32_t v,char type) {
@@ -197,7 +266,101 @@ void write_capture(Recorder& r) {
     meta<<"schema=1\nboundary=before_RVA_0x2DBC60\nmode=user_confirmed_offline_training\ncomplete_snapshot=false\nsamples="<<r.count
         <<"\nskipped_entries="<<r.skipped.load()<<"\nstop="<<r.reason<<"\nfault="<<r.fault<<"\nouter_discontinuities="<<discontinuities<<"\nqpc_frequency="<<frequency.QuadPart<<"\ncsv_written="<<written<<'\n';
     meta<<"input_trace_written="<<inputs_written<<"\ninvalid_input_envelopes="<<invalid_inputs<<'\n';
+    meta<<"entry_module_base="<<r.base<<"\nentry_return_address="<<r.first_return_address
+        <<"\nentry_caller_changes="<<r.caller_changes<<'\n';
+    if(r.immediate_replay){const auto& p=*r.immediate_replay;
+        meta<<"scope=offline_single_synchronous_replay\nupdates_invoked="<<p.invocation.invoked
+            <<"\nupdate_completed="<<p.invocation.completed<<"\nupdate_exception="<<p.invocation.exception
+            <<"\nupdate_counter_before="<<p.invocation.before<<"\nupdate_counter_after="<<p.invocation.after
+            <<"\nrestore_invoked="<<p.restore.probe->restore_invoked<<"\nrestore_verified="<<p.restore.verified
+            <<"\nprepare_rejection="<<static_cast<unsigned>(p.restore.rejection)
+            <<"\nreplay_scalars_verified="<<p.restore.replay_scalars_verified
+            <<"\ncomparison_verified="<<p.restore.replay_verified<<"\nprobe_done="<<p.done
+            <<"\nprobe_stage="<<p.stage<<"\nprobe_fault="<<p.fault<<'\n';}
     meta<<"attack_observation_only="<<r.attack_observe<<'\n';
+    if(r.three_immediate || r.field_only){
+        const auto& trace=sc6::research::field_update_trace;
+        meta<<"field_trace_events="<<trace.count<<"\nfield_trace_dropped="<<trace.dropped<<'\n';
+        meta<<"callbacks_attempted="<<trace.callbacks_attempted<<"\ncallbacks_valid="<<trace.callbacks_valid<<"\ncallback_total="<<trace.callback_total<<'\n';
+        std::ofstream callbacks(r.directory/(r.stem+"-callbacks.csv"));
+        callbacks<<"index,active,object,vtable,target,word0,word1,word2,word3,resolved_object,resolved_target\n";
+        for(unsigned i=0;i<trace.callback_count;++i){const auto& c=trace.callbacks[i];
+            callbacks<<c.index<<','<<c.active<<','<<c.object<<','<<c.vtable<<','<<c.target;
+            for(auto word:c.words)callbacks<<','<<word;callbacks<<','<<c.resolved_object<<','<<c.resolved_target<<'\n';}
+        meta<<"setter_count="<<trace.setter_count<<"\nsetter_fault="<<trace.setter_fault<<"\nsetter_overflow="<<trace.setter_overflow<<'\n';
+        std::ofstream setters(r.directory/(r.stem+"-setters.csv"));
+        setters<<"object,vtable,target,site,value,counter,word0,word1,word2,word3,word4,word5,word6,word7\n";
+        for(unsigned i=0;i<trace.setter_count;++i){const auto& item=trace.setters[i];setters<<item.object<<','<<item.vtable<<','<<item.target<<','<<item.site<<','<<item.value<<','<<item.counter;
+            for(auto word:item.words)setters<<','<<word;setters<<'\n';}
+        std::ofstream events(r.directory/(r.stem+"-field-updates.csv"));
+        events<<"phase,thread,counter,player,caller,index,requested_value,before,flags,readable,assignment\n";
+        for(unsigned n=0;n<trace.count;++n){const auto& e=trace.events[n];
+            events<<e.phase<<','<<e.thread<<','<<e.counter<<','<<e.player<<','<<e.caller<<','<<e.index<<','<<e.delta<<','<<e.before<<','<<e.flags<<','<<e.readable<<','<<e.assignment<<'\n';}
+    }
+    if(r.field_only){
+        meta<<"scope=offline_field_trace_only\nrestore_invoked=0\nupdates_invoked=0\n";
+        std::ofstream fields(r.directory/(r.stem+"-field-boundaries.csv"));fields<<"sample,counter,p1_value,p2_value\n";
+        for(unsigned n=0;n<r.count;++n)fields<<n<<','<<r.rows[n].g[0]<<','<<r.rows[n].traced_field[0]<<','<<r.rows[n].traced_field[1]<<'\n';
+    }
+    if(r.three_immediate){const auto& p=*r.three_immediate;
+        meta<<"replay_depth="<<p.steps<<"\nreplay_ticks="<<p.replay_ticks<<"\nreplay_clock_frequency="<<p.clock_frequency<<'\n';
+        meta<<"training_resets_applied="<<p.resets_applied<<"\nwaited_for_increment="<<p.waited<<'\n';
+        meta<<(p.steps==6?"scope=offline_six_synchronous_replay\ncaptured=":"scope=offline_three_synchronous_replay\ncaptured=")<<p.captured<<"\nprepared="<<p.prepared
+            <<"\nrestored="<<p.restored<<"\nupdates_invoked="<<p.invoked<<"\ncompared="<<p.compared
+            <<"\nprobe_stage="<<p.stage<<"\nprobe_hop="<<p.hop_index
+            <<"\nprobe_done="<<p.done<<"\nprobe_fault="<<p.fault<<'\n';
+        for(unsigned i=0;i<p.steps;++i){const auto& call=p.calls[i];const auto& hop=*p.hops[i];
+            meta<<"hop"<<i<<"_invoked="<<call.invoked<<"\nhop"<<i<<"_counter_before="<<call.before
+                <<"\nhop"<<i<<"_counter_after="<<call.after<<"\nhop"<<i<<"_exception="<<call.exception
+                <<"\nhop"<<i<<"_rejection="<<static_cast<unsigned>(hop.rejection)
+                <<"\nhop"<<i<<"_restore_invoked="<<hop.probe->restore_invoked
+                <<"\nhop"<<i<<"_restore_verified="<<hop.verified
+                <<"\nhop"<<i<<"_comparison="<<hop.replay_verified<<'\n';
+            const auto& q=*hop.probe;
+            meta<<"hop"<<i<<"_restore_delayed_failure_line="<<q.delayed_failure_line<<'\n';
+            meta<<"hop"<<i<<"_restore_exception="<<q.exception<<'\n';
+            meta<<"hop"<<i<<"_restore_restore_completed="<<q.restore_completed<<'\n';
+            meta<<"hop"<<i<<"_restore_selected_equal="<<q.selected_equal<<'\n';
+            meta<<"hop"<<i<<"_restore_postflight_ok="<<q.postflight_ok<<'\n';
+            meta<<"hop"<<i<<"_restore_preserve_verified="<<q.preserve_verified<<'\n';
+            meta<<"hop"<<i<<"_restore_outer_correction_verified="<<q.outer_correction_verified<<'\n';
+            meta<<"hop"<<i<<"_restore_delayed_loaded="<<q.delayed_loaded<<'\n';
+            meta<<"hop"<<i<<"_restore_blend_weights_verified="<<q.blend_weights_verified<<'\n';
+            meta<<"hop"<<i<<"_restore_blend_blocks_verified="<<q.blend_blocks_verified<<'\n';
+            meta<<"hop"<<i<<"_restore_wind_restore_verified="<<q.wind_restore_verified<<'\n';
+            meta<<"hop"<<i<<"_restore_sway_restore_verified="<<q.sway_restore_verified<<'\n';
+            meta<<"hop"<<i<<"_restore_constraint_restore_verified="<<q.constraint_restore_verified<<'\n';
+            meta<<"hop"<<i<<"_restore_restored_valid="<<q.restored_valid<<'\n';
+            meta<<"hop"<<i<<"_restore_restored_save_unchanged="<<q.restored_save_unchanged<<'\n';
+            meta<<"hop"<<i<<"_restore_restored_ring_equal="<<q.restored_ring_equal<<'\n';
+            meta<<"hop"<<i<<"_restore_camera_restore_verified="<<q.camera_restore_verified<<'\n';
+
+            meta<<"hop"<<i<<"_comparison_started="<<hop.replay_checked
+                <<"\nhop"<<i<<"_measurement_read="<<hop.replay_measurement_read
+                <<"\nhop"<<i<<"_rng_equal="<<hop.replay_rng_equal
+                <<"\nhop"<<i<<"_players_equal="<<hop.replay_players_equal
+                <<"\nhop"<<i<<"_p1_scalar_byte_differences="<<hop.replay_scalar_differences[0]
+                <<"\nhop"<<i<<"_p2_scalar_byte_differences="<<hop.replay_scalar_differences[1]
+                <<"\nhop"<<i<<"_replay_saved="<<q.replay_done
+                <<"\nhop"<<i<<"_save_fault="<<q.fault<<'\n';
+            if(q.replay_done){
+                meta<<"hop"<<i<<"_keys_equal="<<q.replay_keys_equal
+                    <<"\nhop"<<i<<"_rings_equal="<<q.replay_ring_equal
+                    <<"\nhop"<<i<<"_native_equal="<<sc6::research::TwoFrameIdleReplay::native_equal(q,r.base)
+                    <<"\nhop"<<i<<"_native_raw_byte_differences="<<q.replay_byte_differences
+                    <<"\nhop"<<i<<"_blend_equal="<<(q.blends[1].valid && q.blends[4].valid && q.blends[1].bytes==q.blends[4].bytes && !std::memcmp(q.blends[1].owners,q.blends[4].owners,sizeof(q.blends[1].owners)))
+                    <<"\nhop"<<i<<"_transforms_equal="<<sc6::research::TwoFrameIdleReplay::transforms_equal(q.transforms[1],q.transforms[4])
+                    <<"\nhop"<<i<<"_cameras_equal="<<sc6::research::TwoFrameIdleReplay::cameras_equal(q.cameras[1],q.cameras[3])<<'\n';
+                for(unsigned which=0;which<2;++which){const auto& saved=which?q.replay:q.after_save;
+                    std::ofstream dump(r.directory/(r.stem+"-sync-hop"+std::to_string(i)+(which?"-actual.bin":"-expected.bin")),std::ios::binary);
+                    dump.write(reinterpret_cast<const char*>(saved.stream.payload.data()),static_cast<std::streamsize>(saved.stream.write_position));
+                    std::ofstream layout(r.directory/(r.stem+"-sync-hop"+std::to_string(i)+(which?"-actual-layout.csv":"-expected-layout.csv")));
+                    layout<<"record,offset,length,writer,source\n";std::uint64_t offset=0;
+                    for(unsigned record=0;record<saved.writes;++record){
+                        layout<<record<<','<<offset<<','<<saved.lengths[record]<<','<<saved.traces[record].writer<<','<<saved.traces[record].source<<'\n';
+                        offset+=saved.lengths[record];}}
+            }
+        }}
     meta<<"charge_observation_only="<<r.charge_observe<<"\nobservation_trigger_matched="<<r.observation_started<<'\n';
     status(written?"capture saved":"capture write failed");
     if(r.charge_observe || r.attack_observe || (r.full && r.full->combat_requested())){
@@ -634,7 +797,7 @@ void write_capture(Recorder& r) {
     }
 }
 }
-extern "C" void SC6RecordEntry(uintptr_t argument,uintptr_t* replacement=nullptr) noexcept {
+extern "C" void SC6RecordEntry(uintptr_t argument,uintptr_t* replacement=nullptr,uintptr_t return_address=0) noexcept {
     struct LastErrorGuard { DWORD value=GetLastError(); ~LastErrorGuard(){SetLastError(value);} } guard;
     auto& r=state();if(!r.active.load(std::memory_order_acquire))return;
     // Never wait behind disk I/O or a reentrant call at the game boundary.
@@ -643,17 +806,45 @@ extern "C" void SC6RecordEntry(uintptr_t argument,uintptr_t* replacement=nullptr
     DWORD tid=GetCurrentThreadId();
     if(r.owner && r.owner!=tid){finish(r,"thread_changed",true);ReleaseSRWLockExclusive(&r.lock);return;}
     r.owner=tid;
+    if(!r.first_return_address)r.first_return_address=return_address;
+    else if(return_address!=r.first_return_address)++r.caller_changes;
     if(GetTickCount64()>=r.deadline){finish(r,"timeout");ReleaseSRWLockExclusive(&r.lock);return;}
+    if(r.observing){
+        // Observation has an early return: none of the save/load/input replacement
+        // paths below can run while the network observer is armed.
+        sc6::observation::Record record;
+        std::array<std::byte,40> envelope{};uint32_t after{};
+        const bool ok=copy(&record.data[0],r.base+0x470D0C4,4) &&
+            sc6::research::FullStateProbe::input_bytes(argument,envelope) &&
+            copy(&after,r.base+0x470D0C4,4) && after==record.data[0];
+        if(!ok){InterlockedExchange(&r.observation->status,3);finish(r,"observation_read_failed",true);}
+        else {
+            std::memcpy(record.data.data()+1,envelope.data(),40);
+            LARGE_INTEGER stamp{};QueryPerformanceCounter(&stamp);
+            record.data[11]=static_cast<uint32_t>(stamp.QuadPart);record.data[12]=static_cast<uint32_t>(stamp.QuadPart>>32);
+            r.observation->records[r.count]=record;
+            MemoryBarrier();InterlockedExchange(&r.observation->count,static_cast<LONG>(++r.count));
+            if(r.count==(r.observation->reserved?sc6::observation::capacity:sc6::observation::limit)){InterlockedExchange(&r.observation->status,2);r.active.store(false);}
+        }
+        ReleaseSRWLockExclusive(&r.lock);return;
+    }
+    if(r.field_only && r.count==0)sc6::research::field_update_trace.start(r.base);
     auto& row=r.rows[r.count]; row={}; row.argument=argument;row.tid=tid;
     row.input_valid=sc6::research::FullStateProbe::input_bytes(argument,row.input_envelope);
     LARGE_INTEGER qpc{};QueryPerformanceCounter(&qpc);row.qpc=qpc.QuadPart;
     bool ok=fields(row.g,r.base,globals);
     for(int p=0;p<2 && ok;++p){
         ok=copy(&row.pointer[p],r.base+0x470F1A0+p*8,8) && row.pointer[p]>=0x10000 && row.pointer[p]<0x800000000000ULL;
+        if(ok && r.field_only)ok=copy(&row.traced_field[p],row.pointer[p]+0x1B3C,2);
         if(ok)ok=fields(row.p[p],row.pointer[p],players) && fields(row.a[p],r.base+(p?0x47F0FD0:0x4759BE0),animation);
     }
     uint32_t after{};
     ok=ok && copy(&after,r.base+0x470D0C4,4) && after==row.g[0];
+    if(r.field_only){
+        if(!ok)finish(r,"field_observation_failed",true);
+        else if(++r.count==capacity)finish(r,"limit");
+        ReleaseSRWLockExclusive(&r.lock);return;
+    }
     if(!ok)finish(r,"invalid_or_changing_state",true);
     else {
         if(r.charge_observe || r.attack_observe){
@@ -665,6 +856,20 @@ extern "C" void SC6RecordEntry(uintptr_t argument,uintptr_t* replacement=nullptr
                 r.observation_started=true;r.deadline=GetTickCount64()+20000;
             }
             row.auxiliary=sample_auxiliary(r.base);
+        }
+        if(r.three_immediate && !r.three_immediate->done){
+            if(!r.three_immediate->step(r.base,argument,return_address,
+                reinterpret_cast<sc6::research::SingleUpdateCall::Routine>(SC6Original))){
+                r.restore_failed=true;++r.count;finish(r,"three_synchronous_replay_failed",true);
+                ReleaseSRWLockExclusive(&r.lock);return;
+            }
+        }
+        if(r.immediate_replay && !r.immediate_replay->done){
+            if(!r.immediate_replay->step(r.base,argument,return_address,
+                reinterpret_cast<sc6::research::SingleUpdateCall::Routine>(SC6Original))){
+                r.restore_failed=true;++r.count;finish(r,"synchronous_replay_failed",true);
+                ReleaseSRWLockExclusive(&r.lock);return;
+            }
         }
         if(r.repeated_movement && !r.repeated_movement->done){
             if(!r.repeated_movement->step(r.base,argument,replacement!=nullptr)){r.restore_failed=true;++r.count;finish(r,"repeated_movement_failed",true);ReleaseSRWLockExclusive(&r.lock);return;}
@@ -789,10 +994,24 @@ void recorder_init() {
     r.directory=std::filesystem::path(path).parent_path().parent_path()/"captures";
     std::filesystem::create_directories(r.directory);
     r.verified=hash_matches();status(r.verified?"ready; hook inactive until offline arm":"unsupported executable; recorder disabled");
+    if(r.verified){
+        r.observation_mapping=CreateFileMappingW(INVALID_HANDLE_VALUE,nullptr,PAGE_READWRITE,0,sizeof(sc6::observation::Shared),sc6::observation::mapping_name(GetCurrentProcessId()).c_str());
+        if(r.observation_mapping && GetLastError()!=ERROR_ALREADY_EXISTS){
+            r.observation=static_cast<sc6::observation::Shared*>(MapViewOfFile(r.observation_mapping,FILE_MAP_WRITE,0,0,sizeof(sc6::observation::Shared)));
+            if(r.observation){*r.observation={};r.observation->schema=sc6::observation::version;r.observation->pid=GetCurrentProcessId();
+                LARGE_INTEGER frequency{};QueryPerformanceFrequency(&frequency);r.observation->frequency=frequency.QuadPart;
+                MemoryBarrier();r.observation->signature=sc6::observation::magic;}
+        }
+    }
 }
 void recorder_poll() {
     auto& r=state();auto now=GetTickCount64();if(now-r.lastPoll<250)return;r.lastPoll=now;
     if(!TryAcquireSRWLockExclusive(&r.lock))return;
+    if(r.observing){
+        if(r.active.load() && now>=r.deadline){r.active.store(false);InterlockedExchange(&r.observation->status,3);}
+        if(!r.active.load()){if(r.observation->status==1)InterlockedExchange(&r.observation->status,3);r.ready=false;}
+        ReleaseSRWLockExclusive(&r.lock);return;
+    }
     if(r.active.load() && now>=r.deadline)finish(r,"timeout");
     if(r.ready){write_capture(r);r.ready=false;}
     ReleaseSRWLockExclusive(&r.lock);
@@ -800,8 +1019,31 @@ void recorder_poll() {
     bool full_request=std::filesystem::exists(r.directory/"offline-full-restore.arm");
     bool shared_request=std::filesystem::exists(r.directory/"offline-shared-restore.arm");
     bool save_request=std::filesystem::exists(r.directory/"offline-save.arm");
-    auto arm=r.directory/(full_request?"offline-full-restore.arm":shared_request?"offline-shared-restore.arm":save_request?"offline-save.arm":"offline-training.arm");std::ifstream request(arm);if(!request)return;
+    const bool observe_network=std::filesystem::exists(r.directory/"network-observe.arm");
+    auto arm=r.directory/(observe_network?"network-observe.arm":full_request?"offline-full-restore.arm":shared_request?"offline-shared-restore.arm":save_request?"offline-save.arm":"offline-training.arm");std::ifstream request(arm);if(!request)return;
     std::string token;std::getline(request,token);request.close();std::filesystem::remove(arm);
+    if(observe_network){
+        std::istringstream parser(token);std::string label,extra;unsigned pid{};std::uint64_t nonce{};
+        parser>>label>>pid>>nonce;
+        if(!parser || (parser>>extra) || (label!="NETWORK_OBSERVE_ONLY" && label!="NETWORK_OBSERVE_LONG") || pid!=GetCurrentProcessId() || !nonce || !r.observation || r.observation_used ||
+            full_request || shared_request || save_request || std::filesystem::exists(r.directory/"offline-training.arm")){
+            status("network observation arm rejected; stale, conflicting, or unavailable");return;
+        }
+        if(!r.hooked){
+            const unsigned char expected[]={0x4c,0x8b,0xdc,0x49,0x89,0x5b,0x10,0x49,0x89,0x6b,0x18};unsigned char actual[sizeof(expected)]{};
+            void* target=reinterpret_cast<void*>(r.base+0x2DBC60);
+            if(!copy(actual,reinterpret_cast<uintptr_t>(target),sizeof(actual)) || memcmp(actual,expected,sizeof(actual))){status("observation prologue mismatch");return;}
+            auto initialized=MH_Initialize();if(initialized!=MH_OK && initialized!=MH_ERROR_ALREADY_INITIALIZED){status("observation hook init failed");return;}
+            if(MH_CreateHook(target,reinterpret_cast<void*>(&SC6EntryBridge),&SC6Original)!=MH_OK){status("observation hook creation failed");return;}
+            if(MH_EnableHook(target)!=MH_OK){MH_RemoveHook(target);status("observation hook enable failed");return;}r.hooked=true;
+        }
+        AcquireSRWLockExclusive(&r.lock);
+        r.observing=true;r.observation_used=true;r.count=0;r.owner=0;r.skipped=0;r.ready=false;
+        r.observation->reserved=label=="NETWORK_OBSERVE_LONG"?1u:0u;
+        r.observation->nonce=nonce;r.observation->count=0;InterlockedExchange(&r.observation->status,1);
+        r.deadline=now+(r.observation->reserved?90000:20000);r.active.store(true,std::memory_order_release);ReleaseSRWLockExclusive(&r.lock);
+        status("network observation armed: bounded input records only; no restore or injection; restart required afterward");return;
+    }
     bool attack_observe_request=!full_request && !shared_request && !save_request && token=="OFFLINE_ATTACK_OBSERVE "+std::to_string(GetCurrentProcessId());
     bool observe_request=!full_request && !shared_request && !save_request && token=="OFFLINE_CHARGE_OBSERVE "+std::to_string(GetCurrentProcessId());
     bool throw_request=full_request && token=="OFFLINE_THROW_PRESERVE "+std::to_string(GetCurrentProcessId());
@@ -819,7 +1061,11 @@ void recorder_poll() {
     bool native_prediction_request=native_a_request || native_direction_request || (full_request && token=="OFFLINE_NATIVE_PREDICTION "+std::to_string(GetCurrentProcessId()));
     bool native_two_request=full_request && token=="OFFLINE_NATIVE_TWO_IDLE_REPLAY "+std::to_string(GetCurrentProcessId());
     bool native_replay_request=full_request && token=="OFFLINE_NATIVE_IDLE_REPLAY "+std::to_string(GetCurrentProcessId());
-    bool native_idle_request=repeated_movement_request || native_movement_request || native_prediction_request || native_two_request || native_replay_request || (full_request && token=="OFFLINE_NATIVE_ADJACENT_IDLE "+std::to_string(GetCurrentProcessId()));
+    bool field_only_request=full_request && token=="OFFLINE_FIELD_TRACE_ONLY "+std::to_string(GetCurrentProcessId());
+    bool six_immediate_request=full_request && token=="OFFLINE_SIX_SYNCHRONOUS_REPLAY "+std::to_string(GetCurrentProcessId());
+    bool three_immediate_request=six_immediate_request || (full_request && token=="OFFLINE_THREE_SYNCHRONOUS_REPLAY "+std::to_string(GetCurrentProcessId()));
+    bool immediate_request=full_request && token=="OFFLINE_SINGLE_SYNCHRONOUS_REPLAY "+std::to_string(GetCurrentProcessId());
+    bool native_idle_request=field_only_request || three_immediate_request || immediate_request || repeated_movement_request || native_movement_request || native_prediction_request || native_two_request || native_replay_request || (full_request && token=="OFFLINE_NATIVE_ADJACENT_IDLE "+std::to_string(GetCurrentProcessId()));
     bool reversal_structure_request=full_request && token=="OFFLINE_REVERSAL_STRUCTURE "+std::to_string(GetCurrentProcessId());
     bool three_reversal_request=full_request && token=="OFFLINE_THREE_FRAME_REVERSAL_INPUTS "+std::to_string(GetCurrentProcessId());
     bool three_edge_request=full_request && token=="OFFLINE_THREE_FRAME_EDGE_INPUTS "+std::to_string(GetCurrentProcessId());
@@ -845,7 +1091,7 @@ void recorder_poll() {
     bool attack_request=full_request && token=="OFFLINE_ATTACK_PRESERVE "+std::to_string(GetCurrentProcessId());
     bool charge_request=full_request && token=="OFFLINE_CHARGE_PRESERVE "+std::to_string(GetCurrentProcessId());
     bool preserve_request=reversal_request || edge_request || attack_request || charge_request || throw_request || (full_request && token=="OFFLINE_FULL_PRESERVE "+std::to_string(GetCurrentProcessId()));
-    if(token!=(native_a_restore_request?"OFFLINE_NATIVE_A_RESTORE ":native_a_request?"OFFLINE_NATIVE_A_CAPTURE ":native_left_request?"OFFLINE_NATIVE_LEFT_MOVEMENT ":repeated_movement_request?"OFFLINE_REPEATED_MOVEMENT ":native_three_movement_request?"OFFLINE_NATIVE_THREE_MOVEMENT ":native_movement_request?"OFFLINE_NATIVE_TWO_MOVEMENT ":native_two_direction_request?"OFFLINE_NATIVE_TWO_DIRECTION_CAPTURE ":native_direction_restore_request?"OFFLINE_NATIVE_DIRECTION_RESTORE ":native_direction_request?"OFFLINE_NATIVE_DIRECTION ":native_prediction_request?"OFFLINE_NATIVE_PREDICTION ":native_two_request?"OFFLINE_NATIVE_TWO_IDLE_REPLAY ":native_replay_request?"OFFLINE_NATIVE_IDLE_REPLAY ":native_idle_request?"OFFLINE_NATIVE_ADJACENT_IDLE ":reversal_structure_request?"OFFLINE_REVERSAL_STRUCTURE ":three_reversal_request?"OFFLINE_THREE_FRAME_REVERSAL_INPUTS ":three_edge_request?"OFFLINE_THREE_FRAME_EDGE_INPUTS ":attack_structure_request?"OFFLINE_ATTACK_STRUCTURE ":three_attack_request?"OFFLINE_THREE_FRAME_ATTACK_INPUTS ":three_charge_request?"OFFLINE_THREE_FRAME_CHARGE_INPUTS ":charge_inputs_request?"OFFLINE_TWO_FRAME_CHARGE_INPUTS ":two_charge_request?"OFFLINE_TWO_FRAME_CHARGE ":charge_replay_request?"OFFLINE_ONE_FRAME_CHARGE ":charge_trajectory_request?"OFFLINE_CHARGE_TRAJECTORY ":three_input_request?"OFFLINE_THREE_FRAME_THROW_INPUTS ":recorded_input_request?"OFFLINE_TWO_FRAME_THROW_INPUTS ":long_trajectory_request?"OFFLINE_THROW_TRAJECTORY_LONG ":two_throw_request?"OFFLINE_TWO_FRAME_THROW ":throw_trajectory_request?"OFFLINE_THROW_TRAJECTORY ":two_frame_request?"OFFLINE_TWO_FRAME_IDLE ":trajectory_request?"OFFLINE_IDLE_TRAJECTORY ":combat_later_request?"OFFLINE_THROW_REPLAY_LATER ":combat_replay_request?"OFFLINE_THROW_REPLAY ":throw_audit_request?"OFFLINE_THROW_AUDIT ":delayed_request?"OFFLINE_DELAY_RESTORE ":audit_request?"OFFLINE_DELAY_AUDIT ":attack_observe_request?"OFFLINE_ATTACK_OBSERVE ":observe_request?"OFFLINE_CHARGE_OBSERVE ":reversal_request?"OFFLINE_REVERSAL_PRESERVE ":edge_request?"OFFLINE_EDGE_PRESERVE ":attack_request?"OFFLINE_ATTACK_PRESERVE ":charge_request?"OFFLINE_CHARGE_PRESERVE ":throw_request?"OFFLINE_THROW_PRESERVE ":preserve_request?"OFFLINE_FULL_PRESERVE ":full_request?"OFFLINE_FULL_RESTORE ":shared_request?"OFFLINE_SHARED_RESTORE ":save_request?"OFFLINE_SAVE ":"OFFLINE_TRAINING ")+std::to_string(GetCurrentProcessId())){status("rejected stale/invalid arm");return;}
+    if(token!=(six_immediate_request?"OFFLINE_SIX_SYNCHRONOUS_REPLAY ":field_only_request?"OFFLINE_FIELD_TRACE_ONLY ":three_immediate_request?"OFFLINE_THREE_SYNCHRONOUS_REPLAY ":immediate_request?"OFFLINE_SINGLE_SYNCHRONOUS_REPLAY ":native_a_restore_request?"OFFLINE_NATIVE_A_RESTORE ":native_a_request?"OFFLINE_NATIVE_A_CAPTURE ":native_left_request?"OFFLINE_NATIVE_LEFT_MOVEMENT ":repeated_movement_request?"OFFLINE_REPEATED_MOVEMENT ":native_three_movement_request?"OFFLINE_NATIVE_THREE_MOVEMENT ":native_movement_request?"OFFLINE_NATIVE_TWO_MOVEMENT ":native_two_direction_request?"OFFLINE_NATIVE_TWO_DIRECTION_CAPTURE ":native_direction_restore_request?"OFFLINE_NATIVE_DIRECTION_RESTORE ":native_direction_request?"OFFLINE_NATIVE_DIRECTION ":native_prediction_request?"OFFLINE_NATIVE_PREDICTION ":native_two_request?"OFFLINE_NATIVE_TWO_IDLE_REPLAY ":native_replay_request?"OFFLINE_NATIVE_IDLE_REPLAY ":native_idle_request?"OFFLINE_NATIVE_ADJACENT_IDLE ":reversal_structure_request?"OFFLINE_REVERSAL_STRUCTURE ":three_reversal_request?"OFFLINE_THREE_FRAME_REVERSAL_INPUTS ":three_edge_request?"OFFLINE_THREE_FRAME_EDGE_INPUTS ":attack_structure_request?"OFFLINE_ATTACK_STRUCTURE ":three_attack_request?"OFFLINE_THREE_FRAME_ATTACK_INPUTS ":three_charge_request?"OFFLINE_THREE_FRAME_CHARGE_INPUTS ":charge_inputs_request?"OFFLINE_TWO_FRAME_CHARGE_INPUTS ":two_charge_request?"OFFLINE_TWO_FRAME_CHARGE ":charge_replay_request?"OFFLINE_ONE_FRAME_CHARGE ":charge_trajectory_request?"OFFLINE_CHARGE_TRAJECTORY ":three_input_request?"OFFLINE_THREE_FRAME_THROW_INPUTS ":recorded_input_request?"OFFLINE_TWO_FRAME_THROW_INPUTS ":long_trajectory_request?"OFFLINE_THROW_TRAJECTORY_LONG ":two_throw_request?"OFFLINE_TWO_FRAME_THROW ":throw_trajectory_request?"OFFLINE_THROW_TRAJECTORY ":two_frame_request?"OFFLINE_TWO_FRAME_IDLE ":trajectory_request?"OFFLINE_IDLE_TRAJECTORY ":combat_later_request?"OFFLINE_THROW_REPLAY_LATER ":combat_replay_request?"OFFLINE_THROW_REPLAY ":throw_audit_request?"OFFLINE_THROW_AUDIT ":delayed_request?"OFFLINE_DELAY_RESTORE ":audit_request?"OFFLINE_DELAY_AUDIT ":attack_observe_request?"OFFLINE_ATTACK_OBSERVE ":observe_request?"OFFLINE_CHARGE_OBSERVE ":reversal_request?"OFFLINE_REVERSAL_PRESERVE ":edge_request?"OFFLINE_EDGE_PRESERVE ":attack_request?"OFFLINE_ATTACK_PRESERVE ":charge_request?"OFFLINE_CHARGE_PRESERVE ":throw_request?"OFFLINE_THROW_PRESERVE ":preserve_request?"OFFLINE_FULL_PRESERVE ":full_request?"OFFLINE_FULL_RESTORE ":shared_request?"OFFLINE_SHARED_RESTORE ":save_request?"OFFLINE_SAVE ":"OFFLINE_TRAINING ")+std::to_string(GetCurrentProcessId())){status("rejected stale/invalid arm");return;}
     if(full_request && r.full_used){status("full restore already used this process; restart required");return;}
     if(full_request && (shared_request || save_request)){status("conflicting restore requests rejected");return;}
     if(shared_request && r.shared_used){status("shared restore already used this process; restart required");return;}
@@ -862,9 +1108,83 @@ void recorder_poll() {
         if(MH_EnableHook(target)!=MH_OK){MH_RemoveHook(target);status("hook enable failed");return;}
         r.hooked=true;
     }
+    if((three_immediate_request || field_only_request) && !r.field_hooked){
+        const unsigned char expected[]={0x48,0x89,0x5c,0x24,0x20,0x55,0x56,0x57};
+        unsigned char actual[sizeof(expected)]{};void* target=reinterpret_cast<void*>(r.base+0x304D50);
+        if(!copy(actual,reinterpret_cast<uintptr_t>(target),sizeof(actual)) || std::memcmp(actual,expected,sizeof(actual))){status("field trace prologue mismatch; not armed");return;}
+        if(MH_CreateHook(target,reinterpret_cast<void*>(&SC6FieldBridge),&SC6FieldOriginal)!=MH_OK){status("field trace hook creation failed; not armed");return;}
+        if(MH_EnableHook(target)!=MH_OK){MH_RemoveHook(target);status("field trace hook enable failed; not armed");return;}
+        r.field_hooked=true;
+    }
+    if((three_immediate_request || field_only_request) && !r.reset_hooked){
+        const unsigned char expected[]={0x48,0x85,0xc9,0x0f,0x84};
+        unsigned char actual[sizeof(expected)]{};void* target=reinterpret_cast<void*>(r.base+0x2D6D70);
+        if(!copy(actual,reinterpret_cast<uintptr_t>(target),sizeof(actual)) || std::memcmp(actual,expected,sizeof(actual))){status("reset trace prologue mismatch; not armed");return;}
+        if(MH_CreateHook(target,reinterpret_cast<void*>(&SC6ResetBridge),&SC6ResetOriginal)!=MH_OK){status("reset trace hook creation failed; not armed");return;}
+        if(MH_EnableHook(target)!=MH_OK){MH_RemoveHook(target);status("reset trace hook enable failed; not armed");return;}
+        r.reset_hooked=true;
+    }
+    if(field_only_request && !r.after_hooked){
+        const unsigned char expected[]={0xE9,0xEB,0x27,0x00,0x00};
+        unsigned char actual[sizeof(expected)]{};void* target=reinterpret_cast<void*>(r.base+0x3793DC);
+        if(!copy(actual,reinterpret_cast<uintptr_t>(target),sizeof(actual)) || std::memcmp(actual,expected,sizeof(actual))){status("post-call trace bytes mismatch; not armed");return;}
+        if(MH_CreateHook(target,reinterpret_cast<void*>(&SC6AfterBridge),&SC6AfterOriginal)!=MH_OK){status("post-call trace hook creation failed; not armed");return;}
+        if(MH_EnableHook(target)!=MH_OK){MH_RemoveHook(target);status("post-call trace hook enable failed; not armed");return;}
+        r.after_hooked=true;
+    }
+    if(field_only_request && !r.battle_after_hooked){
+        const unsigned char expected[]={0x48,0x8D,0x8B,0x30,0x0A,0x00,0x00};
+        unsigned char actual[sizeof(expected)]{};void* target=reinterpret_cast<void*>(r.base+0x3FE816);
+        if(!copy(actual,reinterpret_cast<uintptr_t>(target),sizeof(actual)) || std::memcmp(actual,expected,sizeof(actual))){status("battle-return trace bytes mismatch; not armed");return;}
+        if(MH_CreateHook(target,reinterpret_cast<void*>(&SC6BattleAfterBridge),&SC6BattleAfterOriginal)!=MH_OK){status("battle-return trace hook creation failed; not armed");return;}
+        if(MH_EnableHook(target)!=MH_OK){MH_RemoveHook(target);status("battle-return trace hook enable failed; not armed");return;}
+        r.battle_after_hooked=true;
+    }
+    if(field_only_request && !r.cleanup_hooked){
+        const unsigned char expected[]={0x48,0x8B,0xCB,0xE8,0x56,0xE6,0xFF,0xFF};
+        unsigned char actual[sizeof(expected)]{};void* target=reinterpret_cast<void*>(r.base+0x3fe822);
+        if(!copy(actual,reinterpret_cast<uintptr_t>(target),sizeof(actual)) || std::memcmp(actual,expected,sizeof(actual))){status("Cleanup checkpoint bytes mismatch; not armed");return;}
+        if(MH_CreateHook(target,reinterpret_cast<void*>(&SC6CleanupAfterBridge),&SC6CleanupAfterOriginal)!=MH_OK){status("Cleanup checkpoint creation failed; not armed");return;}
+        if(MH_EnableHook(target)!=MH_OK){MH_RemoveHook(target);status("Cleanup checkpoint enable failed; not armed");return;}
+        r.cleanup_hooked=true;
+    }
+    if(field_only_request && !r.events_hooked){
+        const unsigned char expected[]={0x48,0x8B,0xCB,0xE8,0x2E,0xE2,0xFF,0xFF};
+        unsigned char actual[sizeof(expected)]{};void* target=reinterpret_cast<void*>(r.base+0x3fe82a);
+        if(!copy(actual,reinterpret_cast<uintptr_t>(target),sizeof(actual)) || std::memcmp(actual,expected,sizeof(actual))){status("Events checkpoint bytes mismatch; not armed");return;}
+        if(MH_CreateHook(target,reinterpret_cast<void*>(&SC6EventsAfterBridge),&SC6EventsAfterOriginal)!=MH_OK){status("Events checkpoint creation failed; not armed");return;}
+        if(MH_EnableHook(target)!=MH_OK){MH_RemoveHook(target);status("Events checkpoint enable failed; not armed");return;}
+        r.events_hooked=true;
+    }
+    if(field_only_request && !r.tail_hooked){
+        const unsigned char expected[]={0x80,0xBB,0x62,0x14,0x00,0x00,0x00};
+        unsigned char actual[sizeof(expected)]{};void* target=reinterpret_cast<void*>(r.base+0x3fe832);
+        if(!copy(actual,reinterpret_cast<uintptr_t>(target),sizeof(actual)) || std::memcmp(actual,expected,sizeof(actual))){status("Tail checkpoint bytes mismatch; not armed");return;}
+        if(MH_CreateHook(target,reinterpret_cast<void*>(&SC6TailAfterBridge),&SC6TailAfterOriginal)!=MH_OK){status("Tail checkpoint creation failed; not armed");return;}
+        if(MH_EnableHook(target)!=MH_OK){MH_RemoveHook(target);status("Tail checkpoint enable failed; not armed");return;}
+        r.tail_hooked=true;
+    }
+    if((field_only_request || three_immediate_request) && !r.setter_zero_hooked){
+        const unsigned char expected[]={0x48,0x8B,0x01,0xFF,0x90,0x10,0x01,0x00,0x00};
+        unsigned char actual[sizeof(expected)]{};void* target=reinterpret_cast<void*>(r.base+0x428334);
+        if(!copy(actual,reinterpret_cast<uintptr_t>(target),sizeof(actual)) || std::memcmp(actual,expected,sizeof(actual))){status("setter checkpoint bytes mismatch; not armed");return;}
+        if(MH_CreateHook(target,reinterpret_cast<void*>(&SC6SetterZeroBridge),&SC6SetterZeroOriginal)!=MH_OK){status("setter checkpoint creation failed; not armed");return;}
+        if(MH_EnableHook(target)!=MH_OK){MH_RemoveHook(target);status("setter checkpoint enable failed; not armed");return;}
+        r.setter_zero_hooked=true;
+    }
+    if((field_only_request || three_immediate_request) && !r.setter_full_hooked){
+        const unsigned char expected[]={0x48,0x8B,0x01,0xFF,0x90,0x10,0x01,0x00,0x00};
+        unsigned char actual[sizeof(expected)]{};void* target=reinterpret_cast<void*>(r.base+0x4283b9);
+        if(!copy(actual,reinterpret_cast<uintptr_t>(target),sizeof(actual)) || std::memcmp(actual,expected,sizeof(actual))){status("setter checkpoint bytes mismatch; not armed");return;}
+        if(MH_CreateHook(target,reinterpret_cast<void*>(&SC6SetterFullBridge),&SC6SetterFullOriginal)!=MH_OK){status("setter checkpoint creation failed; not armed");return;}
+        if(MH_EnableHook(target)!=MH_OK){MH_RemoveHook(target);status("setter checkpoint enable failed; not armed");return;}
+        r.setter_full_hooked=true;
+    }
     AcquireSRWLockExclusive(&r.lock);
+    r.field_only=field_only_request;
     r.charge_observe=observe_request;r.attack_observe=attack_observe_request;r.observation_started=false;
     r.count=0;r.skipped=0;r.owner=0;r.fault=false;r.reason="recording";r.deadline=now+20000;
+    r.first_return_address=0;r.caller_changes=0;
     r.save=save_request?std::make_unique<sc6::research::SaveProbe>():nullptr;
     r.shared=shared_request?std::make_unique<sc6::research::SharedRestoreProbe>():nullptr;
     if(shared_request)r.shared_used=true;
@@ -875,9 +1195,11 @@ void recorder_poll() {
     r.native_movement=native_movement_request?std::make_unique<sc6::research::NativeTwoMovement>((native_left_request || native_three_movement_request)?3u:2u,native_left_request?0x800u:0x400u):nullptr;
     r.native_prediction=native_prediction_request?std::make_unique<sc6::research::NativePredictionProbe>(native_direction_request,native_direction_restore_request,native_two_direction_request,native_a_request,native_a_restore_request):nullptr;
     r.native_two=native_two_request?std::make_unique<sc6::research::NativeTwoFrameReplay>():nullptr;
+    r.three_immediate=three_immediate_request?std::make_unique<sc6::research::NativeThreeImmediateReplay>(six_immediate_request?6u:3u):nullptr;
+    r.immediate_replay=immediate_request?std::make_unique<sc6::research::NativeImmediateReplay>():nullptr;
     r.native_replay=native_replay_request;
-    r.native_source=(native_idle_request && !repeated_movement_request && !native_movement_request && !native_two_request && !native_prediction_request)?std::make_unique<sc6::research::NativeBoundarySnapshot>(sc6::research::NativeBoundarySnapshot::Mode::idle):nullptr;
-    r.native_restore=(native_idle_request && !repeated_movement_request && !native_movement_request && !native_two_request && !native_prediction_request)?std::make_unique<sc6::research::NativeAdjacentRestore>():nullptr;
+    r.native_source=(native_idle_request && !field_only_request && !three_immediate_request && !immediate_request && !repeated_movement_request && !native_movement_request && !native_two_request && !native_prediction_request)?std::make_unique<sc6::research::NativeBoundarySnapshot>(sc6::research::NativeBoundarySnapshot::Mode::idle):nullptr;
+    r.native_restore=(native_idle_request && !field_only_request && !three_immediate_request && !immediate_request && !repeated_movement_request && !native_movement_request && !native_two_request && !native_prediction_request)?std::make_unique<sc6::research::NativeAdjacentRestore>():nullptr;
     r.full=(full_request && !trajectory_request && !native_idle_request)?std::make_unique<sc6::research::FullStateProbe>():nullptr;
     if(r.full){r.full->combat_flag_requested=throw_request;r.full->combat_load_diagnostic=throw_request;r.full->throw_audit=throw_audit_request;r.full->delayed_requested=delayed_request;r.full->camera_restore_requested=delayed_request;r.full->delay_audit=throw_audit_request || audit_request || delayed_request;r.full->ring_capture_enabled=throw_request || throw_audit_request || audit_request || delayed_request;r.full->preserve_requested=preserve_request || delayed_request;r.full->throw_requested=throw_request || throw_audit_request;r.full->charge_requested=charge_request;r.full->attack_requested=attack_request;r.full->edge_requested=edge_request;r.full->reversal_requested=reversal_request;}
     if(r.full && combat_replay_request){
@@ -887,10 +1209,10 @@ void recorder_poll() {
     }
     if(reversal_structure_request || three_reversal_request || three_edge_request || attack_structure_request || three_attack_request || charge_replay_request || charge_trajectory_request || two_throw_request || throw_trajectory_request || combat_replay_request || throw_audit_request || attack_observe_request || observe_request || throw_request || charge_request || attack_request || edge_request || reversal_request)r.deadline=now+45000;
     r.full_fields_equal=false;
-    if(full_request)r.full_used=true;
+    if(full_request && !field_only_request)r.full_used=true;
     r.stem=(native_idle_request?"native-adjacent-idle-":reversal_structure_request?"reversal-structure-":three_reversal_request?"three-frame-reversal-inputs-":three_edge_request?"three-frame-edge-inputs-":attack_structure_request?"attack-structure-":three_attack_request?"three-frame-attack-inputs-":three_charge_request?"three-frame-charge-inputs-":charge_inputs_request?"two-frame-charge-inputs-":two_charge_request?"two-frame-charge-":charge_replay_request?"one-frame-charge-":charge_trajectory_request?"charge-trajectory-":three_input_request?"three-frame-throw-inputs-":recorded_input_request?"two-frame-throw-inputs-":long_trajectory_request?"throw-trajectory-long-":two_throw_request?"two-frame-throw-":throw_trajectory_request?"throw-trajectory-":two_frame_request?"two-frame-idle-":trajectory_request?"idle-trajectory-":combat_later_request?"throw-replay-later-":combat_replay_request?"throw-replay-":throw_audit_request?"throw-audit-":delayed_request?"delay-restore-":audit_request?"delay-audit-":attack_observe_request?"attack-observe-":observe_request?"charge-observe-":reversal_request?"reversal-preserve-":edge_request?"edge-preserve-":attack_request?"attack-preserve-":charge_request?"charge-preserve-":throw_request?"throw-preserve-":preserve_request?"full-preserve-":full_request?"full-restore-":shared_request?"shared-restore-":save_request?"save-":"frames-")+std::to_string(GetCurrentProcessId())+"-"+std::to_string(now);
     r.active.store(true,std::memory_order_release);ReleaseSRWLockExclusive(&r.lock);
-    status(native_idle_request?"armed: one-frame idle restore from live context; leave controls untouched":reversal_structure_request?"armed: Reversal Edge four-state observation; no restoration":three_reversal_request?"armed: guarded three-update Reversal Edge clash replay":three_edge_request?"armed: guarded three-update Critical Edge replay; land attack and release controls":attack_structure_request?"armed: Soul Attack four-state structural observation; no restoration":three_attack_request?"armed: guarded three-update Soul Attack replay after startup camera creation; land attack and release controls":three_charge_request?"armed: three-update Soul Charge replay with recorded release inputs":charge_inputs_request?"armed: two-update Soul Charge replay with recorded release inputs":two_charge_request?"armed: guarded two-update Soul Charge replay; release controls after activation":charge_replay_request?"armed: guarded one-update Soul Charge replay; release controls after activation":charge_trajectory_request?"armed: Soul Charge four reference states, no restoration":three_input_request?"armed: A+G three-update replay with recorded auxiliary inputs":recorded_input_request?"armed: A+G two-update replay with recorded auxiliary inputs":long_trajectory_request?"armed: waiting for A+G; four reference states, no restore":two_throw_request?"armed: waiting for A+G; guarded two-update combat replay":throw_trajectory_request?"armed: waiting for A+G; three reference states, no restore":two_frame_request?"armed: guarded two-update idle rewind/replay; leave controls untouched":trajectory_request?"armed: three idle reference boundaries; no restore; leave controls untouched":combat_replay_request?"armed: guarded one-frame A+G replay; waiting for throw":throw_audit_request?"armed: waiting for connected A+G; two adjacent saves, no restore":delayed_request?"armed: one-frame idle restore experiment; leave controls untouched":audit_request?"armed: two adjacent idle saves, then observation; no restore":reversal_request?"armed: waiting up to 45 seconds for Reversal Edge clash slowdown, then 600 entries":edge_request?"armed: waiting up to 45 seconds for Critical Edge startup, then 600 entries":attack_request?"armed: waiting up to 45 seconds for Soul Attack startup, then 600 entries":attack_observe_request?"armed: observation only, waiting for Soul Attack then 600 entries; no save/load":observe_request?"armed: observation only, waiting for Soul Charge then 600 entries; no save/load":charge_request?"armed: waiting up to 45 seconds for Soul Charge freeze with active auxiliary mode 3, then 600 entries":throw_request?"armed: waiting up to 45 seconds for connected A+G freeze, then 600 entries":"armed: 600 entries or 20 seconds; offline Training must remain active");
+    status(field_only_request?"armed: 600-frame field trace only; no restoration or extra updates":three_immediate_request?"armed: three synchronous offline idle replay frames; leave controls untouched":immediate_request?"armed: one synchronous offline idle replay; leave controls untouched":native_idle_request?"armed: one-frame idle restore from live context; leave controls untouched":reversal_structure_request?"armed: Reversal Edge four-state observation; no restoration":three_reversal_request?"armed: guarded three-update Reversal Edge clash replay":three_edge_request?"armed: guarded three-update Critical Edge replay; land attack and release controls":attack_structure_request?"armed: Soul Attack four-state structural observation; no restoration":three_attack_request?"armed: guarded three-update Soul Attack replay after startup camera creation; land attack and release controls":three_charge_request?"armed: three-update Soul Charge replay with recorded release inputs":charge_inputs_request?"armed: two-update Soul Charge replay with recorded release inputs":two_charge_request?"armed: guarded two-update Soul Charge replay; release controls after activation":charge_replay_request?"armed: guarded one-update Soul Charge replay; release controls after activation":charge_trajectory_request?"armed: Soul Charge four reference states, no restoration":three_input_request?"armed: A+G three-update replay with recorded auxiliary inputs":recorded_input_request?"armed: A+G two-update replay with recorded auxiliary inputs":long_trajectory_request?"armed: waiting for A+G; four reference states, no restore":two_throw_request?"armed: waiting for A+G; guarded two-update combat replay":throw_trajectory_request?"armed: waiting for A+G; three reference states, no restore":two_frame_request?"armed: guarded two-update idle rewind/replay; leave controls untouched":trajectory_request?"armed: three idle reference boundaries; no restore; leave controls untouched":combat_replay_request?"armed: guarded one-frame A+G replay; waiting for throw":throw_audit_request?"armed: waiting for connected A+G; two adjacent saves, no restore":delayed_request?"armed: one-frame idle restore experiment; leave controls untouched":audit_request?"armed: two adjacent idle saves, then observation; no restore":reversal_request?"armed: waiting up to 45 seconds for Reversal Edge clash slowdown, then 600 entries":edge_request?"armed: waiting up to 45 seconds for Critical Edge startup, then 600 entries":attack_request?"armed: waiting up to 45 seconds for Soul Attack startup, then 600 entries":attack_observe_request?"armed: observation only, waiting for Soul Attack then 600 entries; no save/load":observe_request?"armed: observation only, waiting for Soul Charge then 600 entries; no save/load":charge_request?"armed: waiting up to 45 seconds for Soul Charge freeze with active auxiliary mode 3, then 600 entries":throw_request?"armed: waiting up to 45 seconds for connected A+G freeze, then 600 entries":"armed: 600 entries or 20 seconds; offline Training must remain active");
 }
 void recorder_stop(){auto& r=state();r.active.store(false);/* Pinned passive bridge stays valid until exit. */}
 }

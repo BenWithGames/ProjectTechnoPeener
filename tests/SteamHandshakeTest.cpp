@@ -1,0 +1,34 @@
+#include "../src/SteamHandshakeProtocol.hpp"
+#include <cassert>
+#include <iostream>
+using namespace sc6::steam_handshake;
+int main(){
+    Protocol a{22,101},b{11,202};
+    assert(!a.receive(33,b.outgoing(),32));
+    assert(!a.receive(22,b.outgoing(),31));
+    auto bad=b.outgoing();bad.magic++;assert(!a.receive(22,bad,32));
+    bad=b.outgoing();bad.echo=999;assert(!a.receive(22,bad,32));
+    bad=b.outgoing();bad.confirmed=1;assert(!a.receive(22,bad,32));
+    assert(a.receive(22,b.outgoing(),32));assert(!a.proof && !a.mutual);
+    assert(b.receive(11,a.outgoing(),32));assert(b.proof && !b.mutual);
+    assert(a.receive(22,b.outgoing(),32));assert(a.proof && a.mutual);
+    assert(b.receive(11,a.outgoing(),32));assert(b.mutual);
+    assert(a.receive(22,b.outgoing(),32)); // duplicate is harmless
+    bad=b.outgoing();bad.nonce=303;assert(!a.receive(22,bad,32));
+    Protocol restarted{22,404};assert(!restarted.receive(22,b.outgoing(),32));assert(!restarted.mutual);
+    Protocol loss_a{22,501},loss_b{11,502};
+    for(unsigned frame=0;frame<30;++frame){
+        auto pa=loss_a.outgoing(),pb=loss_b.outgoing();
+        if(frame%3)assert(loss_b.receive(11,pa,32));
+        if(frame%4)assert(loss_a.receive(22,pb,32));
+    }
+    assert(loss_a.mutual && loss_b.mutual);
+    Protocol early{22,601},late{11,602};
+    const auto queued=early.outgoing();
+    assert(late.receive(11,queued,32));
+    assert(early.receive(22,late.outgoing(),32));
+    assert(late.receive(11,early.outgoing(),32));
+    assert(early.receive(22,late.outgoing(),32));
+    assert(early.mutual && late.mutual);
+    std::cout<<"PASS: mutual challenge, wrong peer/version/size, stale challenge, false confirmation, duplicate, changed nonce, restart rejection\n";
+}

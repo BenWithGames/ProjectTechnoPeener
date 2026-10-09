@@ -9,6 +9,7 @@
 #include <chrono>
 #include <deque>
 #include <fstream>
+#include <filesystem>
 #include <iostream>
 #include <optional>
 #include <stdexcept>
@@ -21,12 +22,13 @@ namespace {
 using Clock=std::chrono::steady_clock;
 using Bytes=std::array<unsigned char,96>;
 constexpr unsigned frames=120,protocol=1,schema=1,simulation=1;
-enum Kind:unsigned {hello=1,ready=2,input=3,ping=4,pong=5,result=6};
+enum Kind:unsigned {hello=1,ready=2,input=3,ping=4,pong=5,result=6,observation=7,receipt=8,observation_result=9};
 struct Packet {unsigned kind{},role{},frame{},value{},sequence{};std::uint64_t nonce{},echo{};};
 void require(bool condition,const char* why){if(!condition)throw std::runtime_error(why);}
 void put(Bytes& b,unsigned n,unsigned value){for(unsigned i=0;i<4;++i)b[n*4+i]=static_cast<unsigned char>(value>>(24-i*8));}
 unsigned get(const Bytes& b,unsigned n){unsigned v=0;for(unsigned i=0;i<4;++i)v=(v<<8)|b[n*4+i];return v;}
 struct Crypto {
+    unsigned simulation_id{simulation};
     BCRYPT_ALG_HANDLE alg{};std::array<unsigned char,32> key{};
     explicit Crypto(const std::string& path){
         std::ifstream file(path);std::string hex,extra;file>>hex;
@@ -47,7 +49,7 @@ struct Crypto {
         Bytes b{};put(b,0,0x5343364e);put(b,1,protocol);put(b,2,p.kind);put(b,3,p.role);
         put(b,4,static_cast<unsigned>(p.nonce>>32));put(b,5,static_cast<unsigned>(p.nonce));
         put(b,6,static_cast<unsigned>(p.echo>>32));put(b,7,static_cast<unsigned>(p.echo));
-        put(b,8,schema);put(b,9,simulation);put(b,10,frames);put(b,11,p.frame);put(b,12,p.value);put(b,13,p.sequence);
+        put(b,8,schema);put(b,9,simulation_id);put(b,10,frames);put(b,11,p.frame);put(b,12,p.value);put(b,13,p.sequence);
         auto tag=mac(b);std::copy(tag.begin(),tag.end(),b.begin()+64);return b;
     }
     bool authentic(const Bytes& b){
@@ -55,9 +57,9 @@ struct Crypto {
         return difference==0;
     }
     bool decode(const Bytes& b,Packet& p){
-        if(!authentic(b) || get(b,0)!=0x5343364e || get(b,1)!=protocol || get(b,8)!=schema || get(b,9)!=simulation || get(b,10)!=frames || get(b,14) || get(b,15))return false;
+        if(!authentic(b) || get(b,0)!=0x5343364e || get(b,1)!=protocol || get(b,8)!=schema || get(b,9)!=simulation_id || get(b,10)!=frames || get(b,14) || get(b,15))return false;
         p={get(b,2),get(b,3),get(b,11),get(b,12),get(b,13),(std::uint64_t(get(b,4))<<32)|get(b,5),(std::uint64_t(get(b,6))<<32)|get(b,7)};
-        return p.kind>=hello && p.kind<=result && p.role<2 && p.nonce!=0;
+        return p.kind>=hello && p.kind<=observation_result && p.role<2 && p.nonce!=0;
     }
 };
 struct State {unsigned hash{2166136261u},tick{};bool operator==(const State&)const=default;};
@@ -68,19 +70,23 @@ struct Adapter {
         state.hash=(state.hash^a)*16777619u;state.hash=(state.hash^b)*16777619u;++state.tick;return true;}
 };
 unsigned synthetic(unsigned role,unsigned frame){return ((frame/(role?5u:3u))+role)%4;}
-struct Options {unsigned role{},port{},peer_port{},delay{},drop{},timeout{20};std::string ip,key;bool selftest{},relay{};};
+struct Options {unsigned role{},port{},peer_port{},delay{},drop{},timeout{20},observe_pid{};std::string ip,key,capture_dir;bool selftest{},relay{},observe{};};
 unsigned number(const std::string& s){std::size_t n{};auto v=std::stoul(s,&n);require(n==s.size() && v<=65535,"Invalid numeric option");return static_cast<unsigned>(v);}
 Options options(int argc,char** argv){
     Options o;bool role=false;
     for(int i=1;i<argc;++i){std::string k=argv[i];if(k=="--self-test"){o.selftest=true;continue;}
         if(k=="--relay-server"){o.relay=true;continue;}
+        if(k=="--observation"){o.observe=true;continue;}
         require(i+1<argc,"Missing option value");std::string v=argv[++i];
         if(k=="--role"){o.role=number(v);role=true;}else if(k=="--port")o.port=number(v);
         else if(k=="--peer-port")o.peer_port=number(v);else if(k=="--peer")o.ip=v;else if(k=="--key-file")o.key=v;
         else if(k=="--delay-ms")o.delay=number(v);else if(k=="--drop-every")o.drop=number(v);else if(k=="--timeout-seconds")o.timeout=number(v);
+        else if(k=="--observe-pid"){std::size_t used{};const auto pid=std::stoul(v,&used);require(used==v.size() && pid!=0,"Invalid game PID");o.observe_pid=pid;o.observe=true;}
+        else if(k=="--capture-dir")o.capture_dir=v;
         else throw std::runtime_error("Unknown option");
     }
     require(!o.key.empty(),"--key-file is required");
+    require(!o.observe || o.relay || (o.observe_pid && !o.capture_dir.empty()),"Observation requires --observe-pid and --capture-dir");
     require(o.selftest || (o.relay && o.port) || (role && o.role<2 && o.port && o.peer_port && !o.ip.empty()),"Need --role 0|1 --port N --peer IPv4 --peer-port N --key-file PATH (or --relay-server --port N --key-file PATH)");
     require(o.delay<=500 && o.timeout>=3 && o.timeout<=(o.relay?600u:60u),"Delay limit 500 ms; timeout 3..60 seconds (relay up to 600)");return o;
 }
@@ -226,4 +232,5 @@ int run(const Options& o,Crypto& crypto){
     throw std::runtime_error("Timeout: handshake or final two-peer comparison incomplete");
 }
 }
-int main(int argc,char** argv){try{auto o=options(argc,argv);Crypto crypto(o.key);return run(o,crypto);}catch(const std::exception& e){std::cerr<<"FAIL: "<<e.what()<<'\n';return 1;}}
+#include "InputExchange.hpp"
+int main(int argc,char** argv){try{auto o=options(argc,argv);Crypto crypto(o.key);if(o.observe)crypto.simulation_id=2;return o.observe&&!o.relay?run_observation(o,crypto):run(o,crypto);}catch(const std::exception& e){std::cerr<<"FAIL: "<<e.what()<<'\n';return 1;}}

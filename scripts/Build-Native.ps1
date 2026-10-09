@@ -22,6 +22,12 @@ if (!$vs) { throw 'MSVC x64 tools not found.' }
 & (Join-Path $PSScriptRoot 'Test-SaveStream.ps1')
 & (Join-Path $PSScriptRoot 'Test-SharedRestore.ps1')
 & (Join-Path $PSScriptRoot 'Test-FullRestore.ps1')
+& (Join-Path $PSScriptRoot 'Test-SteamObserver.ps1')
+& (Join-Path $PSScriptRoot 'Test-SteamHandshake.ps1')
+& (Join-Path $PSScriptRoot 'Test-SteamInputExchange.ps1')
+& (Join-Path $PSScriptRoot 'Test-SteamPing.ps1')
+& (Join-Path $PSScriptRoot 'Test-SingleUpdateCall.ps1')
+& (Join-Path $PSScriptRoot 'Test-LiveShadowPrediction.ps1')
 $build = Join-Path $project 'build-native'
 $dllDir = Join-Path $project 'package\Mods\SC6Rollback\dlls'
 New-Item -ItemType Directory -Force -Path $build,$dllDir | Out-Null
@@ -54,7 +60,7 @@ if (!$exports) { throw 'No runtime exports found.' }
 @('LIBRARY UE4SS.dll','EXPORTS') + $exports | Set-Content "$build\UE4SS.def" -Encoding ascii
 Invoke-DeveloperCommands @(
     "lib /nologo /def:`"$build\UE4SS.def`" /out:`"$build\UE4SS.lib`" /machine:x64",
-    "link /nologo /dll /out:`"$dllDir\main.dll`" /implib:`"$build\main.lib`" `"$build\Mod.obj`" `"$build\FrameRecorder.obj`" `"$build\StatusOverlay.obj`" `"$project\build-recorder\RecorderHook.lib`" `"$build\UE4SS.lib`" bcrypt.lib user32.lib gdi32.lib",
+    "link /nologo /dll /out:`"$dllDir\main.dll`" /implib:`"$build\main.lib`" `"$build\Mod.obj`" `"$build\FrameRecorder.obj`" `"$build\StatusOverlay.obj`" `"$project\build-recorder\RecorderHook.lib`" `"$build\UE4SS.lib`" bcrypt.lib user32.lib gdi32.lib gdiplus.lib",
     "dumpbin /exports `"$dllDir\main.dll`""
 )
 Write-Host 'DLL staged locally. This does not install or launch the game.'

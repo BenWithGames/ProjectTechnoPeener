@@ -28,6 +28,9 @@ SC6EntryBridge PROC FRAME
     fnstcw [rsp+0C4h]
     ; Explicit opt-in can replace only the saved first argument.
     lea rdx, [rsp+28h]
+    ; Original return address: D0h saved area plus the pushed flags (8).
+    ; Observe the caller without changing the original call/return path.
+    mov r8, [rsp+0D8h]
     call SC6RecordEntry
     fldcw [rsp+0C4h]
     ldmxcsr [rsp+0C0h]

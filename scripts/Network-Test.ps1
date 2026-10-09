@@ -5,7 +5,8 @@ param(
     [ValidateRange(1,65535)][int]$RelayPort=27860,
     [ValidateRange(1,65535)][int]$ClientPort=27861,
     [switch]$SkipFirewall,
-    [switch]$NonInteractive
+    [switch]$NonInteractive,
+    [switch]$Observe
 )
 $ErrorActionPreference='Stop'
 $relayProcess=$null
@@ -34,6 +35,22 @@ try {
         if($NonInteractive){throw 'Noninteractive mode requires -Mode.'}
         $choice=Read-Host 'Type H to host on your partner PC, or J to join'
         if($choice -match '^(h|host)$'){$Mode='Host'}elseif($choice -match '^(j|join)$'){$Mode='Join'}else{throw 'Choose H or J.'}
+    }
+    $observeArgs=@();$relayExtra=@()
+    if($Observe){
+        Write-Host 'RECORDING ONLY: no game input injection or restoration. Match mode is NOT detected automatically.' -ForegroundColor Yellow
+        if(!$NonInteractive){
+            $consent=Read-Host 'Both players must agree to observation in offline Training or a private match. Never ranked. Type OBSERVE to confirm'
+            if($consent -cne 'OBSERVE'){throw 'Observation was not confirmed.'}
+        }
+        $games=@(Get-Process SoulcaliburVI -ErrorAction SilentlyContinue)
+        if($games.Count -ne 1){throw 'Launch exactly one SC6 process with the observer DLL installed first.'}
+        $gameExecutable=$games[0].Path
+        if((Get-FileHash -LiteralPath $gameExecutable -Algorithm SHA256).Hash -ne 'F8904E4B04BCA3B47BC52A683F6190365D2EB89EE8F44F8072759E9C5E04A553'){throw 'Unsupported SC6 executable build.'}
+        $captureDirectory=Join-Path (Split-Path $gameExecutable -Parent) 'Mods\SC6Rollback\captures'
+        if(!(Test-Path -LiteralPath $captureDirectory)){throw 'Observer capture directory missing; install the observer and launch SC6.'}
+        $observeArgs=@('--observe-pid',"$($games[0].Id)",'--capture-dir',('"'+$captureDirectory+'"'))
+        $relayExtra=@('--observation')
     }
     $runFolder=Join-Path $PSScriptRoot ('logs\'+(Get-Date -Format 'yyyyMMdd-HHmmss')+'-'+[Guid]::NewGuid().ToString('N').Substring(0,8))
     New-Item -ItemType Directory -Path $runFolder -Force | Out-Null
@@ -69,7 +86,7 @@ try {
             Configure-Firewall 'Add';$firewallCreated=$true
         }
         $relayOut=Join-Path $runFolder 'relay.txt';$relayErr=Join-Path $runFolder 'relay-errors.txt'
-        $relayProcess=Start-Process -FilePath $exe -ArgumentList @('--relay-server','--port',"$RelayPort",'--key-file',('"'+$KeyFile+'"'),'--timeout-seconds','600') -WindowStyle Hidden -RedirectStandardOutput $relayOut -RedirectStandardError $relayErr -PassThru
+        $relayProcess=Start-Process -FilePath $exe -ArgumentList (@('--relay-server','--port',"$RelayPort",'--key-file',('"'+$KeyFile+'"'),'--timeout-seconds','600')+$relayExtra) -WindowStyle Hidden -RedirectStandardOutput $relayOut -RedirectStandardError $relayErr -PassThru
         $ready=$false
         for($attempt=0;$attempt -lt 50;$attempt++){
             if($relayProcess.HasExited){throw ('Relay failed: '+(Get-Content -LiteralPath $relayErr -Raw))}
@@ -86,8 +103,10 @@ try {
         if(!$NonInteractive){[void](Read-Host 'Press Enter when your partner is ready to start (within 60 seconds of each other)')}
     }
     $clientOut=Join-Path $runFolder 'client.txt';$clientErr=Join-Path $runFolder 'client-errors.txt'
-    Write-Host 'Running automatically. No game inputs are needed. Waiting up to 60 seconds...'
-    $clientProcess=Start-Process -FilePath $exe -ArgumentList @('--role',$role,'--peer',$Peer,'--port',"$ClientPort",'--peer-port',"$RelayPort",'--key-file',('"'+$KeyFile+'"'),'--timeout-seconds','60') -WindowStyle Hidden -RedirectStandardOutput $clientOut -RedirectStandardError $clientErr -PassThru
+    if($Observe){Write-Host 'Switch to SC6 now and leave it unpaused. Capturing 120 real input records; no restoration.'}
+    else{Write-Host 'Running automatically. No game inputs are needed. Waiting up to 60 seconds...'}
+    $captureStart=Get-Date
+    $clientProcess=Start-Process -FilePath $exe -ArgumentList (@('--role',$role,'--peer',$Peer,'--port',"$ClientPort",'--peer-port',"$RelayPort",'--key-file',('"'+$KeyFile+'"'),'--timeout-seconds','60')+$observeArgs) -WindowStyle Hidden -RedirectStandardOutput $clientOut -RedirectStandardError $clientErr -PassThru
     # Retain the process handle before waiting; Windows PowerShell otherwise
     # can lose ExitCode for processes created through Start-Process.
     $null=$clientProcess.Handle
@@ -96,6 +115,10 @@ try {
     if($clientProcess.ExitCode -ne 0){Get-Content -LiteralPath $clientErr | Write-Host;throw 'Network test failed. Send the log folder for diagnosis.'}
     if(!(Select-String -LiteralPath $clientOut -Pattern '^PASS .*peer_match=1' -Quiet)){throw 'Client exited without a verified PASS.'}
     Write-Host 'PASS on this PC. Both PCs must pass. Send both log folders.' -ForegroundColor Green
+    if($Observe){
+        Get-ChildItem -LiteralPath $captureDirectory -Filter 'network-*.csv' -File | Where-Object {$_.LastWriteTime -ge $captureStart} | Copy-Item -Destination $runFolder
+        Write-Host 'This verifies record delivery only. Player mapping and game-frame alignment still need analysis.'
+    }
     # Let the remote client finish before stopping this machine's relay.
     if($relayProcess){Start-Sleep -Seconds 5}
 } catch {

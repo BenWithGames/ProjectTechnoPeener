@@ -1,0 +1,655 @@
+[
+  {
+    "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\SoulcaliburVI.exe",
+    "sha256": "f8904e4b04bca3b47bc52a683f6190365d2eb89ee8f44f8072759e9c5e04a553",
+    "imports": [],
+    "exports": [],
+    "interfaces": [
+      "SteamClient017",
+      "SteamMatchMaking009",
+      "SteamMatchMakingServers002",
+      "SteamNetworking005",
+      "SteamUser019"
+    ],
+    "delay_imports": [
+      {
+        "dll": "steam_api64.dll",
+        "name": "SteamInternal_CreateInterface",
+        "iat_rva": "0x4144ee0"
+      },
+      {
+        "dll": "steam_api64.dll",
+        "name": "SteamAPI_Init",
+        "iat_rva": "0x4144ee8"
+      },
+      {
+        "dll": "steam_api64.dll",
+        "name": "SteamAPI_Shutdown",
+        "iat_rva": "0x4144ef0"
+      },
+      {
+        "dll": "steam_api64.dll",
+        "name": "SteamAPI_RestartAppIfNecessary",
+        "iat_rva": "0x4144ef8"
+      },
+      {
+        "dll": "steam_api64.dll",
+        "name": "SteamAPI_RunCallbacks",
+        "iat_rva": "0x4144f00"
+      },
+      {
+        "dll": "steam_api64.dll",
+        "name": "SteamInternal_ContextInit",
+        "iat_rva": "0x4144f08"
+      },
+      {
+        "dll": "steam_api64.dll",
+        "name": "SteamAPI_GetHSteamUser",
+        "iat_rva": "0x4144f10"
+      },
+      {
+        "dll": "steam_api64.dll",
+        "name": "SteamInternal_GameServer_Init",
+        "iat_rva": "0x4144f18"
+      },
+      {
+        "dll": "steam_api64.dll",
+        "name": "SteamGameServer_GetHSteamUser",
+        "iat_rva": "0x4144f20"
+      },
+      {
+        "dll": "steam_api64.dll",
+        "name": "SteamGameServer_GetHSteamPipe",
+        "iat_rva": "0x4144f28"
+      },
+      {
+        "dll": "steam_api64.dll",
+        "name": "SteamGameServer_RunCallbacks",
+        "iat_rva": "0x4144f30"
+      },
+      {
+        "dll": "steam_api64.dll",
+        "name": "SteamGameServer_Shutdown",
+        "iat_rva": "0x4144f38"
+      },
+      {
+        "dll": "steam_api64.dll",
+        "name": "SteamAPI_UnregisterCallback",
+        "iat_rva": "0x4144f40"
+      },
+      {
+        "dll": "steam_api64.dll",
+        "name": "SteamAPI_GetHSteamPipe",
+        "iat_rva": "0x4144f48"
+      },
+      {
+        "dll": "steam_api64.dll",
+        "name": "SteamAPI_RegisterCallback",
+        "iat_rva": "0x4144f50"
+      }
+    ]
+  },
+  {
+    "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\Engine\\Binaries\\ThirdParty\\Steamworks\\Steamv139\\Win64\\steam_api64.dll",
+    "sha256": "38f6a1dd1e738e142160322638dae7b88dabcc30eea3f15c58eb08c5341f9b29",
+    "imports": [],
+    "exports": [
+      {
+        "name": "GetHSteamPipe",
+        "rva": "0x7eb0"
+      },
+      {
+        "name": "GetHSteamUser",
+        "rva": "0x7ea0"
+      },
+      {
+        "name": "SteamAPI_GetHSteamPipe",
+        "rva": "0x7eb0"
+      },
+      {
+        "name": "SteamAPI_GetHSteamUser",
+        "rva": "0x7ea0"
+      },
+      {
+        "name": "SteamAPI_ISteamClient_BReleaseSteamPipe",
+        "rva": "0x5390"
+      },
+      {
+        "name": "SteamAPI_ISteamClient_BShutdownIfAllPipesClosed",
+        "rva": "0x5190"
+      },
+      {
+        "name": "SteamAPI_ISteamClient_ConnectToGlobalUser",
+        "rva": "0x4aa0"
+      },
+      {
+        "name": "SteamAPI_ISteamClient_CreateLocalUser",
+        "rva": "0x50d0"
+      },
+      {
+        "name": "SteamAPI_ISteamClient_CreateSteamPipe",
+        "rva": "0x4b30"
+      },
+      {
+        "name": "SteamAPI_ISteamClient_GetIPCCallCount",
+        "rva": "0x4f20"
+      },
+      {
+        "name": "SteamAPI_ISteamClient_GetISteamAppList",
+        "rva": "0x4180"
+      },
+      {
+        "name": "SteamAPI_ISteamClient_GetISteamApps",
+        "rva": "0x51b0"
+      },
+      {
+        "name": "SteamAPI_ISteamClient_GetISteamController",
+        "rva": "0x53a0"
+      },
+      {
+        "name": "SteamAPI_ISteamClient_GetISteamFriends",
+        "rva": "0x4860"
+      },
+      {
+        "name": "SteamAPI_ISteamClient_GetISteamGameServer",
+        "rva": "0x4a80"
+      },
+      {
+        "name": "SteamAPI_ISteamClient_GetISteamGameServerStats",
+        "rva": "0x4170"
+      },
+      {
+        "name": "SteamAPI_ISteamClient_GetISteamGenericInterface",
+        "rva": "0x51a0"
+      },
+      {
+        "name": "SteamAPI_ISteamClient_GetISteamHTMLSurface",
+        "rva": "0x4190"
+      },
+      {
+        "name": "SteamAPI_ISteamClient_GetISteamHTTP",
+        "rva": "0x4120"
+      },
+      {
+        "name": "SteamAPI_ISteamClient_GetISteamInventory",
+        "rva": "0x5260"
+      },
+      {
+        "name": "SteamAPI_ISteamClient_GetISteamMatchmaking",
+        "rva": "0x53b0"
+      },
+      {
+        "name": "SteamAPI_ISteamClient_GetISteamMatchmakingServers",
+        "rva": "0x41f0"
+      },
+      {
+        "name": "SteamAPI_ISteamClient_GetISteamMusic",
+        "rva": "0x41a0"
+      },
+      {
+        "name": "SteamAPI_ISteamClient_GetISteamMusicRemote",
+        "rva": "0x4ef0"
+      },
+      {
+        "name": "SteamAPI_ISteamClient_GetISteamNetworking",
+        "rva": "0x4150"
+      },
+      {
+        "name": "SteamAPI_ISteamClient_GetISteamRemoteStorage",
+        "rva": "0x4a30"
+      },
+      {
+        "name": "SteamAPI_ISteamClient_GetISteamScreenshots",
+        "rva": "0x5100"
+      },
+      {
+        "name": "SteamAPI_ISteamClient_GetISteamUGC",
+        "rva": "0x52c0"
+      },
+      {
+        "name": "SteamAPI_ISteamClient_GetISteamUnifiedMessages",
+        "rva": "0x4160"
+      },
+      {
+        "name": "SteamAPI_ISteamClient_GetISteamUser",
+        "rva": "0x4e20"
+      },
+      {
+        "name": "SteamAPI_ISteamClient_GetISteamUserStats",
+        "rva": "0x4a20"
+      },
+      {
+        "name": "SteamAPI_ISteamClient_GetISteamUtils",
+        "rva": "0x4a10"
+      },
+      {
+        "name": "SteamAPI_ISteamClient_GetISteamVideo",
+        "rva": "0x50f0"
+      },
+      {
+        "name": "SteamAPI_ISteamClient_ReleaseUser",
+        "rva": "0x5380"
+      },
+      {
+        "name": "SteamAPI_ISteamClient_SetLocalIPBinding",
+        "rva": "0x52a0"
+      },
+      {
+        "name": "SteamAPI_ISteamClient_SetWarningMessageHook",
+        "rva": "0x5370"
+      },
+      {
+        "name": "SteamAPI_ISteamNetworking_AcceptP2PSessionWithUser",
+        "rva": "0x4ac0"
+      },
+      {
+        "name": "SteamAPI_ISteamNetworking_AllowP2PPacketRelay",
+        "rva": "0x52a0"
+      },
+      {
+        "name": "SteamAPI_ISteamNetworking_CloseP2PChannelWithUser",
+        "rva": "0x47f0"
+      },
+      {
+        "name": "SteamAPI_ISteamNetworking_CloseP2PSessionWithUser",
+        "rva": "0x4800"
+      },
+      {
+        "name": "SteamAPI_ISteamNetworking_CreateConnectionSocket",
+        "rva": "0x53b0"
+      },
+      {
+        "name": "SteamAPI_ISteamNetworking_CreateListenSocket",
+        "rva": "0x4ad0"
+      },
+      {
+        "name": "SteamAPI_ISteamNetworking_CreateP2PConnectionSocket",
+        "rva": "0x4e30"
+      },
+      {
+        "name": "SteamAPI_ISteamNetworking_DestroyListenSocket",
+        "rva": "0x51a0"
+      },
+      {
+        "name": "SteamAPI_ISteamNetworking_DestroySocket",
+        "rva": "0x41f0"
+      },
+      {
+        "name": "SteamAPI_ISteamNetworking_GetListenSocketInfo",
+        "rva": "0x4230"
+      },
+      {
+        "name": "SteamAPI_ISteamNetworking_GetMaxPacketSize",
+        "rva": "0x5370"
+      },
+      {
+        "name": "SteamAPI_ISteamNetworking_GetP2PSessionState",
+        "rva": "0x4560"
+      },
+      {
+        "name": "SteamAPI_ISteamNetworking_GetSocketConnectionType",
+        "rva": "0x4f20"
+      },
+      {
+        "name": "SteamAPI_ISteamNetworking_GetSocketInfo",
+        "rva": "0x4e50"
+      },
+      {
+        "name": "SteamAPI_ISteamNetworking_IsDataAvailable",
+        "rva": "0x4150"
+      },
+      {
+        "name": "SteamAPI_ISteamNetworking_IsDataAvailableOnSocket",
+        "rva": "0x4170"
+      },
+      {
+        "name": "SteamAPI_ISteamNetworking_IsP2PPacketAvailable",
+        "rva": "0x5390"
+      },
+      {
+        "name": "SteamAPI_ISteamNetworking_ReadP2PPacket",
+        "rva": "0x4e60"
+      },
+      {
+        "name": "SteamAPI_ISteamNetworking_RetrieveData",
+        "rva": "0x4e70"
+      },
+      {
+        "name": "SteamAPI_ISteamNetworking_RetrieveDataFromSocket",
+        "rva": "0x4e80"
+      },
+      {
+        "name": "SteamAPI_ISteamNetworking_SendDataOnSocket",
+        "rva": "0x4e90"
+      },
+      {
+        "name": "SteamAPI_ISteamNetworking_SendP2PPacket",
+        "rva": "0x4ea0"
+      },
+      {
+        "name": "SteamAPI_ISteamUserStats_AttachLeaderboardUGC",
+        "rva": "0x5170"
+      },
+      {
+        "name": "SteamAPI_ISteamUserStats_ClearAchievement",
+        "rva": "0x4860"
+      },
+      {
+        "name": "SteamAPI_ISteamUserStats_DownloadLeaderboardEntries",
+        "rva": "0x5180"
+      },
+      {
+        "name": "SteamAPI_ISteamUserStats_DownloadLeaderboardEntriesForUsers",
+        "rva": "0x4ef0"
+      },
+      {
+        "name": "SteamAPI_ISteamUserStats_FindLeaderboard",
+        "rva": "0x4120"
+      },
+      {
+        "name": "SteamAPI_ISteamUserStats_FindOrCreateLeaderboard",
+        "rva": "0x5190"
+      },
+      {
+        "name": "SteamAPI_ISteamUserStats_GetAchievement",
+        "rva": "0x4a80"
+      },
+      {
+        "name": "SteamAPI_ISteamUserStats_GetAchievementAchievedPercent",
+        "rva": "0x4fb0"
+      },
+      {
+        "name": "SteamAPI_ISteamUserStats_GetAchievementAndUnlockTime",
+        "rva": "0x4a10"
+      },
+      {
+        "name": "SteamAPI_ISteamUserStats_GetAchievementDisplayAttribute",
+        "rva": "0x51a0"
+      },
+      {
+        "name": "SteamAPI_ISteamUserStats_GetAchievementIcon",
+        "rva": "0x41f0"
+      },
+      {
+        "name": "SteamAPI_ISteamUserStats_GetAchievementName",
+        "rva": "0x51b0"
+      },
+      {
+        "name": "SteamAPI_ISteamUserStats_GetDownloadedLeaderboardEntry",
+        "rva": "0x51c0"
+      },
+      {
+        "name": "SteamAPI_ISteamUserStats_GetGlobalStat",
+        "rva": "0x51d0"
+      },
+      {
+        "name": "SteamAPI_ISteamUserStats_GetGlobalStat0",
+        "rva": "0x4f00"
+      },
+      {
+        "name": "SteamAPI_ISteamUserStats_GetGlobalStatHistory",
+        "rva": "0x4fc0"
+      },
+      {
+        "name": "SteamAPI_ISteamUserStats_GetGlobalStatHistory0",
+        "rva": "0x4900"
+      },
+      {
+        "name": "SteamAPI_ISteamUserStats_GetLeaderboardDisplayType",
+        "rva": "0x4180"
+      },
+      {
+        "name": "SteamAPI_ISteamUserStats_GetLeaderboardEntryCount",
+        "rva": "0x53a0"
+      },
+      {
+        "name": "SteamAPI_ISteamUserStats_GetLeaderboardName",
+        "rva": "0x4160"
+      },
+      {
+        "name": "SteamAPI_ISteamUserStats_GetLeaderboardSortMethod",
+        "rva": "0x52c0"
+      },
+      {
+        "name": "SteamAPI_ISteamUserStats_GetMostAchievedAchievementInfo",
+        "rva": "0x51e0"
+      },
+      {
+        "name": "SteamAPI_ISteamUserStats_GetNextMostAchievedAchievementInfo",
+        "rva": "0x51f0"
+      },
+      {
+        "name": "SteamAPI_ISteamUserStats_GetNumAchievements",
+        "rva": "0x4170"
+      },
+      {
+        "name": "SteamAPI_ISteamUserStats_GetNumberOfCurrentPlayers",
+        "rva": "0x4fa0"
+      },
+      {
+        "name": "SteamAPI_ISteamUserStats_GetStat",
+        "rva": "0x4aa0"
+      },
+      {
+        "name": "SteamAPI_ISteamUserStats_GetStat0",
+        "rva": "0x5390"
+      },
+      {
+        "name": "SteamAPI_ISteamUserStats_GetUserAchievement",
+        "rva": "0x5200"
+      },
+      {
+        "name": "SteamAPI_ISteamUserStats_GetUserAchievementAndUnlockTime",
+        "rva": "0x5220"
+      },
+      {
+        "name": "SteamAPI_ISteamUserStats_GetUserStat",
+        "rva": "0x5240"
+      },
+      {
+        "name": "SteamAPI_ISteamUserStats_GetUserStat0",
+        "rva": "0x5350"
+      },
+      {
+        "name": "SteamAPI_ISteamUserStats_IndicateAchievementProgress",
+        "rva": "0x4a20"
+      },
+      {
+        "name": "SteamAPI_ISteamUserStats_RequestCurrentStats",
+        "rva": "0x4b30"
+      },
+      {
+        "name": "SteamAPI_ISteamUserStats_RequestGlobalAchievementPercentages",
+        "rva": "0x5260"
+      },
+      {
+        "name": "SteamAPI_ISteamUserStats_RequestGlobalStats",
+        "rva": "0x5270"
+      },
+      {
+        "name": "SteamAPI_ISteamUserStats_RequestUserStats",
+        "rva": "0x5280"
+      },
+      {
+        "name": "SteamAPI_ISteamUserStats_ResetAllStats",
+        "rva": "0x5370"
+      },
+      {
+        "name": "SteamAPI_ISteamUserStats_SetAchievement",
+        "rva": "0x52a0"
+      },
+      {
+        "name": "SteamAPI_ISteamUserStats_SetStat",
+        "rva": "0x5380"
+      },
+      {
+        "name": "SteamAPI_ISteamUserStats_SetStat0",
+        "rva": "0x50d0"
+      },
+      {
+        "name": "SteamAPI_ISteamUserStats_StoreStats",
+        "rva": "0x53b0"
+      },
+      {
+        "name": "SteamAPI_ISteamUserStats_UpdateAvgRateStat",
+        "rva": "0x4e20"
+      },
+      {
+        "name": "SteamAPI_ISteamUserStats_UploadLeaderboardScore",
+        "rva": "0x52b0"
+      },
+      {
+        "name": "SteamAPI_ISteamUser_AdvertiseGame",
+        "rva": "0x5200"
+      },
+      {
+        "name": "SteamAPI_ISteamUser_BIsBehindNAT",
+        "rva": "0x5100"
+      },
+      {
+        "name": "SteamAPI_ISteamUser_BIsPhoneIdentifying",
+        "rva": "0x4180"
+      },
+      {
+        "name": "SteamAPI_ISteamUser_BIsPhoneRequiringVerification",
+        "rva": "0x41a0"
+      },
+      {
+        "name": "SteamAPI_ISteamUser_BIsPhoneVerified",
+        "rva": "0x53a0"
+      },
+      {
+        "name": "SteamAPI_ISteamUser_BIsTwoFactorEnabled",
+        "rva": "0x52c0"
+      },
+      {
+        "name": "SteamAPI_ISteamUser_BLoggedOn",
+        "rva": "0x5390"
+      },
+      {
+        "name": "SteamAPI_ISteamUser_BeginAuthSession",
+        "rva": "0x52d0"
+      },
+      {
+        "name": "SteamAPI_ISteamUser_CancelAuthTicket",
+        "rva": "0x4150"
+      },
+      {
+        "name": "SteamAPI_ISteamUser_DecompressVoice",
+        "rva": "0x4110"
+      },
+      {
+        "name": "SteamAPI_ISteamUser_EndAuthSession",
+        "rva": "0x52e0"
+      },
+      {
+        "name": "SteamAPI_ISteamUser_GetAuthSessionTicket",
+        "rva": "0x4a20"
+      },
+      {
+        "name": "SteamAPI_ISteamUser_GetAvailableVoice",
+        "rva": "0x4a10"
+      },
+      {
+        "name": "SteamAPI_ISteamUser_GetEncryptedAppTicket",
+        "rva": "0x5370"
+      },
+      {
+        "name": "SteamAPI_ISteamUser_GetGameBadgeLevel",
+        "rva": "0x5190"
+      },
+      {
+        "name": "SteamAPI_ISteamUser_GetHSteamUser",
+        "rva": "0x4b30"
+      },
+      {
+        "name": "SteamAPI_ISteamUser_GetPlayerSteamLevel",
+        "rva": "0x4120"
+      },
+      {
+        "name": "SteamAPI_ISteamUser_GetSteamID",
+        "rva": "0x52f0"
+      },
+      {
+        "name": "SteamAPI_ISteamUser_GetUserDataFolder",
+        "rva": "0x4a80"
+      },
+      {
+        "name": "SteamAPI_ISteamUser_GetVoice",
+        "rva": "0x5310"
+      },
+      {
+        "name": "SteamAPI_ISteamUser_GetVoiceOptimalSampleRate",
+        "rva": "0x51a0"
+      },
+      {
+        "name": "SteamAPI_ISteamUser_InitiateGameConnection",
+        "rva": "0x5320"
+      },
+      {
+        "name": "SteamAPI_ISteamUser_RequestEncryptedAppTicket",
+        "rva": "0x4f20"
+      },
+      {
+        "name": "SteamAPI_ISteamUser_RequestStoreAuthURL",
+        "rva": "0x4160"
+      },
+      {
+        "name": "SteamAPI_ISteamUser_StartVoiceRecording",
+        "rva": "0x52a0"
+      },
+      {
+        "name": "SteamAPI_ISteamUser_StopVoiceRecording",
+        "rva": "0x4860"
+      },
+      {
+        "name": "SteamAPI_ISteamUser_TerminateGameConnection",
+        "rva": "0x5380"
+      },
+      {
+        "name": "SteamAPI_ISteamUser_TrackAppUsageEvent",
+        "rva": "0x47f0"
+      },
+      {
+        "name": "SteamAPI_ISteamUser_UserHasLicenseForApp",
+        "rva": "0x5350"
+      },
+      {
+        "name": "SteamClient",
+        "rva": "0x8c70"
+      },
+      {
+        "name": "SteamGameServer_GetHSteamPipe",
+        "rva": "0x8e40"
+      },
+      {
+        "name": "SteamGameServer_GetHSteamUser",
+        "rva": "0x8e50"
+      },
+      {
+        "name": "SteamInternal_ContextInit",
+        "rva": "0x8c80"
+      },
+      {
+        "name": "SteamInternal_CreateInterface",
+        "rva": "0x8cc0"
+      },
+      {
+        "name": "SteamInternal_GameServer_Init",
+        "rva": "0x9030"
+      },
+      {
+        "name": "Steam_GetHSteamUserCurrent",
+        "rva": "0x8d10"
+      },
+      {
+        "name": "g_pSteamClientGameServer",
+        "rva": "0x390c8"
+      }
+    ],
+    "interfaces": [
+      "SteamClient017",
+      "SteamUser019"
+    ]
+  }
+]

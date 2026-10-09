@@ -2,6 +2,9 @@
 #include <DynamicOutput/DynamicOutput.hpp>
 #include "FrameRecorder.hpp"
 #include "StatusOverlay.hpp"
+#include "SteamDiagnostic.hpp"
+#include "SteamObserver.hpp"
+#include "SteamHandshake.hpp"
 
 class SC6RollbackMod final : public RC::CppUserModBase {
     sc6::StatusOverlay overlay;
@@ -19,9 +22,13 @@ public:
     }
 
     auto on_update() -> void override {
+        try { sc6::steam_diagnostic_poll(); } catch (...) {}
+        try { sc6::steam_observer::poll(); } catch (...) { sc6::steam_observer::active=false; }
+        try { sc6::steam_handshake::poll(); } catch (...) { sc6::steam_handshake::stopped=true; }
+        overlay.publish(sc6::steam_handshake::overlay_stats());
         try { sc6::recorder_poll(); } catch (...) { sc6::recorder_stop(); }
     }
-    ~SC6RollbackMod() override { overlay.stop(); sc6::recorder_stop(); }
+    ~SC6RollbackMod() override { sc6::steam_handshake::stopped=true; sc6::steam_observer::active=false; overlay.stop(); sc6::recorder_stop(); }
     // on_update only handles control and output; samples come from EntryBridge.
 };
 

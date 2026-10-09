@@ -2161,3 +2161,21 @@ Visual confirmation for 86284-43670968: user confirmed SC6 responsive, no visibl
 ## Status overlay installed before network work
 User requested bottom UI for code enabled, opponent ping, delay frames and rollback frames. Added StatusOverlay.hpp/cpp: click-through/no-activate Windows layered panel, bottom center of foreground game client, DPI scaling, hides on minimize/focus loss, no game rendering hooks. Mod lifecycle starts/stops worker; user32/gdi32 linked in native and CMake paths. Shows SC6Rollback ENABLED (means loaded), Network inactive, PING/DELAY/ROLLBACK -- until measured network values published through StatusOverlay::publish. Stale connected data clears after3seconds. Windowed/borderless supported; exclusive fullscreen may hide panel. README documents meanings and limits. Compilation and all eight suites pass; fixed Windows small macro collision during compile. Installed SHA256 5D9A6DE753E985E2DEE495151037026A22C2EBE185D1417AC471F05222392D56; backup E:\SteamLibrary\steamapps\common\SoulcaliburVI\SoulcaliburVI\Binaries\Win64\Mods\SC6Rollback\dlls\main-before-status-overlay-20261008-203732.dll.disabled. Game absent/noarms. Visual in-game confirmation pending; no gameplay test needed. Network next after requested UI validation.
 
+
+## Network input observation implementation (2026-10-08)
+
+Added a separately armed, once-per-process 120-record input observer at the pinned
+pre-update boundary. It copies the 40-byte input envelope, outer counter and QPC
+into bounded shared memory. The callback returns before all save/load and input
+replacement paths. The companion opens the mapping read-only, exchanges records
+through the authenticated relay, and exports local/remote CSVs. PASS is transport
+integrity only; game alignment and player mapping are explicitly unverified.
+
+Validation: native build and existing suites passed; two independent mock game
+mappings delivered every record word and counter exactly through two clients and
+a relay, including every-fifth-packet loss. No new real-game observation has run.
+Installed native DLL SHA256:
+88B075A781713FB95512391ED5C71F6839B2985D2B55A1062EF616CFB95445F0
+Installer backed up prior DLL/settings/mod list; no game process was running.
+Next: both PCs install matching observer and run Observe-Inputs.cmd during an
+explicitly agreed offline Training observation. No restore or injection is enabled.
