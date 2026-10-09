@@ -46,7 +46,7 @@ function Invoke-DeveloperCommands([string[]]$Commands) {
     & $batch
     if ($LASTEXITCODE -ne 0) { throw 'Native build failed.' }
 }
-Invoke-DeveloperCommands @("cl @`"$build\mod.rsp`"", "cl /nologo /std:c++20 /EHsc /MD /W4 /WX /I`"$project\third_party\minhook\include`" /c `"$project\src\FrameRecorder.cpp`" /Fo:`"$build\FrameRecorder.obj`"", "dumpbin /exports `"$runtime`" > `"$build\exports.txt`"")
+Invoke-DeveloperCommands @("cl @`"$build\mod.rsp`"", "cl /nologo /std:c++20 /EHsc /MD /W4 /WX /I`"$project\third_party\minhook\include`" /c `"$project\src\FrameRecorder.cpp`" /Fo:`"$build\FrameRecorder.obj`"", "cl /nologo /std:c++20 /EHsc /MD /W4 /WX /c `"$project\src\StatusOverlay.cpp`" /Fo:`"$build\StatusOverlay.obj`"", "dumpbin /exports `"$runtime`" > `"$build\exports.txt`"")
 $exports = Get-Content "$build\exports.txt" | ForEach-Object {
     if ($_ -match '^\s+\d+\s+[0-9A-F]+\s+[0-9A-F]+\s+(\S+)') { $Matches[1] }
 }
@@ -54,7 +54,7 @@ if (!$exports) { throw 'No runtime exports found.' }
 @('LIBRARY UE4SS.dll','EXPORTS') + $exports | Set-Content "$build\UE4SS.def" -Encoding ascii
 Invoke-DeveloperCommands @(
     "lib /nologo /def:`"$build\UE4SS.def`" /out:`"$build\UE4SS.lib`" /machine:x64",
-    "link /nologo /dll /out:`"$dllDir\main.dll`" /implib:`"$build\main.lib`" `"$build\Mod.obj`" `"$build\FrameRecorder.obj`" `"$project\build-recorder\RecorderHook.lib`" `"$build\UE4SS.lib`" bcrypt.lib",
+    "link /nologo /dll /out:`"$dllDir\main.dll`" /implib:`"$build\main.lib`" `"$build\Mod.obj`" `"$build\FrameRecorder.obj`" `"$build\StatusOverlay.obj`" `"$project\build-recorder\RecorderHook.lib`" `"$build\UE4SS.lib`" bcrypt.lib user32.lib gdi32.lib",
     "dumpbin /exports `"$dllDir\main.dll`""
 )
 Write-Host 'DLL staged locally. This does not install or launch the game.'

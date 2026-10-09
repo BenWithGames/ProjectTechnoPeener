@@ -35,14 +35,17 @@ struct NativePredictionProbe {
     }
     unsigned captured{},loads{},deliveries{};uintptr_t next_argument{};
     bool dirty_detected{},state_changed{},done{},fault{},corrected{};
-    bool two_frame_capture{};
+    bool two_frame_capture{},a_capture{},a_restore{};
     bool direction_mode{},movement_restore{},prediction_observed{};unsigned prediction_player_input{},prediction_player_move{};
     const char* failure_stage="none";
-    explicit NativePredictionProbe(bool direction=false,bool restore_movement=false,bool capture_two=false):two_frame_capture(capture_two),direction_mode(direction),movement_restore(restore_movement){
+    explicit NativePredictionProbe(bool direction=false,bool restore_movement=false,bool capture_two=false,bool capture_a=false,bool restore_a=false):two_frame_capture(capture_two),a_capture(capture_a),a_restore(restore_a),direction_mode(direction),movement_restore(restore_movement){
+        if(a_restore && !a_capture)fault=true;
+        if(a_capture && (direction_mode || movement_restore || two_frame_capture))fault=true;
         if(two_frame_capture && (!direction_mode || movement_restore))fault=true;
         if(movement_restore && !direction_mode)fault=true;
         for(auto& f:frames)f=std::make_unique<NativeBoundarySnapshot>(NativeBoundarySnapshot::Mode::idle);
         for(auto& r:restores)r=std::make_unique<NativeAdjacentRestore>();
+        if(a_capture)frames[2]->mode=NativeBoundarySnapshot::Mode::a_observation;
         if(direction_mode){frames[2]->mode=NativeBoundarySnapshot::Mode::direction_observation;frames[3]->mode=NativeBoundarySnapshot::Mode::direction_observation;}
     }
     static bool make_prediction(const Input& original,Input& result,bool direction=false,unsigned direction_bits=0x400){
@@ -62,11 +65,16 @@ struct NativePredictionProbe {
         std::memcpy(result.data()+24,&value,4);
         return result!=original && RecordedInput::compatible(original,result);
     }
+    static bool make_a_prediction(const Input& original,Input& result){
+        if(!make_prediction(original,result,true))return false;
+        const unsigned a=1;for(unsigned off:{0u,4u,16u})std::memcpy(result.data()+off,&a,4);
+        return true;
+    }
     __declspec(noinline) bool step(uintptr_t base,uintptr_t argument,bool bridge,
         FullStateProbe::Routine writer=nullptr,FullStateProbe::Routine reader=nullptr,
         FullStateProbe::Preflight check=nullptr) noexcept {
         next_argument=0;if(fault)return false;if(done)return true;if(!bridge)return fail();
-        if(direction_mode && !captured && !settle.ready){
+        if((direction_mode || a_capture) && !captured && !settle.ready){
             failure_stage="waiting_for_stable_idle";
             if(!settle.step(base))return fail();
             if(!settle.ready)return true;
@@ -90,7 +98,7 @@ struct NativePredictionProbe {
             if(captured==2 && !observe_prediction(base)){failure_stage="prediction_observation";return fail();}
             failure_stage="boundary_capture";
             if(!frames[captured]->capture(base,argument,writer,check))return fail();
-            if(two_frame_capture && captured==0){
+            if((two_frame_capture || a_capture) && captured==0){
                 for(unsigned i=0;i<frames[0]->data->cameras[0].count;++i){
                     const auto& camera=frames[0]->data->cameras[0].records[i];
                     if(camera.smoothing_valid && !camera_settled(camera)){
@@ -102,7 +110,7 @@ struct NativePredictionProbe {
             ++captured;
             if(captured==1){
                 actual=frames[0]->data->delayed_inputs;
-                if(!make_prediction(actual,predicted,direction_mode))return fail();
+                if(!(a_capture?make_a_prediction(actual,predicted):make_prediction(actual,predicted,direction_mode)))return fail();
                 return true; // Clean reference update with the original argument.
             }
             if(captured==2){
@@ -127,6 +135,7 @@ struct NativePredictionProbe {
                 for(unsigned side=0;side<2;++side)state_changed=state_changed ||
                     std::memcmp(b.measurements[0].fields[side].data()+8,p.measurements[0].fields[side].data()+8,216)!=0;
             }
+            if(captured==3 && a_capture && !a_restore){done=true;return true;}
             // Movement observation is not permission to load this new state.
             // Retain the immutable clean reference and export the divergent save.
             if(captured==3 && direction_mode && !movement_restore){
@@ -139,7 +148,7 @@ struct NativePredictionProbe {
             }
             if(captured==3 && movement_restore && !state_changed){failure_stage="no_movement_divergence";return fail();}
             failure_stage="restore_preparation";
-            if(!restore.prepare_captured(*frames[0],*frames[captured-1],captured==3 && movement_restore))return fail();
+            if(!restore.prepare_captured(*frames[0],*frames[captured-1],captured==3 && movement_restore,captured==3 && a_restore))return fail();
             failure_stage="native_restoration";
             if(!restore.restore_captured(*frames[0],base,guard.assign(frames[captured-1]->data->delayed_inputs),writer,reader,check))return fail();
             ++loads;failure_stage="none";

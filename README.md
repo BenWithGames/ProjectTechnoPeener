@@ -1,8 +1,20 @@
 # SC6Rollback — initial C++ scaffold
 
-This is an offline research starter, not a working rollback mod. The UE4SS DLL
-logs its load and Unreal initialization. It has no SC6 memory offsets, hooks,
-hotkeys, overlay, game-state restore, or networking yet.
+This is an experimental SC6 rollback research mod. Bounded offline movement and
+single-A correction tests have passed; network rollback is not implemented yet.
+
+The native build includes a click-through status panel at the bottom of the game
+window. It displays **SC6Rollback ENABLED**, network status, opponent ping (ms),
+input delay (frames), and rollback depth (frames). ENABLED means the mod is loaded,
+not that online rollback is active. Unmeasured values show `--`; no simulated ping
+or inferred delay is displayed. The panel supports windowed/borderless play;
+exclusive fullscreen may hide it. It hides when SC6 loses focus or is minimized.
+
+Future network integration should publish measured values through
+`StatusOverlay::publish(OverlayStats)`. Publish on connection and disconnection;
+connected telemetry older than three seconds is marked stale and its values hidden.
+Delay means configured input delay; rollback means the most recent correction depth.
+The current build does not publish online telemetry, so the panel says Network: inactive.
 
 ## Contents
 

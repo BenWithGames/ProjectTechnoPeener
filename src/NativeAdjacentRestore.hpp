@@ -64,14 +64,14 @@ struct NativeAdjacentRestore {
         if(!replay_verified)return fail();
         return true;
     }
-    bool prepare_captured(const NativeBoundarySnapshot& source,const NativeBoundarySnapshot& next,bool direction_restore=false){
+    bool prepare_captured(const NativeBoundarySnapshot& source,const NativeBoundarySnapshot& next,bool direction_restore=false,bool a_restore=false){
         if(attempted || fault)return false;attempted=true;
         if((source.mode!=NativeBoundarySnapshot::Mode::idle && !(direction_restore && source.mode==NativeBoundarySnapshot::Mode::direction_observation)) ||
-           next.mode!=(direction_restore?NativeBoundarySnapshot::Mode::direction_observation:source.mode) ||
+           next.mode!=(a_restore?NativeBoundarySnapshot::Mode::a_observation:direction_restore?NativeBoundarySnapshot::Mode::direction_observation:source.mode) ||
            source.thread!=GetCurrentThreadId() || source.module!=next.module)return fail();
         current.direction_bits=next.direction_bits;current.mode=next.mode;current.module=next.module;current.thread=next.thread;current.attempted=next.attempted;
         current.valid=next.valid;current.fault=next.fault;*current.data=*next.data;
-        if(!source.prepare_adjacent(current,*probe,&rejection,direction_restore))return fail();
+        if(!source.prepare_adjacent(current,*probe,&rejection,direction_restore,a_restore))return fail();
         prepared=true;return true;
     }
     bool restore_captured(const NativeBoundarySnapshot& source,uintptr_t base,uintptr_t argument,

@@ -1,8 +1,10 @@
 #include <Mod/CppUserModBase.hpp>
 #include <DynamicOutput/DynamicOutput.hpp>
 #include "FrameRecorder.hpp"
+#include "StatusOverlay.hpp"
 
 class SC6RollbackMod final : public RC::CppUserModBase {
+    sc6::StatusOverlay overlay;
 public:
     SC6RollbackMod() {
         ModName = STR("SC6Rollback");
@@ -13,13 +15,13 @@ public:
     }
 
     auto on_unreal_init() -> void override {
-        try { sc6::recorder_init(); } catch (...) { RC::Output::send<RC::LogLevel::Error>(STR("[SC6Rollback] recorder initialization failed\n")); }
+        try { sc6::recorder_init(); overlay.start(); } catch (...) { RC::Output::send<RC::LogLevel::Error>(STR("[SC6Rollback] recorder initialization failed\n")); }
     }
 
     auto on_update() -> void override {
         try { sc6::recorder_poll(); } catch (...) { sc6::recorder_stop(); }
     }
-    ~SC6RollbackMod() override { sc6::recorder_stop(); }
+    ~SC6RollbackMod() override { overlay.stop(); sc6::recorder_stop(); }
     // on_update only handles control and output; samples come from EntryBridge.
 };
 

@@ -1104,6 +1104,32 @@ int main(){
                     for(unsigned i=0;i<7;++i)require(left_controller->frames[i]->direction_bits==0x800);
                     auto bad_direction=std::make_unique<sc6::research::NativeTwoMovement>(3,0xC00);require(bad_direction->fault);
                 }
+                {
+                    std::array<std::byte,1372> source_blend{},attack_blend{};
+                    unsigned idle_index=12,attack_index=14;
+                    std::memcpy(source_blend.data()+156,&idle_index,4);std::memcpy(attack_blend.data()+156,&attack_index,4);
+                    require(P::a_blend_pair(source_blend.data(),attack_blend.data(),0));
+                    require(!P::a_blend_pair(source_blend.data(),attack_blend.data(),1));
+                    attack_blend[160]=std::byte{1};require(!P::a_blend_pair(source_blend.data(),attack_blend.data(),0));
+                    attack_blend[160]=std::byte{};attack_index=15;std::memcpy(attack_blend.data()+156,&attack_index,4);
+                    require(!P::a_blend_pair(source_blend.data(),attack_blend.data(),0));
+                    sc6::research::NativePredictionProbe::Input zero{},attack{};
+                    require(sc6::research::NativePredictionProbe::make_a_prediction(zero,attack));
+                    for(unsigned off=0;off<40;off+=4){unsigned word{};std::memcpy(&word,attack.data()+off,4);
+                        require(word==((off==0 || off==4 || off==16)?1u:0u));}
+                    zero[8]=std::byte{1};require(!sc6::research::NativePredictionProbe::make_a_prediction(zero,attack));
+                    *reinterpret_cast<std::uint16_t*>(base+0x4717840)=1;
+                    *reinterpret_cast<std::uint16_t*>(base+0x475A04A)=264;
+                    require(MovementBoundary::a_state(base));
+                    auto observation=std::make_unique<MovementBoundary>(MovementBoundary::Mode::a_observation);
+                    auto previous_loads=loads;
+                    require(observation->capture(base,argument,trajectory_save,check) && loads==previous_loads);
+                    auto blocked=std::make_unique<P>();MovementBoundary::Rejection reason_a{};
+                    require(!observation->prepare_adjacent(*observation,*blocked,&reason_a,true) && reason_a==MovementBoundary::Rejection::mode);
+                    *reinterpret_cast<std::uint16_t*>(base+0x475A04A)=265;require(!MovementBoundary::a_state(base));
+                    *reinterpret_cast<std::uint16_t*>(base+0x475A04A)=65535;
+                    *reinterpret_cast<std::uint16_t*>(base+0x4717840)=0x400;
+                }
                 auto movement=std::make_unique<MovementBoundary>(MovementBoundary::Mode::direction_observation);
                 auto prior_loads=loads,prior_saves=saves;
                 require(movement->capture(base,argument,trajectory_save,check));

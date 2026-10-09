@@ -4,7 +4,7 @@ namespace sc6::research {
 // A single boundary, independent of a pre-recorded reference trajectory.
 // Capture only on the offline update thread. Does not invoke native loading.
 struct NativeBoundarySnapshot {
-    enum class Mode {idle,throw_move,charge,attack,edge,reversal,direction_observation};
+    enum class Mode {idle,throw_move,charge,attack,edge,reversal,direction_observation,a_observation};
     std::unique_ptr<FullStateProbe> data=std::make_unique<FullStateProbe>();
     unsigned direction_bits{0x400};
     Mode mode;uintptr_t module{};DWORD thread{};bool attempted{},valid{},fault{};unsigned exception{};
@@ -22,6 +22,14 @@ struct NativeBoundarySnapshot {
             *reinterpret_cast<float*>(base+0x48462F4)==1.0f &&
             *reinterpret_cast<unsigned char*>(base+0x48462D0)==0;
     }
+    static bool a_state(uintptr_t base){
+        return *reinterpret_cast<std::uint16_t*>(base+0x4717840)==1 &&
+            *reinterpret_cast<std::uint16_t*>(base+0x47AEC30)==0 &&
+            *reinterpret_cast<std::uint16_t*>(base+0x475A04A)==264 &&
+            *reinterpret_cast<std::uint16_t*>(base+0x47F143A)==65535 &&
+            *reinterpret_cast<float*>(base+0x48462F4)==1.0f &&
+            *reinterpret_cast<unsigned char*>(base+0x48462D0)==0;
+    }
     __declspec(noinline) bool capture(uintptr_t base,uintptr_t argument,FullStateProbe::Routine writer=nullptr,FullStateProbe::Preflight check=nullptr) noexcept {
         if(attempted)return false;attempted=true;module=base;thread=GetCurrentThreadId();
         if(!writer)writer=reinterpret_cast<FullStateProbe::Routine>(base+0x3841E0);
@@ -29,7 +37,7 @@ struct NativeBoundarySnapshot {
         std::uint64_t bookkeeping{};bool saved_bookkeeping=false;
         __try {
             auto& q=*data;
-            if(!check(base) || !(mode==Mode::direction_observation?direction_state(base,direction_bits):mode==Mode::idle?FullStateProbe::idle(base):q.combat_state(base)) ||
+            if(!check(base) || !(mode==Mode::a_observation?a_state(base):mode==Mode::direction_observation?direction_state(base,direction_bits):mode==Mode::idle?FullStateProbe::idle(base):q.combat_state(base)) ||
                !FullStateProbe::input_bytes(argument,q.delayed_inputs) || !q.rings[0].capture(base)){fault=true;__leave;}
             q.measure(base,0);FullStateProbe::keys(base,q.before_keys.data(),q.before_players);
             bookkeeping=FullStateProbe::ptr(base+0x470E870);saved_bookkeeping=true;
@@ -53,13 +61,15 @@ struct NativeBoundarySnapshot {
         constexpr const char* names[]={"none","invalid_capture","module","mode","thread","used_probe","frame_adjacency","player_identity","stream_shape","ring_rotation","rng_changed","transform_topology","camera_identity","input_changed","reader_copy","serializer_source","combat_readiness","root_wind","charge_readiness"};
         return names[static_cast<unsigned>(r)];
     }
-    bool prepare_adjacent(const NativeBoundarySnapshot& current,FullStateProbe& q,Rejection* reason=nullptr,bool direction_restore=false)const {
+    bool prepare_adjacent(const NativeBoundarySnapshot& current,FullStateProbe& q,Rejection* reason=nullptr,bool direction_restore=false,bool a_restore=false)const {
         auto reject=[&](Rejection r){if(reason)*reason=r;return false;};
         if(reason)*reason=Rejection::none;
         if(!valid || fault || !current.valid || current.fault)return reject(Rejection::invalid_capture);
         if(module!=current.module)return reject(Rejection::module);
+        const bool a_pair=a_restore && !direction_restore && mode==Mode::idle && current.mode==Mode::a_observation;
+        if((a_restore && !a_pair) || ((mode==Mode::a_observation || current.mode==Mode::a_observation) && !a_pair))return reject(Rejection::mode);
         const bool direction_pair=direction_restore && (mode==Mode::idle || mode==Mode::direction_observation) && current.mode==Mode::direction_observation;
-        if(direction_restore?!direction_pair:(mode==Mode::direction_observation || current.mode==Mode::direction_observation || mode!=current.mode))return reject(Rejection::mode);
+        if(!a_pair && (direction_restore?!direction_pair:(mode==Mode::direction_observation || current.mode==Mode::direction_observation || mode!=current.mode)))return reject(Rejection::mode);
         if(thread!=current.thread || thread!=GetCurrentThreadId())return reject(Rejection::thread);
         if(q.saved.sealed || q.attempted || q.restore_invoked)return reject(Rejection::used_probe);
         const auto& a=*data;const auto& b=*current.data;
@@ -76,12 +86,12 @@ struct NativeBoundarySnapshot {
         if(!combat){if(!RecordedInput::compatible(a.delayed_inputs,b.delayed_inputs))return reject(Rejection::inputs);}
         else if(a.delayed_inputs!=b.delayed_inputs && !(mode==Mode::charge?
            RecordedInput::charge_compatible(a.delayed_inputs,b.delayed_inputs):RecordedInput::compatible(a.delayed_inputs,b.delayed_inputs)))return reject(Rejection::inputs);
-        if(direction_pair){
-            if(direction_bits!=current.direction_bits || (current.direction_bits!=0x400 && current.direction_bits!=0x800))return reject(Rejection::mode);
+        if(direction_pair || a_pair){
+            if(direction_pair && (direction_bits!=current.direction_bits || (current.direction_bits!=0x400 && current.direction_bits!=0x800)))return reject(Rejection::mode);
             for(unsigned i=0;i<24;++i)if(a.delayed_inputs[i]!=std::byte{} || b.delayed_inputs[i]!=std::byte{})return reject(Rejection::inputs);
             for(unsigned side=0;side<2;++side)if(!a.blends[0].valid || !b.blends[0].valid ||
                 a.blends[0].owners[side]!=b.blends[0].owners[side] ||
-                std::memcmp(a.blends[0].bytes[side].data(),b.blends[0].bytes[side].data(),1372))return reject(Rejection::combat);
+                (a_pair?!FullStateProbe::a_blend_pair(a.blends[0].bytes[side].data(),b.blends[0].bytes[side].data(),side):std::memcmp(a.blends[0].bytes[side].data(),b.blends[0].bytes[side].data(),1372)!=0))return reject(Rejection::combat);
             if(!a.cameras[0].adjacent_combat_ready(b.cameras[0],module,true))return reject(Rejection::camera);
         }
         if(!q.saved.prepare_reader_from(a.saved))return reject(Rejection::reader);
@@ -108,7 +118,7 @@ struct NativeBoundarySnapshot {
                !CombatBlend::adjacent(q.blends[0].bytes[0],q.blends[1].bytes[0]) ||
                !CombatBlend::adjacent(q.blends[0].bytes[1],q.blends[1].bytes[1])))return reject(Rejection::charge);
         }
-        q.direction_restore_requested=direction_pair;q.direction_bits=current.direction_bits;
+        q.a_restore_requested=a_pair;q.direction_restore_requested=direction_pair;q.direction_bits=current.direction_bits;
         q.fault=false;return true;
     }
 };

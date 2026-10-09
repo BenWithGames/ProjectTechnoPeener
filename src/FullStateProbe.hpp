@@ -216,7 +216,18 @@ struct FullStateProbe {
             *reinterpret_cast<std::uint16_t*>(b+0x47F143A),*reinterpret_cast<float*>(b+0x48462F4),
             *reinterpret_cast<int*>(b+0x4846458)) && (!charge_requested || charge_aux_active(b));
     }
+    bool a_restore_requested{};
     bool direction_restore_requested{};unsigned direction_bits{0x400};
+    static bool a_state(uintptr_t b){
+        return *reinterpret_cast<std::uint16_t*>(b+0x4717840)==1 && *reinterpret_cast<std::uint16_t*>(b+0x47AEC30)==0 &&
+            *reinterpret_cast<std::uint16_t*>(b+0x475A04A)==264 && *reinterpret_cast<std::uint16_t*>(b+0x47F143A)==65535 &&
+            *reinterpret_cast<float*>(b+0x48462F4)==1.0f && *reinterpret_cast<unsigned char*>(b+0x48462D0)==0;
+    }
+    static bool a_blend_pair(const std::byte* a,const std::byte* b,unsigned side){
+        if(side)return !std::memcmp(a,b,1372);
+        unsigned x{},y{};std::memcpy(&x,a+156,4);std::memcpy(&y,b+156,4);
+        return x==12 && y==14 && !std::memcmp(a,b,156) && !std::memcmp(a+160,b+160,1212);
+    }
     static bool direction_state(uintptr_t b,unsigned bits=0x400){
         if(bits!=0x400 && bits!=0x800)return false;
         return *reinterpret_cast<std::uint16_t*>(b+0x4717840)==bits && *reinterpret_cast<std::uint16_t*>(b+0x47AEC30)==0 &&
@@ -336,7 +347,7 @@ struct FullStateProbe {
                 if(player<0x10000 || ptr(player+0x971F8)!=owner || owner!=blends[1].owners[side] || owner!=blends[5].owners[side])return false;
                 auto source=blends[0].bytes[side].data()+140;
                 auto loaded=blends[5].bytes[side].data()+140;
-                if(std::memcmp(source,blends[1].bytes[side].data()+140,1232) ||
+                if((a_restore_requested?!a_blend_pair(blends[0].bytes[side].data(),blends[1].bytes[side].data(),side):std::memcmp(source,blends[1].bytes[side].data()+140,1232)!=0) ||
                    std::memcmp(loaded,reinterpret_cast<void*>(owner+0x1DD8),1232))return false;
                 for(unsigned j=0;j<7;++j){
                     auto s=source+j*176;auto l=loaded+j*176;
@@ -348,7 +359,7 @@ struct FullStateProbe {
                     // Loader2FA080 reconstructs block2 selection. Narrow observed A+G case only.
                     const bool throw_selection=combat_load_diagnostic && throw_requested && !delayed_requested &&
                         side==1 && j==2 && index==12 && new_index==3 && mask==0 && new_mask==0;
-                    if((new_index!=0 && new_index!=index && !throw_selection) || (new_mask!=0 && new_mask!=mask) || (mask>>35))return false;
+                    if((new_index!=0 && new_index!=index && !(a_restore_requested && side==0 && j==0 && index==12 && new_index==14) && !throw_selection) || (new_mask!=0 && new_mask!=mask) || (mask>>35))return false;
                     if(table){
                         if(table<0x10000)return false;
                         auto count=*reinterpret_cast<const std::int32_t*>(table);
@@ -511,7 +522,7 @@ struct FullStateProbe {
             // At phase2 the replayed update is already complete; this envelope
             // belongs to the upcoming update. A/B equality remains mandatory.
             const bool require_input_equality=!combat_replay_requested || !delayed_loaded;
-            if((require_input_equality && !delayed_inputs_equal) || !check(b) || !(combat_replay_requested?combat_state(b):(direction_restore_requested && !delayed_loaded?direction_state(b,direction_bits):idle(b)))){fault=true;__leave;}
+            if((require_input_equality && !delayed_inputs_equal) || !check(b) || !(combat_replay_requested?combat_state(b):(a_restore_requested && !delayed_loaded?a_state(b):(direction_restore_requested && !delayed_loaded?direction_state(b,direction_bits):idle(b))))){fault=true;__leave;}
             if(!audit_done){
                 if(!capture_blend(b,audit_started?1u:0u)){fault=true;__leave;}
                 audit_step(b,writer,check);
@@ -576,7 +587,7 @@ struct FullStateProbe {
                     restored_save_unchanged=restored_save_unchanged && blends[6].bytes==blends[3].bytes;
                     if(!restored_valid || !restored_save_unchanged){fault=true;__leave;}
                     if(camera_restore_requested){
-                        camera_restore_verified=cameras[0].restore_smoothing(cameras[1],cameras[2],b,false,combat_replay_requested || direction_restore_requested,false,charge_requested || direction_restore_requested);
+                        camera_restore_verified=cameras[0].restore_smoothing(cameras[1],cameras[2],b,false,combat_replay_requested || direction_restore_requested || a_restore_requested,false,charge_requested || direction_restore_requested || a_restore_requested);
                         if(!camera_restore_verified || !cameras[4].capture(restored,b)){fault=true;__leave;}
                     }
                     if(combat_replay_requested && !throw_camera_flag.restore(saved,restored,b,attack_requested,edge_requested,reversal_requested)){fault=true;__leave;}

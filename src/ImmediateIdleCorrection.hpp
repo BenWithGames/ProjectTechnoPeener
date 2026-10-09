@@ -78,7 +78,7 @@ struct ImmediateIdleCorrection {
                 // Separate observed base-camera object; smoothing camera has
                 // already been corrected by its existing dedicated restorer.
                 if(r.smoothing_valid || next.smoothing_valid || TransformSnapshot::pointer(r.bytes.data())!=base+0x3E881C8 ||
-                   !camera_pair(r,next,c.direction_restore_requested) || CameraSnapshot::word(live.bytes.data()+0x154)!=0 ||
+                   !camera_pair(r,next,c.direction_restore_requested || c.a_restore_requested) || CameraSnapshot::word(live.bytes.data()+0x154)!=0 ||
                    !finite(r.bytes.data()+0x154,4) || std::memcmp(r.bytes.data(),live.bytes.data(),0x154) ||
                    std::memcmp(r.bytes.data()+0x158,live.bytes.data()+0x158,r.bytes.size()-0x158) ||
                    !add(r.owner+0x154,r.bytes.data()+0x154,4))return false;
