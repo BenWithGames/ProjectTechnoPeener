@@ -1,5 +1,6 @@
 #pragma once
 #include "NetworkInputComposer.hpp"
+#include "LateInputScheduler.hpp"
 #include <atomic>
 #include <array>
 #include <cstdint>
@@ -13,6 +14,8 @@ struct NetworkGameHandoff {
         NetworkInputComposer::Envelope input{};
     };
     struct Boundary {uint64_t generation{};uint32_t frame{},round{},event{};NetworkInputComposer::Envelope input{};};
+    std::atomic<bool> late_enabled{false};
+    LateInputScheduler late;
     std::array<Request,8> queue{};
     std::atomic<unsigned> write{0},read{0};
     std::atomic<uint64_t> local_nonce{0},peer_nonce{0};
@@ -39,6 +42,7 @@ struct NetworkGameHandoff {
         if(started && (owner!=thread || last_frame==UINT32_MAX || now.frame!=last_frame+1u))failed=true;
         owner=thread;last_frame=now.frame;started=true;
         history[now.frame%history.size()]=now;
+        const bool scheduling=late_enabled.load() && !failed && late.enter(now.generation,now.round,now.event,now.frame,slot.load());
         // Fixed work budget; never wait for network traffic or allocate here.
         for(unsigned budget=0;budget<queue.size();++budget){
             const unsigned r=read.load(std::memory_order_relaxed),w=write.load(std::memory_order_acquire);
@@ -52,9 +56,20 @@ struct NetworkGameHandoff {
             else if(request.frame>=now.frame || now.frame-request.frame>3)reason=3;
             else if(saved.frame!=request.frame || !saved.generation || saved.generation!=now.generation || saved.round!=request.round || saved.event!=request.boundary)reason=4;
             else if(saved.input!=request.input)reason=5;
+            if(scheduling && request.local_nonce==session && request.peer_nonce==peer_nonce && request.slot==slot &&
+               request.round==now.round && request.boundary==now.event && request.frame<now.frame &&
+               now.frame-request.frame<history.size() && saved.frame==request.frame && saved.generation==now.generation &&
+               saved.round==request.round && saved.event==request.boundary && saved.input==request.input){
+                const unsigned word=(3-request.slot-1)*2;
+                late.receive(request.frame,request.input[word],request.input[word+1]);
+            }
+            if(scheduling && request.local_nonce==session && request.peer_nonce==peer_nonce && request.slot==slot &&
+               request.round==now.round && request.boundary==now.event && request.frame<now.frame &&
+               now.frame-request.frame>=history.size())++late.expired;
             if(reason==6){++validated;if(callback)callback(context,request,saved);}else {++rejection_reasons[reason];++rejected;}
 
         }
+        if(scheduling)late.decide();
     }
 };
 inline NetworkGameHandoff network_game_handoff;

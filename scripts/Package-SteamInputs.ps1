@@ -14,9 +14,9 @@ foreach($name in @('dwmapi.dll','UE4SS.dll','UE4SS-settings.ini','UE4SS-LICENSE.
     Copy-Item -LiteralPath $source -Destination (Join-Path $payload $name)
 }
 @'
-SC6 replay comparison and confirmation diagnostic v21 -- use Steam-Replay.cmd for the next test.
-This simulates one P1 rightward press, restores, and replays confirmed neutral input.
-Both machines use the same controlled P1 fixture. This is not automatic late-input correction.
+SC6 three-frame remote-player correction v27 -- use Steam-Replay.cmd for the next test.
+This simulates one three-frame-deep remote-player movement correction, restores, and replays confirmed neutral input.
+Each machine targets its assigned remote player: P2 on the P1 PC, P1 on the P2 PC. This is not automatic late-input correction.
 Success requires measured state divergence followed by verified correction. Continuous rollback remains disabled.
 
 Both players:
@@ -24,9 +24,9 @@ Both players:
    game installation folder. Wait for installation success and close installer.
 2. Launch SC6 through Steam. Join the same PRIVATE lobby. Start the scripts BEFORE readying up.
 3. For the movement prediction/correction test, open Steam-Replay.cmd on BOTH PCs.
-   Stay idle for 5 seconds after FIGHT, when normal combat begins. This mode can load the previous frame
-   simulate a P1 rightward press, rewind that branch, and replay confirmed input. Late confirmation discards the pair, with at most two fresh-pair retries.
-   native_network_input_delivered=1 and native_replay_verified=1 are required; transport PASS alone is insufficient.
+   Stay idle for 10 seconds after FIGHT, when normal combat begins. This mode can rewind three frames
+   simulate a remote-player rightward press, rewind that branch, and replay confirmed input. Late confirmation discards the pair, with at most two fresh-pair retries.
+   native_depth_rewound=3, native_depth_compared=3, and native_replay_verified=1 are required; transport PASS alone is insufficient.
    If native_restart_required=1, close BOTH games and share the report.
    For the save-only checkpoint test, open Steam-Checkpoints.cmd. Leave both players idle for 5 seconds after the round starts. The test attempts two native saves, links them to authenticated inputs, and checks captured-pair restoration readiness. It never loads or replays. Read native_readiness_prepared separately from transport PASS.
    For observation only, open Steam-Inputs.cmd. Enter the OTHER player's Steam friend code or SteamID64, then YOUR assigned Player 1/2 side.
@@ -45,7 +45,7 @@ Incoming records are matched to local counters, checked for button agreement,
 and composed while retaining this PC's historical auxiliary input values.
 composition_staged counts buffered compositions, NOT game updates or rewinds.
 composition_failure must be none. Round identity and game handoff remain unverified.
-Avoid ending the round during this capture; counter resets stop staging.
+Round-crossing correction requests are rejected; finish the recording normally.
 
 PING ~: after the mutual handshake, the overlay displays an estimated RTT.
 Every 3 seconds a burst of up to five probes is sent, spaced at least20ms apart.
@@ -80,7 +80,7 @@ frames, unmatched counters, timing censoring and input mismatches are reported.
 Only Steam-Replay invokes experimental native loading and a recorded-input update. Other modes do not. Transport PASS does
 NOT prove synchronized frame numbers, correct player mapping, prediction,
 network rollback, or readiness for ranked. Play only with your consenting friend.
-No automatic match-mode detection is implemented. Captures include raw input
+Automatic compatibility and ping are included, but experimental replay still requires this explicit private-session script. Captures include raw input
 words, local frame counters and QPC timestamps; timestamps are not synchronized.
 
 Reports/CSVs: SoulcaliburVI/Binaries/Win64/Mods/SC6Rollback/captures.
@@ -89,7 +89,7 @@ An observation is not proof the channel is unused in every other game mode.
 Backups: Mods/SC6Rollback/install-backups. To revert, close SC6 and restore
 main.dll.disabled from your backup as dlls/main.dll.
 '@ | Set-Content -LiteralPath (Join-Path $destination 'README.txt') -Encoding ascii
-$zip=Join-Path $project 'build-network\SC6Rollback-Replay-Comparison-v21.zip'
+$zip=Join-Path $project 'build-network\SC6Rollback-Three-Frame-Remote-v27.zip'
 Compress-Archive -Path (Join-Path $destination '*') -DestinationPath $zip -Force
 Get-FileHash -LiteralPath $zip
 

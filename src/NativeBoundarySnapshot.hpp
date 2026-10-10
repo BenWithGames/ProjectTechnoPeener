@@ -6,7 +6,7 @@ namespace sc6::research {
 struct NativeBoundarySnapshot {
     enum class Mode {idle,throw_move,charge,attack,edge,reversal,direction_observation,a_observation};
     std::unique_ptr<FullStateProbe> data=std::make_unique<FullStateProbe>();
-    unsigned direction_bits{0x400};
+    unsigned direction_bits{0x400},direction_slot{1};
     unsigned capture_stage{};bool mode_values_valid{};std::array<unsigned,6> mode_values{};
     Mode mode;uintptr_t module{};DWORD thread{};bool attempted{},valid{},fault{};unsigned exception{};
     explicit NativeBoundarySnapshot(Mode value):mode(value){
@@ -14,14 +14,8 @@ struct NativeBoundarySnapshot {
         data->attack_requested=value==Mode::attack;data->edge_requested=value==Mode::edge;
         data->reversal_requested=value==Mode::reversal;
     }
-    static bool direction_state(uintptr_t base,unsigned bits=0x400){
-        if(bits!=0x400 && bits!=0x800)return false;
-        return *reinterpret_cast<std::uint16_t*>(base+0x4717840)==bits &&
-            *reinterpret_cast<std::uint16_t*>(base+0x47AEC30)==0 &&
-            *reinterpret_cast<std::uint16_t*>(base+0x475A04A)==65535 &&
-            *reinterpret_cast<std::uint16_t*>(base+0x47F143A)==65535 &&
-            *reinterpret_cast<float*>(base+0x48462F4)==1.0f &&
-            *reinterpret_cast<unsigned char*>(base+0x48462D0)==0;
+    static bool direction_state(uintptr_t base,unsigned bits=0x400,unsigned slot=1){
+        return FullStateProbe::direction_state(base,bits,slot);
     }
     static bool a_state(uintptr_t base){
         return *reinterpret_cast<std::uint16_t*>(base+0x4717840)==1 &&
@@ -40,7 +34,7 @@ struct NativeBoundarySnapshot {
             auto& q=*data;
             capture_stage=1;if(!check(base)){fault=true;__leave;}
             capture_stage=2;
-            if(!(mode==Mode::a_observation?a_state(base):mode==Mode::direction_observation?direction_state(base,direction_bits):mode==Mode::idle?FullStateProbe::idle(base):q.combat_state(base))){
+            if(!(mode==Mode::a_observation?a_state(base):mode==Mode::direction_observation?direction_state(base,direction_bits,direction_slot):mode==Mode::idle?FullStateProbe::idle(base):q.combat_state(base))){
                 fault=true;
                 mode_values[0]=*reinterpret_cast<std::uint16_t*>(base+0x4717840);
                 mode_values[1]=*reinterpret_cast<std::uint16_t*>(base+0x47AEC30);
@@ -104,7 +98,7 @@ struct NativeBoundarySnapshot {
         else if(a.delayed_inputs!=b.delayed_inputs && !(mode==Mode::charge?
            RecordedInput::charge_compatible(a.delayed_inputs,b.delayed_inputs):RecordedInput::compatible(a.delayed_inputs,b.delayed_inputs)))return reject(Rejection::inputs);
         if(direction_pair || a_pair){
-            if(direction_pair && (direction_bits!=current.direction_bits || (current.direction_bits!=0x400 && current.direction_bits!=0x800)))return reject(Rejection::mode);
+            if(direction_pair && (direction_slot!=current.direction_slot || current.direction_slot<1 || current.direction_slot>2 || direction_bits!=current.direction_bits || (current.direction_bits!=0x400 && current.direction_bits!=0x800)))return reject(Rejection::mode);
             for(unsigned i=0;i<24;++i)if(a.delayed_inputs[i]!=std::byte{} || b.delayed_inputs[i]!=std::byte{})return reject(Rejection::inputs);
             for(unsigned side=0;side<2;++side)if(!a.blends[0].valid || !b.blends[0].valid ||
                 a.blends[0].owners[side]!=b.blends[0].owners[side] ||
@@ -135,7 +129,7 @@ struct NativeBoundarySnapshot {
                !CombatBlend::adjacent(q.blends[0].bytes[0],q.blends[1].bytes[0]) ||
                !CombatBlend::adjacent(q.blends[0].bytes[1],q.blends[1].bytes[1])))return reject(Rejection::charge);
         }
-        q.a_restore_requested=a_pair;q.direction_restore_requested=direction_pair;q.direction_bits=current.direction_bits;
+        q.a_restore_requested=a_pair;q.direction_restore_requested=direction_pair;q.direction_bits=current.direction_bits;q.direction_slot=current.direction_slot;
         q.fault=false;return true;
     }
 };

@@ -32,7 +32,7 @@ inline void poll() {
     static void* net=nullptr;
     static unsigned sent=0,received=0,rejected=0,send_failed=0;
     static Session session{};
-    static bool input_mode=false,checkpoint_mode=false,replay_mode=false;
+    static bool input_mode=false,checkpoint_mode=false,replay_mode=false,late_mode=false;
     static steam_inputs::Capture capture;
     static ULONGLONG completed=0;
     static bool data_done=false;
@@ -67,7 +67,7 @@ inline void poll() {
            <<"\nnative_completion_offset="<<network_checkpoint_status.completion_offset.load()
            <<"\nnative_completion_saved="<<network_checkpoint_status.completion_saved.load()
            <<"\nnative_completion_live="<<network_checkpoint_status.completion_live.load()<<"\n";
-        out<<"schema=1\nscope="<<(input_mode?(replay_mode?"steam_native_p1_movement_correction":checkpoint_mode?"steam_native_checkpoint_save":"steam_recorded_inputs"):"steam_handshake_only")<<"\nrollback_active=0\ninjection="<<network_checkpoint_status.prediction_invoked.load()<<"\nrestore="<<network_checkpoint_status.restore_invoked.load()<<"\ngame_alignment_verified=0\nstatus="<<status
+        out<<"schema=1\nscope="<<(input_mode?(late_mode?"steam_live_late_input_scheduler":replay_mode?"steam_native_three_frame_remote_correction":checkpoint_mode?"steam_native_checkpoint_save":"steam_recorded_inputs"):"steam_handshake_only")<<"\nrollback_active=0\ninjection="<<network_checkpoint_status.prediction_invoked.load()<<"\nrestore="<<network_checkpoint_status.restore_invoked.load()<<"\ngame_alignment_verified=0\nstatus="<<status
             <<"\nchannel="<<channel<<"\npeer="<<protocol.expected_peer<<"\nsent="<<sent<<"\nreceived="<<received
             <<"\nrejected="<<rejected<<"\nsend_failed="<<send_failed<<"\nroundtrip_proof="<<protocol.proof
             <<"\nmutual_confirmation="<<protocol.mutual<<"\nsteam_using_relay="<<unsigned(session.relay)<<'\n';
@@ -77,6 +77,26 @@ inline void poll() {
         if(input_mode)out<<"target_records="<<steam_inputs::limit<<"\nslot_mapping_assumed=1\nlocal_records="<<capture.exchange.published<<"\nremote_records="<<capture.exchange.received
             <<"\npeer_checksum_match="<<capture.exchange.peer_match<<"\nlocal_checksum="<<observation::checksum(capture.exchange.local)
             <<"\nremote_checksum="<<observation::checksum(capture.exchange.remote)<<"\nqpc_frequency="<<(capture.shared?capture.shared->frequency:0)<<'\n';
+        if(late_mode){const auto& l=network_game_handoff.late;
+            out<<"late_scheduler_schema=1\nlate_prediction_applied=0\nlate_correction_executed=0\nlate_decision_delay_frames=0\nlate_snapshot_available=0\nlate_observed_horizon_frames=15\nlate_correction_limit_frames=3\n";
+            out<<"late_decisions="<<l.decisions.load()<<"\n";
+            out<<"late_seeded="<<l.seeded.load()<<"\n";
+            out<<"late_unseeded="<<l.unseeded.load()<<"\n";
+            out<<"late_confirmed="<<l.confirmed.load()<<"\n";
+            out<<"late_errors="<<l.errors.load()<<"\n";
+            out<<"late_over_limit="<<l.over_limit.load()<<"\n";
+            out<<"late_max_depth="<<l.max_depth.load()<<"\n";
+            out<<"late_requests="<<l.requests.load()<<"\n";
+            out<<"late_resets="<<l.resets.load()<<"\n";
+            out<<"late_invalid="<<l.invalid.load()<<"\n";
+            out<<"late_expired="<<l.expired.load()<<"\n";
+            out<<"late_event_count="<<l.event_count.load()<<"\n";
+            out<<"late_event_dropped="<<l.event_dropped.load()<<"\n";
+            out<<"late_last_target="<<l.last_target.load()<<"\n";
+            out<<"late_last_depth="<<l.last_depth.load()<<"\n";
+            out<<"late_remote_slot="<<l.remote_slot.load()<<"\n";
+            std::ofstream events(report_path.parent_path()/(report_path.stem().string()+"-late.csv"));l.csv(events);
+        }
         if(input_mode){const auto d=round_event::diagnostics();
             out<<"round_identity_source="<<(round_event::direct_identity?"guarded_upstream_raw":"notification")<<"\nround_observer_schema=3\nround_hook_installed="<<d.installed
                <<"\nround_hook_events="<<d.count<<"\nround_hook_dropped="<<d.dropped
@@ -147,7 +167,34 @@ inline void poll() {
             <<"\nnative_capture_p2_move="<<network_checkpoint_status.capture_mode_values[3].load()
             <<"\nnative_capture_scale_bits="<<network_checkpoint_status.capture_mode_values[4].load()
             <<"\nnative_capture_gate="<<network_checkpoint_status.capture_mode_values[5].load()
-            <<"\nnative_prediction_fixture_slot=1\nnative_prediction_fixture_buttons=1024"
+            <<"\nnative_depth_target="<<network_checkpoint_status.depth_target.load()
+            <<"\nnative_depth_phase="<<network_checkpoint_status.depth_phase.load()
+            <<"\nnative_depth_hop="<<network_checkpoint_status.depth_hop.load()
+            <<"\nnative_depth_predicted="<<network_checkpoint_status.depth_predicted.load()
+            <<"\nnative_depth_clean_restored="<<network_checkpoint_status.depth_clean_restored.load()
+            <<"\nnative_depth_rewound="<<network_checkpoint_status.depth_rewound.load()
+            <<"\nnative_depth_delivered="<<network_checkpoint_status.depth_delivered.load()
+            <<"\nnative_depth_compared="<<network_checkpoint_status.depth_compared.load()
+            <<"\nnative_depth_frame_0="<<network_checkpoint_status.depth_frames[0].load()
+            <<"\nnative_depth_frame_1="<<network_checkpoint_status.depth_frames[1].load()
+            <<"\nnative_depth_frame_2="<<network_checkpoint_status.depth_frames[2].load()
+            <<"\nnative_depth_frame_3="<<network_checkpoint_status.depth_frames[3].load()
+            <<"\nnative_depth_verified_1="<<network_checkpoint_status.depth_verified[0].load()
+            <<"\nnative_depth_verified_2="<<network_checkpoint_status.depth_verified[1].load()
+            <<"\nnative_depth_verified_3="<<network_checkpoint_status.depth_verified[2].load()
+            <<"\nnative_repeated_target="<<network_checkpoint_status.repeated_target.load()
+            <<"\nnative_repeated_completed="<<network_checkpoint_status.repeated_completed.load()
+            <<"\nnative_repeated_cycle="<<network_checkpoint_status.repeated_cycle.load()
+            <<"\nnative_repeated_failed="<<network_checkpoint_status.repeated_failed.load()
+            <<"\nnative_cycle_1_first="<<network_checkpoint_status.repeated_results[0][0].load()
+            <<"\nnative_cycle_1_second="<<network_checkpoint_status.repeated_results[0][1].load()
+            <<"\nnative_cycle_1_slot="<<network_checkpoint_status.repeated_results[0][2].load()
+            <<"\nnative_cycle_1_verified="<<network_checkpoint_status.repeated_results[0][3].load()
+            <<"\nnative_cycle_2_first="<<network_checkpoint_status.repeated_results[1][0].load()
+            <<"\nnative_cycle_2_second="<<network_checkpoint_status.repeated_results[1][1].load()
+            <<"\nnative_cycle_2_slot="<<network_checkpoint_status.repeated_results[1][2].load()
+            <<"\nnative_cycle_2_verified="<<network_checkpoint_status.repeated_results[1][3].load()
+            <<"\nnative_prediction_fixture_slot="<<network_checkpoint_status.prediction_fixture_slot.load()<<"\nnative_prediction_fixture_buttons=1024"
             <<"\nnative_prediction_stage="<<network_checkpoint_status.prediction_stage.load()
             <<"\nnative_prediction_invoked="<<network_checkpoint_status.prediction_invoked.load()
             <<"\nnative_prediction_captured="<<network_checkpoint_status.prediction_captured.load()
@@ -188,11 +235,12 @@ inline void poll() {
         unsigned local_slot=0;
         bool valid=bool(config>>mode>>pid>>peer);
         if(input_mode)valid=valid && bool(config>>local_slot) && (local_slot==1||local_slot==2);
+        late_mode=input_mode && mode=="PRIVATE_STEAM_LATE";
         replay_mode=input_mode && mode=="PRIVATE_STEAM_REPLAY";
         checkpoint_mode=input_mode && (mode=="PRIVATE_STEAM_CHECKPOINTS" || replay_mode);
         bool trailing=bool(config>>extra);config.close();std::filesystem::remove(arm);
-        if(!valid||trailing||mode!=(input_mode?(replay_mode?"PRIVATE_STEAM_REPLAY":checkpoint_mode?"PRIVATE_STEAM_CHECKPOINTS":"PRIVATE_STEAM_INPUTS"):"PRIVATE_STEAM_HANDSHAKE")||pid!=GetCurrentProcessId()||peer<=76561197960265728ULL||peer>76561202255233023ULL){report("invalid_arm");return;}
-        if(input_mode){initial_round_generation=round_event::snapshot().generation;protocol.expected_signature=replay_mode?0x001A53433648534bULL:checkpoint_mode?0x000C53433648534bULL:0x000B53433648534bULL;capture.shadow.remote_slot=3-local_slot;capture.composition.configure(local_slot);}
+        if(!valid||trailing||mode!=(input_mode?(late_mode?"PRIVATE_STEAM_LATE":replay_mode?"PRIVATE_STEAM_REPLAY":checkpoint_mode?"PRIVATE_STEAM_CHECKPOINTS":"PRIVATE_STEAM_INPUTS"):"PRIVATE_STEAM_HANDSHAKE")||pid!=GetCurrentProcessId()||peer<=76561197960265728ULL||peer>76561202255233023ULL){report("invalid_arm");return;}
+        if(input_mode){initial_round_generation=round_event::snapshot().generation;protocol.expected_signature=late_mode?0x001F53433648534bULL:replay_mode?0x001E53433648534bULL:checkpoint_mode?0x000C53433648534bULL:0x000B53433648534bULL;capture.shadow.remote_slot=3-local_slot;capture.composition.configure(local_slot);}
         protocol.expected_peer=peer;
         HMODULE api=GetModuleHandleW(L"steam_api64.dll");if(!api){report("steam_missing");return;}
         using Handle=int(*)();using Factory=void*(*)(const char*);using Network=void*(*)(void*,int,int,const char*);
@@ -283,7 +331,7 @@ inline void poll() {
                     if(now-last_report>=1000){last_report=now;report("waiting_for_local_round_marker");}
                     return;
                 }
-                capture.arm(report_path.parent_path(),protocol.local_nonce,checkpoint_mode,replay_mode);
+                capture.arm(report_path.parent_path(),protocol.local_nonce,checkpoint_mode,replay_mode,late_mode);
             }
             if(!capture.composition.bind_replay_session(protocol.local_nonce,protocol.remote_nonce)){
                 running=false;stopped=true;report(capture.composition.failure);return;

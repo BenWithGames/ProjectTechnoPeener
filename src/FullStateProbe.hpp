@@ -217,7 +217,7 @@ struct FullStateProbe {
             *reinterpret_cast<int*>(b+0x4846458)) && (!charge_requested || charge_aux_active(b));
     }
     bool a_restore_requested{};
-    bool direction_restore_requested{};unsigned direction_bits{0x400};
+    bool direction_restore_requested{};unsigned direction_bits{0x400},direction_slot{1};
     static bool a_state(uintptr_t b){
         return *reinterpret_cast<std::uint16_t*>(b+0x4717840)==1 && *reinterpret_cast<std::uint16_t*>(b+0x47AEC30)==0 &&
             *reinterpret_cast<std::uint16_t*>(b+0x475A04A)==264 && *reinterpret_cast<std::uint16_t*>(b+0x47F143A)==65535 &&
@@ -228,9 +228,9 @@ struct FullStateProbe {
         unsigned x{},y{};std::memcpy(&x,a+156,4);std::memcpy(&y,b+156,4);
         return x==12 && y==14 && !std::memcmp(a,b,156) && !std::memcmp(a+160,b+160,1212);
     }
-    static bool direction_state(uintptr_t b,unsigned bits=0x400){
-        if(bits!=0x400 && bits!=0x800)return false;
-        return *reinterpret_cast<std::uint16_t*>(b+0x4717840)==bits && *reinterpret_cast<std::uint16_t*>(b+0x47AEC30)==0 &&
+    static bool direction_state(uintptr_t b,unsigned bits=0x400,unsigned slot=1){
+        if((bits!=0x400 && bits!=0x800) || slot<1 || slot>2)return false;
+        return *reinterpret_cast<std::uint16_t*>(b+0x4717840)==(slot==1?bits:0) && *reinterpret_cast<std::uint16_t*>(b+0x47AEC30)==(slot==2?bits:0) &&
             *reinterpret_cast<std::uint16_t*>(b+0x475A04A)==65535 && *reinterpret_cast<std::uint16_t*>(b+0x47F143A)==65535 &&
             *reinterpret_cast<float*>(b+0x48462F4)==1.0f && *reinterpret_cast<unsigned char*>(b+0x48462D0)==0;
     }
@@ -525,7 +525,7 @@ struct FullStateProbe {
             // At phase2 the replayed update is already complete; this envelope
             // belongs to the upcoming update. A/B equality remains mandatory.
             const bool require_input_equality=!combat_replay_requested || !delayed_loaded;
-            if((require_input_equality && !delayed_inputs_equal) || !check(b) || !(combat_replay_requested?combat_state(b):(a_restore_requested && !delayed_loaded?a_state(b):(direction_restore_requested && !delayed_loaded?direction_state(b,direction_bits):idle(b))))){delayed_failure_line=__LINE__;fault=true;__leave;}
+            if((require_input_equality && !delayed_inputs_equal) || !check(b) || !(combat_replay_requested?combat_state(b):(a_restore_requested && !delayed_loaded?a_state(b):(direction_restore_requested && !delayed_loaded?direction_state(b,direction_bits,direction_slot):idle(b))))){delayed_failure_line=__LINE__;fault=true;__leave;}
             if(!audit_done){
                 if(!capture_blend(b,audit_started?1u:0u)){delayed_failure_line=__LINE__;fault=true;__leave;}
                 audit_step(b,writer,check);

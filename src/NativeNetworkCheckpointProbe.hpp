@@ -20,13 +20,13 @@ struct NativeNetworkCheckpointProbe {
     std::unique_ptr<NativeBoundarySnapshot> predicted_snapshot;
     std::unique_ptr<NativeAdjacentRestore> correction;
     std::array<std::byte,40> predicted_input{};
-    // Observed P1 screen-right press envelope. This is a bilateral test fixture,
-    // not a claim that this slot is the remote player on both machines.
-    static bool make_movement_prediction(const std::array<std::byte,40>& actual,std::array<std::byte,40>& predicted){
-        if(!RecordedInput::compatible(actual,actual))return false;
+    // Controlled screen-right prediction for the assigned remote slot.
+    // Corrected input comes from the authenticated historical envelope.
+    static bool make_movement_prediction(const std::array<std::byte,40>& actual,std::array<std::byte,40>& predicted,unsigned slot=1){
+        if(slot<1 || slot>2 || !RecordedInput::compatible(actual,actual))return false;
         for(unsigned i=0;i<24;++i)if(actual[i]!=std::byte{})return false;
         predicted=actual;const unsigned right=0x400;
-        for(unsigned offset:{0u,4u,16u})std::memcpy(predicted.data()+offset,&right,4);
+        for(unsigned offset:{8u*(slot-1),8u*(slot-1)+4u,16u+4u*(slot-1)})std::memcpy(predicted.data()+offset,&right,4);
         return predicted!=actual;
     }
     // Keep comparison independent of the deliberately predicted branch.
@@ -247,22 +247,23 @@ struct NativeNetworkCheckpointProbe {
             network_checkpoint_status.source_mismatch_found=1;return;
         }
     }
-    void publish_restore_diagnostics() noexcept {
-        network_checkpoint_status.comparison_stage=readiness->replay_stage;
-        const auto& rp=*readiness->probe;
-        network_checkpoint_status.comparison_flags=unsigned(readiness->replay_measurement_read) |
-            (unsigned(readiness->replay_rng_equal)<<1)|(unsigned(readiness->replay_players_equal)<<2)|
+    void publish_restore_diagnostics() noexcept {publish_restore_diagnostics(*readiness);}
+    static void publish_restore_diagnostics(NativeAdjacentRestore& restore) noexcept {
+        network_checkpoint_status.comparison_stage=restore.replay_stage;
+        const auto& rp=*restore.probe;
+        network_checkpoint_status.comparison_flags=unsigned(restore.replay_measurement_read) |
+            (unsigned(restore.replay_rng_equal)<<1)|(unsigned(restore.replay_players_equal)<<2)|
             (unsigned(rp.replay_done)<<3)|(unsigned(rp.replay_keys_equal)<<4)|(unsigned(rp.replay_ring_equal)<<5)|(unsigned(rp.fault)<<6);
         network_checkpoint_status.comparison_bytes=rp.replay_byte_differences;
         for(unsigned side=0;side<2;++side){auto& a=network_checkpoint_status.comparison_scalars;
-            a[side*4]=readiness->replay_scalar_differences[side];a[side*4+1]=readiness->replay_first_offset[side];
-            a[side*4+2]=readiness->replay_expected_byte[side];a[side*4+3]=readiness->replay_live_byte[side];}
-        const auto& d=readiness->completion;
+            a[side*4]=restore.replay_scalar_differences[side];a[side*4+1]=restore.replay_first_offset[side];
+            a[side*4+2]=restore.replay_expected_byte[side];a[side*4+3]=restore.replay_live_byte[side];}
+        const auto& d=restore.completion;
         network_checkpoint_status.completion_line=d.failure_line;network_checkpoint_status.completion_section=d.section;
         network_checkpoint_status.completion_record=d.record;network_checkpoint_status.completion_kind=d.kind;
         network_checkpoint_status.completion_offset=d.difference_offset;network_checkpoint_status.completion_saved=d.saved_word;
         network_checkpoint_status.completion_live=d.live_word;
-        const auto& p=*readiness->probe;
+        const auto& p=*restore.probe;
         network_checkpoint_status.camera_line=p.camera_diagnostic.failure_line;
         network_checkpoint_status.camera_record=p.camera_diagnostic.record;
         network_checkpoint_status.camera_section=p.camera_diagnostic.section;
@@ -283,7 +284,7 @@ struct NativeNetworkCheckpointProbe {
         network_checkpoint_status.wind_kind=p.wind_diagnostic.kind;
         network_checkpoint_status.wind_size=p.wind_diagnostic.size;
         network_checkpoint_status.wind_vtable_rva=p.wind_diagnostic.vtable_rva;
-        network_checkpoint_status.restore_stage=readiness->diagnostic_stage;
+        network_checkpoint_status.restore_stage=restore.diagnostic_stage;
         network_checkpoint_status.restore_failure_line=p.delayed_failure_line;
         network_checkpoint_status.restore_exception=p.exception;
         // Bits describe completed checks, not permissions to continue.
@@ -292,7 +293,7 @@ struct NativeNetworkCheckpointProbe {
             (unsigned(p.selected_equal)<<3)|(unsigned(p.preserve_verified)<<4)|(unsigned(p.delayed_loaded)<<5)|
             (unsigned(p.camera_restore_verified)<<6)|(unsigned(p.restored_valid)<<7)|
             (unsigned(p.restored_save_unchanged)<<8)|(unsigned(p.outer_correction_verified)<<9)|
-            (unsigned(readiness->native_payload_verified)<<10)|(unsigned(p.restored_ring_equal)<<11);
+            (unsigned(restore.native_payload_verified)<<10)|(unsigned(p.restored_ring_equal)<<11);
     }
     void replay_current(uintptr_t base,uintptr_t argument,uintptr_t caller,unsigned thread,
                         const NetworkGameHandoff::Boundary& boundary,SingleUpdateCall::Routine original) noexcept {
@@ -305,7 +306,10 @@ struct NativeNetworkCheckpointProbe {
         if(retry_unconfirmed(now))return;
         network_checkpoint_status.replay_attempted=1;
         if(!linked[0] || authenticated_inputs[0]!=snapshots[0]->data->delayed_inputs){fail(9);return;}
-        if(!make_movement_prediction(authenticated_inputs[0],predicted_input)){fail(16);return;}
+        const unsigned remote_slot=3-now.slot;
+        network_checkpoint_status.prediction_fixture_slot=remote_slot;
+        snapshots[0]->direction_slot=snapshots[1]->direction_slot=predicted_snapshot->direction_slot=remote_slot;
+        if(!make_movement_prediction(authenticated_inputs[0],predicted_input,remote_slot)){fail(16);return;}
         __try {
             network_checkpoint_status.readiness_attempted=1;
             const bool prepared=readiness->prepare_captured(*snapshots[0],*snapshots[1]);
@@ -372,6 +376,7 @@ struct NativeNetworkCheckpointProbe {
             if(!advanced){fail(11);return;}
             readiness->replay_delivered=true;
             if(!readiness->replay_step(*snapshots[0],base,argument,true)){publish_restore_diagnostics();fail(12);return;}
+            publish_restore_diagnostics();
             // Even after a successful recovery, no divergence is not evidence
             // of gameplay prediction correction.
             if(!network_checkpoint_status.prediction_state_changed.load()){fail(21);return;}

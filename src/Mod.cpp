@@ -5,6 +5,7 @@
 #include "SteamDiagnostic.hpp"
 #include "SteamObserver.hpp"
 #include "SteamHandshake.hpp"
+#include "AutomaticSteam.hpp"
 
 class SC6RollbackMod final : public RC::CppUserModBase {
     sc6::StatusOverlay overlay;
@@ -25,7 +26,8 @@ public:
         try { sc6::steam_diagnostic_poll(); } catch (...) {}
         try { sc6::steam_observer::poll(); } catch (...) { sc6::steam_observer::active=false; }
         try { sc6::steam_handshake::poll(); } catch (...) { sc6::steam_handshake::stopped=true; }
-        overlay.publish(sc6::steam_handshake::overlay_stats());
+        try { sc6::automatic_steam::poll(); } catch (...) { sc6::automatic_steam::disabled=true;sc6::automatic_steam::last_received=0;sc6::automatic_steam::status="error_default_networking"; }
+        overlay.publish(sc6::steam_handshake::running?sc6::steam_handshake::overlay_stats():sc6::automatic_steam::overlay_stats());
         try { sc6::recorder_poll(); } catch (...) { sc6::recorder_stop(); }
     }
     ~SC6RollbackMod() override { sc6::steam_handshake::stopped=true; sc6::steam_observer::active=false; overlay.stop(); sc6::recorder_stop(); }

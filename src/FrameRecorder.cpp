@@ -27,7 +27,7 @@
 #include "InputObservation.hpp"
 #include "RoundEventObserver.hpp"
 #include "NetworkGameHandoff.hpp"
-#include "NativeNetworkCheckpointProbe.hpp"
+#include "NetworkDepthCorrection.hpp"
 
 extern "C" { void* SC6Original=nullptr; void SC6EntryBridge(); }
 extern "C" { void* SC6FieldOriginal=nullptr; void SC6FieldBridge(); }
@@ -153,7 +153,7 @@ struct Recorder {
     std::unique_ptr<sc6::research::NativeAdjacentRestore> native_restore;
     bool native_replay{};
     std::unique_ptr<sc6::research::NativePredictionProbe> native_prediction;
-    std::unique_ptr<sc6::research::NativeNetworkCheckpointProbe> network_checkpoints;
+    std::unique_ptr<sc6::research::NetworkDepthCorrection> network_checkpoints;
     std::unique_ptr<sc6::research::NativeTwoMovement> native_movement;
     std::unique_ptr<sc6::research::RepeatedMovement> repeated_movement;
     std::unique_ptr<sc6::research::NativeTwoFrameReplay> native_two;
@@ -1054,7 +1054,7 @@ void recorder_poll() {
     if(observe_network){
         std::istringstream parser(token);std::string label,extra;unsigned pid{};std::uint64_t nonce{};
         parser>>label>>pid>>nonce;
-        if(!parser || (parser>>extra) || (label!="NETWORK_OBSERVE_ONLY" && label!="NETWORK_OBSERVE_LONG" && label!="NETWORK_CHECKPOINT_LONG" && label!="NETWORK_REPLAY_LONG") || pid!=GetCurrentProcessId() || !nonce || !r.observation || r.observation_used ||
+        if(!parser || (parser>>extra) || (label!="NETWORK_OBSERVE_ONLY" && label!="NETWORK_OBSERVE_LONG" && label!="NETWORK_CHECKPOINT_LONG" && label!="NETWORK_REPLAY_LONG" && label!="NETWORK_LATE_LONG") || pid!=GetCurrentProcessId() || !nonce || !r.observation || r.observation_used ||
             full_request || shared_request || save_request || std::filesystem::exists(r.directory/"offline-training.arm")){
             status("network observation arm rejected; stale, conflicting, or unavailable");return;
         }
@@ -1068,7 +1068,8 @@ void recorder_poll() {
         }
         AcquireSRWLockExclusive(&r.lock);
         r.observing=true;r.observation_used=true;r.count=0;r.owner=0;r.skipped=0;r.ready=false;
-        r.network_checkpoints=(label=="NETWORK_CHECKPOINT_LONG" || label=="NETWORK_REPLAY_LONG")?std::make_unique<sc6::research::NativeNetworkCheckpointProbe>(label=="NETWORK_REPLAY_LONG"):nullptr;
+        r.network_checkpoints=(label=="NETWORK_CHECKPOINT_LONG" || label=="NETWORK_REPLAY_LONG")?std::make_unique<sc6::research::NetworkDepthCorrection>(label=="NETWORK_REPLAY_LONG"):nullptr;
+        sc6::network_game_handoff.late_enabled=label=="NETWORK_LATE_LONG";
         sc6::network_checkpoint_status.replay_enabled=label=="NETWORK_REPLAY_LONG";
         sc6::network_checkpoint_status.enabled=r.network_checkpoints?1u:0u;
         r.observation->reserved=label!="NETWORK_OBSERVE_ONLY"?1u:0u;

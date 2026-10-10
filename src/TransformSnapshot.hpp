@@ -306,6 +306,22 @@ struct TransformSnapshot {
                 uint32_t ac{},bc{};std::memcpy(&ac,a.bytes.data()+0xEC-0x18,4);std::memcpy(&bc,b.bytes.data()+0xEC-0x18,4);
                 if(diagnostic){diagnostic->control_saved=ac;diagnostic->control_next=bc;}
                 if((ac&0x7FFFFFFFu)==0 && (bc&0x7FFFFFFFu)==0)continue;
+                // Pinned 3336C7..333702: ADDSS keeps this quiet NaN, then
+                // MINSS selects its second operand (+118), yielding finite
+                // +13C and reciprocal +140. Accept only that exact captured
+                // configuration/output relationship, on both boundaries.
+                auto clamped=[](const Record& r){
+                    auto word=[&](unsigned off){uint32_t v{};std::memcpy(&v,r.bytes.data()+off-0x18,4);return v;};
+                    const auto cap=word(0x118),step=word(0x134);
+                    if(cap<0x00800000u || cap>=0x7F800000u ||
+                       (step&0x7F800000u)==0x7F800000u || word(0x13C)!=cap)return false;
+                    float limit{};std::memcpy(&limit,&cap,4);const float reciprocal=1.0f/limit;
+                    uint32_t reciprocal_bits{};std::memcpy(&reciprocal_bits,&reciprocal,4);
+                    return reciprocal_bits>=0x00800000u && reciprocal_bits<0x7F800000u && word(0x140)==reciprocal_bits;
+                };
+                uint32_t cap_a{},cap_b{};
+                std::memcpy(&cap_a,a.bytes.data()+0x118-0x18,4);std::memcpy(&cap_b,b.bytes.data()+0x118-0x18,4);
+                if(ac==0x3F800000u && bc==ac && cap_a==cap_b && clamped(a) && clamped(b))continue;
             }
             if((x&0x7F800000u)==0x7F800000u || (y&0x7F800000u)==0x7F800000u){
                 if(diagnostic){diagnostic->offset=offset;diagnostic->saved_word=x;diagnostic->next_word=y;}

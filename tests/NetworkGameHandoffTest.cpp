@@ -27,6 +27,33 @@ int main(){
     h=std::make_unique<H>();assert(h->bind(10,20,1));b={1,100,1,80,{}};
     h->boundary(10,7,b);r={10,20,1,100,1,80,{}};
     assert(h->publish(r));b.frame+=2;h->boundary(10,7,b);assert(h->failed && h->rejected==1);
+    // Live boundary choices use only confirmations already drained, not future truth.
+    for(unsigned localSlot:{1u,2u}){
+        auto live=std::make_unique<H>();assert(live->bind(10,20,localSlot));live->late_enabled=true;
+        const unsigned word=(2-localSlot)*2;
+        H::Boundary first{1,100,1,80,{}};first.input[word]=0x400;
+        live->boundary(10,7,first);assert(live->late.unseeded==1);
+        assert(live->publish({10,20,localSlot,100,1,80,first.input}));
+        H::Boundary second{1,101,1,80,{}};live->boundary(10,7,second);
+        assert(live->late.choices[101%64].held==0x400 && live->late.choices[101%64].edge==0);
+        assert(live->publish({10,20,localSlot,101,1,80,second.input}));
+        auto third=second;third.frame=102;live->boundary(10,7,third);
+        assert(live->late.errors==1 && live->late.requests==1 && live->late.last_depth==1);
+        assert(live->late.remote_slot==3-localSlot && live->late.choices[102%64].held==0);
+        assert(live->publish({10,20,localSlot,101,1,80,second.input}));
+        ++third.frame;live->boundary(10,7,third);assert(live->late.errors==1);
+        ++third.frame;++third.round;++third.generation;live->boundary(10,7,third);
+        assert(live->late.resets==1 && !live->late.choices[104%64].seeded);
+    }
+    {
+        sc6::LateInputScheduler l;
+        assert(l.enter(1,1,80,0,1));l.decide();
+        assert(l.enter(1,1,80,1,1));l.receive(0,0x400,1);l.decide();
+        for(unsigned frame=2;frame<6;++frame){assert(l.enter(1,1,80,frame,1));l.decide();}
+        l.receive(1,0,0);l.decide();assert(l.over_limit==1 && l.max_depth==4 && l.requests==0);
+        // Newer confirmations win even if older packets are later delivered.
+        l.receive(4,0x800,0);l.receive(3,0,0);assert(l.seed_frame==4 && l.seed_held==0x800);
+    }
     // Exercise release/acquire publication under real concurrent producer/consumer use.
     h=std::make_unique<H>();assert(h->bind(10,20,1));
     std::thread producer([&]{for(unsigned i=0;i<10000;++i){H::Request q{10,20,1,i,1,0,{}};

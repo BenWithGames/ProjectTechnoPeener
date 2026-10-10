@@ -2,6 +2,7 @@
 #include <iostream>
 #include <thread>
 #include <cstdlib>
+#include <xmmintrin.h>
 void check(bool ok,const char* message){if(!ok){std::cerr<<message<<'\n';std::exit(1);}}
 static uintptr_t memoryBase;
 __declspec(noinline) double target(uintptr_t a,double b,uintptr_t c,double d,uintptr_t e,double f) {
@@ -111,6 +112,22 @@ int main(){
           diagnosticSnapshot->capture_stage==2 && diagnosticSnapshot->mode_values_valid &&
           diagnosticSnapshot->mode_values[0]==0 && !diagnosticSnapshot->data->saved.sealed,
           "direction rejection captures actual inputs without invoking serializer");
+    *reinterpret_cast<uint16_t*>(memoryBase+0x475A04A)=65535;
+    *reinterpret_cast<uint16_t*>(memoryBase+0x47F143A)=65535;
+    *reinterpret_cast<float*>(memoryBase+0x48462F4)=1.0f;
+    *reinterpret_cast<unsigned char*>(memoryBase+0x48462D0)=0;
+    *reinterpret_cast<uint16_t*>(memoryBase+0x47AEC30)=0x400;
+    check(sc6::research::NativeBoundarySnapshot::direction_state(memoryBase,0x400,2) &&
+          !sc6::research::NativeBoundarySnapshot::direction_state(memoryBase,0x400,1),"P2 direction guard rejects wrong target");
+    *reinterpret_cast<uint16_t*>(memoryBase+0x4717840)=0x400;
+    check(!sc6::research::FullStateProbe::direction_state(memoryBase,0x400,2),"local movement rejects remote-only restoration");
+    *reinterpret_cast<uint16_t*>(memoryBase+0x47AEC30)=0;
+    check(sc6::research::FullStateProbe::direction_state(memoryBase,0x400,1) &&
+          !sc6::research::FullStateProbe::direction_state(memoryBase,0x400,0),"P1 guard preserved and invalid slot rejected");
+    *reinterpret_cast<uint16_t*>(memoryBase+0x4717840)=0;
+    *reinterpret_cast<uint16_t*>(memoryBase+0x475A04A)=0;
+    *reinterpret_cast<uint16_t*>(memoryBase+0x47F143A)=0;
+    *reinterpret_cast<float*>(memoryBase+0x48462F4)=0;
     using Checkpoint=sc6::research::NativeNetworkCheckpointProbe;
     std::array<std::byte,40> actualMovement{},predictedMovement{};
     const float auxiliary=0.125f;std::memcpy(actualMovement.data()+24,&auxiliary,4);
@@ -118,10 +135,47 @@ int main(){
     for(unsigned offset=0;offset<40;offset+=4){unsigned word{};std::memcpy(&word,predictedMovement.data()+offset,4);
         if(offset==0 || offset==4 || offset==16)check(word==0x400,"P1 rightward press has exact observed words");
         else check(!std::memcmp(predictedMovement.data()+offset,actualMovement.data()+offset,4),"movement fixture preserves all other words");}
+    check(Checkpoint::make_movement_prediction(actualMovement,predictedMovement,2),"P2 remote fixture accepted");
+    for(unsigned offset=0;offset<40;offset+=4){unsigned word{};std::memcpy(&word,predictedMovement.data()+offset,4);
+        if(offset==8 || offset==12 || offset==20)check(word==0x400,"P2 remote press exact words");
+        else check(!std::memcmp(predictedMovement.data()+offset,actualMovement.data()+offset,4),"P2 fixture preserves local and auxiliary words");}
+    check(!Checkpoint::make_movement_prediction(actualMovement,predictedMovement,0) &&
+          !Checkpoint::make_movement_prediction(actualMovement,predictedMovement,3),"invalid fixture slots reject");
     for(unsigned offset=0;offset<24;++offset){auto invalid=actualMovement;invalid[offset]=std::byte{1};
         check(!Checkpoint::make_movement_prediction(invalid,predictedMovement),"nonneutral player or edge input rejects movement fixture");}
     unsigned nanWord=0x7fc00000;std::memcpy(actualMovement.data()+24,&nanWord,4);
     check(!Checkpoint::make_movement_prediction(actualMovement,predictedMovement),"nonfinite auxiliary rejects movement fixture");
+    {
+        using Sequence=sc6::research::RepeatedNetworkCorrection;
+        Sequence::Key previous{55,66,1,1,GetCurrentThreadId(),100,1,80},next=previous;next.frame=101;
+        check(Sequence::next_boundary(previous,next),"repeated correction advances on exact next boundary");
+        for(unsigned kind=0;kind<8;++kind){auto bad=next;
+            switch(kind){case 0:++bad.local;break;case 1:++bad.peer;break;case 2:++bad.generation;break;
+            case 3:++bad.slot;break;case 4:++bad.thread;break;case 5:++bad.frame;break;
+            case 6:++bad.round;break;default:++bad.event;break;}
+            check(!Sequence::next_boundary(previous,bad),"changed session/round/thread/boundary cannot advance repeated correction");}
+        auto later=next;later.frame=150;
+        check(Sequence::same_session(previous,later),"stable same-round continuation permits settling");
+        ++later.round;check(!Sequence::same_session(previous,later),"round changes during settling reject");
+        sc6::NetworkCheckpointStatus status;status.replay_verified=1;status.restore_invoked=1;status.failure=22;
+        status.routing_values[0][0]=42;status.repeated_completed=1;status.repeated_results[0][3]=1;
+        status.reset_attempt();
+        check(!status.replay_verified && !status.restore_invoked && !status.failure && !status.routing_values[0][0] &&
+              status.repeated_completed==1 && status.repeated_results[0][3]==1,"next attempt clears stale diagnostics but retains completed result");
+    }
+    {
+        using Depth=sc6::research::NetworkDepthCorrection;
+        std::array<Depth::Key,4> keys{};
+        for(unsigned i=0;i<4;++i)keys[i]={55,66,1,1,GetCurrentThreadId(),100+i,1,80};
+        check(Depth::window_valid(keys,keys[3]),"three-frame exact live window accepted");
+        for(unsigned i=0;i<4;++i){auto bad=keys;++bad[i].frame;
+            check(!Depth::window_valid(bad,keys[3]),"gap in each boundary rejected");
+            bad=keys;++bad[i].round;check(!Depth::window_valid(bad,keys[3]),"cross-round window rejected");}
+        auto stale=keys[3];++stale.frame;
+        check(!Depth::window_valid(keys,stale),"late three-frame window cannot load");
+        for(unsigned mask=0;mask<8;++mask){std::array<bool,3> confirmed{bool(mask&1),bool(mask&2),bool(mask&4)};
+            check(Depth::all_confirmed(confirmed)==(mask==7),"all three network inputs required before loading");}
+    }
     auto checkpoint=std::make_unique<Checkpoint>();
     Checkpoint::Key checkpointKey{55,66,1,1,GetCurrentThreadId(),100,1,80};
     sc6::NetworkGameHandoff::Boundary checkpointBoundary{1,100,1,80,{}};
@@ -255,6 +309,30 @@ int main(){
     auto& wa=windSaved.records[0];auto& wb=windNext.records[0];
     wa.bytes.fill(std::byte{});wb.bytes.fill(std::byte{});
     auto putWind=[](auto& r,unsigned off,unsigned bits){std::memcpy(r.bytes.data()+off-0x18,&bits,4);};
+    {
+        // Execute the pinned scalar instruction sequence with the observed NaN.
+        unsigned nanBits=0xFFFFFFFFu;float nanValue{};std::memcpy(&nanValue,&nanBits,4);
+        const auto phase=_mm_add_ss(_mm_set_ss(0.25f),_mm_set_ss(nanValue));
+        float phaseValue{};_mm_store_ss(&phaseValue,phase);unsigned phaseBits{};std::memcpy(&phaseBits,&phaseValue,4);
+        float clampedValue{};_mm_store_ss(&clampedValue,_mm_min_ss(phase,_mm_set_ss(2.0f)));
+        check(phaseBits==nanBits && clampedValue==2.0f,"native ADDSS/MINSS preserves exact NaN then selects finite cap");
+        auto activeA=wa,activeB=wb;
+        for(auto* r:{&activeA,&activeB}){
+            putWind(*r,0x138,0xFFFFFFFFu);putWind(*r,0xEC,0x3F800000u);
+            putWind(*r,0x118,0x40000000u);putWind(*r,0x13C,0x40000000u);putWind(*r,0x140,0x3F000000u);
+        }
+        check(sc6::research::TransformSnapshot::stage_wind_finite(activeA,activeB),"exact active NaN clamp accepted");
+        for(unsigned off:{0x118u,0x13Cu,0x140u,0x134u,0x138u,0x40u}){
+            auto bad=activeB;putWind(bad,off,0x7FC00000u);
+            check(!sc6::research::TransformSnapshot::stage_wind_finite(activeA,bad),"active clamp invalid dependency rejects");
+        }
+        auto bad=activeB;putWind(bad,0xEC,0);
+        check(!sc6::research::TransformSnapshot::stage_wind_finite(activeA,bad),"active control transition rejects");
+        for(unsigned off:{0x118u,0x13Cu,0x140u}){
+            bad=activeB;putWind(bad,off,0x3F800000u);
+            check(!sc6::research::TransformSnapshot::stage_wind_finite(activeA,bad),"finite but mismatched clamp rejects");
+        }
+    }
     putWind(wa,0x138,0xFFFFFFFFu);putWind(wb,0x138,0xFFFFFFFFu);
     check(sc6::research::TransformSnapshot::stage_wind_finite(wa,wb),"unchanged inactive phase pattern allowed");
     putWind(wb,0xEC,0x3F800000u);
