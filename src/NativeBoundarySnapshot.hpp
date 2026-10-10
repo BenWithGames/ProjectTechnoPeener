@@ -7,6 +7,7 @@ struct NativeBoundarySnapshot {
     enum class Mode {idle,throw_move,charge,attack,edge,reversal,direction_observation,a_observation};
     std::unique_ptr<FullStateProbe> data=std::make_unique<FullStateProbe>();
     unsigned direction_bits{0x400};
+    unsigned capture_stage{};bool mode_values_valid{};std::array<unsigned,6> mode_values{};
     Mode mode;uintptr_t module{};DWORD thread{};bool attempted{},valid{},fault{};unsigned exception{};
     explicit NativeBoundarySnapshot(Mode value):mode(value){
         data->throw_requested=value==Mode::throw_move;data->charge_requested=value==Mode::charge;
@@ -37,22 +38,38 @@ struct NativeBoundarySnapshot {
         std::uint64_t bookkeeping{};bool saved_bookkeeping=false;
         __try {
             auto& q=*data;
-            if(!check(base) || !(mode==Mode::a_observation?a_state(base):mode==Mode::direction_observation?direction_state(base,direction_bits):mode==Mode::idle?FullStateProbe::idle(base):q.combat_state(base)) ||
-               !FullStateProbe::input_bytes(argument,q.delayed_inputs) || !q.rings[0].capture(base)){fault=true;__leave;}
-            q.measure(base,0);FullStateProbe::keys(base,q.before_keys.data(),q.before_players);
+            capture_stage=1;if(!check(base)){fault=true;__leave;}
+            capture_stage=2;
+            if(!(mode==Mode::a_observation?a_state(base):mode==Mode::direction_observation?direction_state(base,direction_bits):mode==Mode::idle?FullStateProbe::idle(base):q.combat_state(base))){
+                fault=true;
+                mode_values[0]=*reinterpret_cast<std::uint16_t*>(base+0x4717840);
+                mode_values[1]=*reinterpret_cast<std::uint16_t*>(base+0x47AEC30);
+                mode_values[2]=*reinterpret_cast<std::uint16_t*>(base+0x475A04A);
+                mode_values[3]=*reinterpret_cast<std::uint16_t*>(base+0x47F143A);
+                std::memcpy(&mode_values[4],reinterpret_cast<void*>(base+0x48462F4),4);
+                mode_values[5]=*reinterpret_cast<unsigned char*>(base+0x48462D0);
+                mode_values_valid=true;__leave;
+            }
+            capture_stage=3;if(!FullStateProbe::input_bytes(argument,q.delayed_inputs)){fault=true;__leave;}
+            capture_stage=4;if(!q.rings[0].capture(base)){fault=true;__leave;}
+            capture_stage=5;q.measure(base,0);FullStateProbe::keys(base,q.before_keys.data(),q.before_players);
             bookkeeping=FullStateProbe::ptr(base+0x470E870);saved_bookkeeping=true;
-            writer(&q.saved.stream);q.measure(base,1);
-            if(!q.saved.seal() || !IdleTrajectoryAudit::same_measurement(q.measurements[0],q.measurements[1]) ||
-               !q.rings[1].capture(base) || !q.rings[0].same(q.rings[1]) ||
-               !q.capture_blend(base,0) || !q.cameras[0].capture(q.saved,base)){fault=true;__leave;}
+            capture_stage=6;writer(&q.saved.stream);q.measure(base,1);
+            capture_stage=7;if(!q.saved.seal()){fault=true;__leave;}
+            capture_stage=8;if(!IdleTrajectoryAudit::same_measurement(q.measurements[0],q.measurements[1])){fault=true;__leave;}
+            capture_stage=9;if(!q.rings[1].capture(base)){fault=true;__leave;}
+            capture_stage=10;if(!q.rings[0].same(q.rings[1])){fault=true;__leave;}
+            capture_stage=11;if(!q.capture_blend(base,0)){fault=true;__leave;}
+            capture_stage=12;if(!q.cameras[0].capture(q.saved,base)){fault=true;__leave;}
+            capture_stage=13;
             std::array<std::uint32_t,std::size(FullStateProbe::key_rvas)> keys{};uintptr_t players[2]{};
             FullStateProbe::keys(base,keys.data(),players);
             if(keys!=q.before_keys || std::memcmp(players,q.before_players,sizeof(players))){fault=true;__leave;}
             valid=true;
         }__except(EXCEPTION_EXECUTE_HANDLER){exception=GetExceptionCode();fault=true;}
-        if(saved_bookkeeping){__try{*reinterpret_cast<std::uint64_t*>(base+0x470E870)=bookkeeping;}
+        if(saved_bookkeeping){__try{if(!fault)capture_stage=14;*reinterpret_cast<std::uint64_t*>(base+0x470E870)=bookkeeping;}
             __except(EXCEPTION_EXECUTE_HANDLER){exception=GetExceptionCode();fault=true;}}
-        valid=valid && !fault;return valid;
+        valid=valid && !fault;if(valid)capture_stage=15;return valid;
     }
     // Current is captured at restore time, not supplied as a correct predicted
     // outcome. The original bounded topology/input/RNG guards remain mandatory.

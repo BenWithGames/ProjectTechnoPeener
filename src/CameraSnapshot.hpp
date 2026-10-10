@@ -53,64 +53,103 @@ struct CameraSnapshot {
         }
         return selected==1;
     }
-    bool restore_smoothing(const CameraSnapshot& next,const CameraSnapshot& current,uintptr_t base,bool immediate_throw=false,bool adjacent_throw=false,bool validate_only=false,bool adjacent_charge=false)const noexcept {
+    struct RestoreDiagnostic {unsigned failure_line{},record{},section{},offset{},a{},b{},c{},live{};};
+    static bool restore_reject(RestoreDiagnostic* diagnostic,unsigned line) noexcept {
+        if(diagnostic)diagnostic->failure_line=line;return false;
+    }
+    bool restore_smoothing(const CameraSnapshot& next,const CameraSnapshot& current,uintptr_t base,bool immediate_throw=false,bool adjacent_throw=false,bool validate_only=false,bool adjacent_charge=false,RestoreDiagnostic* diagnostic=nullptr)const noexcept {
+        if(diagnostic)*diagnostic={};
         __try {
-            if(immediate_throw && adjacent_throw)return false;
-            if(adjacent_charge && (immediate_throw || !adjacent_throw || !adjacent_combat_ready(next,base,true)))return false;
-            if(!valid || !next.valid || !current.valid || !count || count>records.size() || count!=next.count || count!=current.count)return false;
+            if(immediate_throw && adjacent_throw)return restore_reject(diagnostic,__LINE__);
+            if(adjacent_charge && (immediate_throw || !adjacent_throw || !adjacent_combat_ready(next,base,true)))return restore_reject(diagnostic,__LINE__);
+            if(!valid || !next.valid || !current.valid || !count || count>records.size() || count!=next.count || count!=current.count)return restore_reject(diagnostic,__LINE__);
             unsigned selected=count;
             for(unsigned i=0;i<count;++i){auto& a=records[i];auto& b=next.records[i];auto& c=current.records[i];
-                if(a.owner!=b.owner || a.owner!=c.owner || std::memcmp(a.bytes.data(),b.bytes.data(),8) || std::memcmp(a.bytes.data(),c.bytes.data(),8))return false;
+                if(a.owner!=b.owner || a.owner!=c.owner || std::memcmp(a.bytes.data(),b.bytes.data(),8) || std::memcmp(a.bytes.data(),c.bytes.data(),8))return restore_reject(diagnostic,__LINE__);
+                if(diagnostic)diagnostic->record=i;
                 if(!a.smoothing_valid)continue;
                 uintptr_t vt{};std::memcpy(&vt,a.bytes.data(),8);
-                if(selected!=count || vt!=base+0x3E87EB0 || !b.smoothing_valid || !c.smoothing_valid)return false;
+                if(selected!=count || vt!=base+0x3E87EB0 || !b.smoothing_valid || !c.smoothing_valid)return restore_reject(diagnostic,__LINE__);
                 selected=i;
-                if(immediate_throw && (a.bytes!=b.bytes || a.smoothing!=b.smoothing))return false;
+                if(immediate_throw && (a.bytes!=b.bytes || a.smoothing!=b.smoothing))return restore_reject(diagnostic,__LINE__);
                 if(std::memcmp(c.bytes.data(),reinterpret_cast<void*>(a.owner),c.bytes.size()) ||
                    std::memcmp(c.smoothing.data(),reinterpret_cast<void*>(a.owner+0x1E0),8) ||
-                   std::memcmp(c.smoothing.data()+8,reinterpret_cast<void*>(a.owner+0x25C),72))return false;
-                for(unsigned j=0;j<a.bytes.size();++j)
-                    if((j<0x154 || j>=0x158) && a.bytes[j]!=c.bytes[j])return false;
-                if(word(c.bytes.data()+0x154)!=0)return false;
+                   std::memcmp(c.smoothing.data()+8,reinterpret_cast<void*>(a.owner+0x25C),72))return restore_reject(diagnostic,__LINE__);
+                for(unsigned j=0;j<a.bytes.size();++j){
+                    if(diagnostic){diagnostic->section=1;diagnostic->offset=j;diagnostic->a=std::to_integer<unsigned>(a.bytes[j]);diagnostic->b=std::to_integer<unsigned>(b.bytes[j]);diagnostic->c=std::to_integer<unsigned>(c.bytes[j]);}
+                    if((j<0x154 || j>=0x158) && a.bytes[j]!=c.bytes[j])return restore_reject(diagnostic,__LINE__);
+                }
+                if(word(c.bytes.data()+0x154)!=0)return restore_reject(diagnostic,__LINE__);
                 for(unsigned j=0;j<8;j+=4)
-                    if(word(a.smoothing.data()+j)!=0 || word(b.smoothing.data()+j)!=0 || word(c.smoothing.data()+j)!=1)return false;
-                for(unsigned j=8;j<80;++j)if(c.smoothing[j]!=std::byte{})return false;
+                    if(word(a.smoothing.data()+j)!=0 || word(b.smoothing.data()+j)!=0 || word(c.smoothing.data()+j)!=1)return restore_reject(diagnostic,__LINE__);
+                for(unsigned j=8;j<80;++j)if(c.smoothing[j]!=std::byte{})return restore_reject(diagnostic,__LINE__);
                 for(auto* source:{&a,&b}){
-                    if((word(source->bytes.data()+0x154)&0x7F800000u)==0x7F800000u)return false;
-                    for(unsigned j=8;j<72;j+=4)if((word(source->smoothing.data()+j)&0x7F800000u)==0x7F800000u)return false;
-                    if(word(source->smoothing.data()+72)>0x7FFFFFFFu || word(source->smoothing.data()+76)>=16)return false;
+                    if((word(source->bytes.data()+0x154)&0x7F800000u)==0x7F800000u)return restore_reject(diagnostic,__LINE__);
+                    for(unsigned j=8;j<72;j+=4)if((word(source->smoothing.data()+j)&0x7F800000u)==0x7F800000u)return restore_reject(diagnostic,__LINE__);
+                    if(word(source->smoothing.data()+72)>0x7FFFFFFFu || word(source->smoothing.data()+76)>=16)return restore_reject(diagnostic,__LINE__);
                 }
                 // Idle-only target correction: stable A/B, observed load reset, live identity.
-                if((!adjacent_throw && a.targets!=b.targets) ||
-                   std::memcmp(c.targets.data(),reinterpret_cast<void*>(a.owner+0x1E8),116) ||
-                   std::memcmp(c.targets.data()+116,reinterpret_cast<void*>(a.owner+0x2A4),12))return false;
+                for(unsigned j=0;!adjacent_throw && j<128;j+=4){
+                    const auto av=word(a.targets.data()+j),bv=word(b.targets.data()+j);
+                    if(av!=bv){
+                        if(diagnostic){diagnostic->section=4;diagnostic->offset=j;diagnostic->a=av;diagnostic->b=bv;diagnostic->c=word(c.targets.data()+j);diagnostic->live=0;}
+                        return restore_reject(diagnostic,__LINE__);
+                    }
+                }
+                for(unsigned j=0;j<128;j+=4){
+                    const auto address=a.owner+(j<116?0x1E8+j:0x2A4+j-116);
+                    const auto cv=word(c.targets.data()+j),lv=word(reinterpret_cast<const std::byte*>(address));
+                    if(cv!=lv){
+                        if(diagnostic){diagnostic->section=5;diagnostic->offset=j;diagnostic->a=word(a.targets.data()+j);diagnostic->b=word(b.targets.data()+j);diagnostic->c=cv;diagnostic->live=lv;}
+                        return restore_reject(diagnostic,__LINE__);
+                    }
+                }
                 for(unsigned j=0;j<128;j+=4){
                     const bool position=(j>=0x48 && j<0x54)||(j>=0x58 && j<0x64);
                     const bool factor=j==0x68 || j==0x6C;
                     auto av=word(a.targets.data()+j),bv=word(b.targets.data()+j),cv=word(c.targets.data()+j);
-                    if(adjacent_throw && !position && !(adjacent_charge && factor) && av!=bv)return false;
+                    if(diagnostic){diagnostic->section=2;diagnostic->offset=j;diagnostic->a=av;diagnostic->b=bv;diagnostic->c=cv;}
+                    if(adjacent_throw && !position && !(adjacent_charge && factor) && av!=bv)return restore_reject(diagnostic,__LINE__);
                     if(position){
-                        if((av&0x7F800000u)==0x7F800000u || (bv&0x7F800000u)==0x7F800000u || cv!=0)return false;
+                        if((av&0x7F800000u)==0x7F800000u || (bv&0x7F800000u)==0x7F800000u || cv!=0)return restore_reject(diagnostic,__LINE__);
                     }else if(factor){
-                        if((adjacent_charge?!rising_factor(av,bv):av!=((immediate_throw || adjacent_throw)?0x3F800000u:0u)) || cv!=0x3F800000u)return false;
-                    }else if(av!=cv)return false;
+                        if((adjacent_charge?!rising_factor(av,bv):av!=((immediate_throw || adjacent_throw)?0x3F800000u:0u)) || cv!=0x3F800000u)return restore_reject(diagnostic,__LINE__);
+                    }else if(j==0 && !immediate_throw && !adjacent_throw && av==0xFFFFFFFFu && bv==av && cv==0){
+                        // Pinned camera selector:31A588/31AB88 interpret -1.
+                        // Observed native load resets it; restore only this exact idle pattern.
+                    }else if(av!=cv)return restore_reject(diagnostic,__LINE__);
                 }
-                if((!adjacent_throw && a.response!=b.response) ||
-                   std::memcmp(c.response.data(),reinterpret_cast<void*>(a.owner+0x1D0),12))return false;
+                for(unsigned j=0;!adjacent_throw && j<12;j+=4){
+                    const auto av=word(a.response.data()+j),bv=word(b.response.data()+j);
+                    if(av!=bv){
+                        if(diagnostic){diagnostic->section=6;diagnostic->offset=j;diagnostic->a=av;diagnostic->b=bv;diagnostic->c=word(c.response.data()+j);diagnostic->live=0;}
+                        return restore_reject(diagnostic,__LINE__);
+                    }
+                }
+                for(unsigned j=0;j<12;j+=4){
+                    const auto cv=word(c.response.data()+j),lv=word(reinterpret_cast<const std::byte*>(a.owner+0x1D0+j));
+                    if(cv!=lv){
+                        if(diagnostic){diagnostic->section=7;diagnostic->offset=j;diagnostic->a=word(a.response.data()+j);diagnostic->b=word(b.response.data()+j);diagnostic->c=cv;diagnostic->live=lv;}
+                        return restore_reject(diagnostic,__LINE__);
+                    }
+                }
                 for(unsigned j=0;j<12;j+=4){
                     auto av=word(a.response.data()+j);
-                    if(word(c.response.data()+j)!=0x3EC00000u)return false;
-                    if(j==4){if(av!=0x3EC00000u || word(b.response.data()+j)!=0x3EC00000u)return false;}
-                    else if(immediate_throw || adjacent_throw){if(av>0x3F800000u || word(b.response.data()+j)>0x3F800000u)return false;} // finite [0,1], positive bits
-                    else if(av!=0)return false;
+                    if(diagnostic){diagnostic->section=3;diagnostic->offset=j;diagnostic->a=av;diagnostic->b=word(b.response.data()+j);diagnostic->c=word(c.response.data()+j);}
+                    if(word(c.response.data()+j)!=0x3EC00000u)return restore_reject(diagnostic,__LINE__);
+                    if(j==4){if(av!=0x3EC00000u || word(b.response.data()+j)!=0x3EC00000u)return restore_reject(diagnostic,__LINE__);}
+                    else if(immediate_throw || adjacent_throw){if(av>0x3F800000u || word(b.response.data()+j)>0x3F800000u)return restore_reject(diagnostic,__LINE__);} // finite [0,1], positive bits
+                    else if(av!=0)return restore_reject(diagnostic,__LINE__);
                 }
                 auto old_count=word(a.smoothing.data()+72);
                 if(!immediate_throw && (word(b.smoothing.data()+72)!=(old_count==0x7FFFFFFFu?old_count:old_count+1) ||
-                   word(b.smoothing.data()+76)!=(word(a.smoothing.data()+76)+1)%16))return false;
+                   word(b.smoothing.data()+76)!=(word(a.smoothing.data()+76)+1)%16))return restore_reject(diagnostic,__LINE__);
             }
-            if(selected==count)return false;
+            if(selected==count)return restore_reject(diagnostic,__LINE__);
             if(validate_only)return true;
             auto& a=records[selected];
+            // All guards above passed; preserve the captured selector as well.
+            std::memcpy(reinterpret_cast<void*>(a.owner+0x1E8),a.targets.data(),4);
             std::memcpy(reinterpret_cast<void*>(a.owner+0x154),a.bytes.data()+0x154,4);
             std::memcpy(reinterpret_cast<void*>(a.owner+0x1E0),a.smoothing.data(),8);
             std::memcpy(reinterpret_cast<void*>(a.owner+0x25C),a.smoothing.data()+8,72);
@@ -125,7 +164,7 @@ struct CameraSnapshot {
                 !std::memcmp(reinterpret_cast<void*>(a.owner+0x154),a.bytes.data()+0x154,4) &&
                 !std::memcmp(reinterpret_cast<void*>(a.owner+0x1E0),a.smoothing.data(),8) &&
                 !std::memcmp(reinterpret_cast<void*>(a.owner+0x25C),a.smoothing.data()+8,72);
-        }__except(EXCEPTION_EXECUTE_HANDLER){return false;}
+        }__except(EXCEPTION_EXECUTE_HANDLER){return restore_reject(diagnostic,__LINE__);}
     }
     bool capture(const FullRestoreStream& stream,uintptr_t base) noexcept {
         count=0;failure=0;exception=0;valid=false;

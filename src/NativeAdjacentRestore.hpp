@@ -12,6 +12,7 @@ struct NativeAdjacentRestore {
     RecordedInput restore_input;
     ImmediateIdleCorrection completion;
     bool native_payload_verified{};
+    unsigned diagnostic_stage{}; // Last restoration check entered; no guard behavior changes.
     NativeBoundarySnapshot::Rejection rejection=NativeBoundarySnapshot::Rejection::none;
     bool run(const NativeBoundarySnapshot& source,uintptr_t base,uintptr_t argument,
              FullStateProbe::Routine writer=nullptr,FullStateProbe::Routine reader=nullptr,
@@ -40,6 +41,8 @@ struct NativeAdjacentRestore {
     RecordedInput replay_delivery;
     uintptr_t next_argument{};
     bool replay_delivered{},replay_checked{},replay_verified{},replay_scalars_verified{};
+    unsigned replay_stage{};
+    std::array<unsigned,2> replay_first_offset{UINT32_MAX,UINT32_MAX},replay_expected_byte{},replay_live_byte{};
     bool replay_measurement_read{},replay_rng_equal{},replay_players_equal{};
     std::array<unsigned,2> replay_scalar_differences{};
     // One natural update through the hook, never a recursive/synchronous step.
@@ -56,15 +59,18 @@ struct NativeAdjacentRestore {
             return true;
         }
         if(!verified || !replay_delivered || source.module!=base || source.thread!=GetCurrentThreadId())return fail();
-        replay_checked=true;
+        replay_checked=true;replay_stage=1;
         std::array<std::byte,40> live{};
         if(!FullStateProbe::input_bytes(argument,live) || !RecordedInput::compatible(source.data->delayed_inputs,live))return fail();
+        replay_stage=2;
         replay_scalars_verified=replay_scalars(base);
         if(!replay_scalars_verified)return fail();
+        replay_stage=3;
         probe->delayed_step(base,replay_delivery.assign(source.data->delayed_inputs),writer,reader,check);
+        replay_stage=4;
         replay_verified=TwoFrameIdleReplay::comparison_ok(*probe,base);
         if(!replay_verified)return fail();
-        return true;
+        replay_stage=5;return true;
     }
     bool prepare_captured(const NativeBoundarySnapshot& source,const NativeBoundarySnapshot& next,bool direction_restore=false,bool a_restore=false){
         if(attempted || fault)return false;attempted=true;
@@ -79,9 +85,11 @@ struct NativeAdjacentRestore {
     bool restore_captured(const NativeBoundarySnapshot& source,uintptr_t base,uintptr_t argument,
                           FullStateProbe::Routine writer=nullptr,FullStateProbe::Routine reader=nullptr,
                           FullStateProbe::Preflight check=nullptr) noexcept {
+        diagnostic_stage=1;
         if(!prepared || verified || fault || base!=source.module || source.thread!=GetCurrentThreadId())return fail();
         __try {
             std::array<std::uint32_t,std::size(FullStateProbe::key_rvas)> keys{};uintptr_t players[2]{};
+            diagnostic_stage=2;
             FullStateProbe::keys(base,keys.data(),players);
             if(keys!=current.data->before_keys || std::memcmp(players,current.data->before_players,sizeof(players)) ||
                !probe->delayed_scratch.capture(base) || !current.data->rings[0].same(probe->delayed_scratch))return fail();
@@ -91,24 +99,32 @@ struct NativeAdjacentRestore {
 private:
     bool finish(const NativeBoundarySnapshot& source,uintptr_t base,uintptr_t argument,
                 FullStateProbe::Routine writer,FullStateProbe::Routine reader,FullStateProbe::Preflight check) noexcept {
+        diagnostic_stage=3;
         if(!prepared && !source.prepare_adjacent(current,*probe,&rejection))return fail();
         prepared=true;
+        diagnostic_stage=4;
         std::array<std::byte,40> live_inputs{};
         if(!FullStateProbe::input_bytes(argument,live_inputs) || live_inputs!=current.data->delayed_inputs)return fail();
         // Private envelope for the restoration guard only. The normal update
         // keeps its original argument; game input memory is never overwritten.
         auto saved_argument=restore_input.assign(source.data->delayed_inputs);
         restore_input_used=true;
+        diagnostic_stage=5;
         probe->delayed_step(base,saved_argument,writer,reader,check);
         if(probe->fault || !probe->restore_completed || !probe->delayed_loaded || !probe->camera_restore_verified)return fail();
         const auto& saved=*source.data;auto& p=*probe;
         // Accept only the already-proven native self-pointer rebuild, with exact
         // source identity; only the separately proven reader-unused padding
         // below may differ in its pinned 16-byte record.
+        diagnostic_stage=6;
         native_payload_verified=native_equal(saved,p,base);
-        if(!native_payload_verified || !completion.apply(saved,*current.data,p,base))return fail();
+        if(!native_payload_verified)return fail();
+        diagnostic_stage=7;
+        if(!completion.apply(saved,*current.data,p,base))return fail();
+        diagnostic_stage=8;
         if(!p.capture_blend(base,3) || !p.cameras[4].capture(p.restored,base) ||
            !p.restored_after_rings.capture(base) || !saved.rings[0].same(p.restored_after_rings))return fail();
+        diagnostic_stage=9;
         verified=p.restored_valid && p.restored_save_unchanged && p.preserve_verified && p.outer_correction_verified &&
             native_payload_verified && p.restored_ring_equal &&
             p.blends[3].valid && p.blends[3].bytes==saved.blends[0].bytes &&
@@ -116,6 +132,7 @@ private:
             TwoFrameIdleReplay::transforms_equal(saved.transforms[0],p.transforms[3]) &&
             TwoFrameIdleReplay::cameras_equal(saved.cameras[0],p.cameras[4]);
         if(!verified)return fail();
+        diagnostic_stage=10;
         return true;
     }
 private:
@@ -127,9 +144,14 @@ private:
             replay_rng_equal=live.rng==expected.rng;
             replay_players_equal=!std::memcmp(live.players,expected.players,sizeof(live.players));
             for(unsigned side=0;side<2;++side){
-                replay_scalar_differences[side]=0;
+                replay_scalar_differences[side]=0;replay_first_offset[side]=UINT32_MAX;
                 for(unsigned byte=8;byte<224;++byte)
-                    if(live.fields[side][byte]!=expected.fields[side][byte])++replay_scalar_differences[side];
+                    if(live.fields[side][byte]!=expected.fields[side][byte]){
+                        ++replay_scalar_differences[side];
+                        if(replay_first_offset[side]==UINT32_MAX){replay_first_offset[side]=byte;
+                            replay_expected_byte[side]=std::to_integer<unsigned>(expected.fields[side][byte]);
+                            replay_live_byte[side]=std::to_integer<unsigned>(live.fields[side][byte]);}
+                    }
             }
             return replay_rng_equal && replay_players_equal && !replay_scalar_differences[0] && !replay_scalar_differences[1];
         }__except(EXCEPTION_EXECUTE_HANDLER){return false;}

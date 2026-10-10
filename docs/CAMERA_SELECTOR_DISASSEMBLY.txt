@@ -1,0 +1,207 @@
+FUNCTION 0x317b10
+317b10: push rbx
+317b12: sub rsp, 0x20
+317b16: mov rbx, rcx
+317b19: mov rcx, qword ptr [rcx + 0x1f0]
+317b20: cmp qword ptr [rbx + 0x1e8], 0
+317b28: mov dword ptr [rbx + 0x1dc], 0
+317b32: je 0x317b7f
+317b34: mov edx, dword ptr [rbx + 0x1d8]
+317b3a: add rcx, 0x35a0
+317b41: mov rax, qword ptr [rcx]
+317b44: call qword ptr [rax + 0x28]
+FUNCTION 0x317b10
+317b52: movss xmm2, dword ptr [rax + 0x34]
+317b57: movss xmm1, dword ptr [rax + 0x30]
+317b5c: call qword ptr [rdx + 0x80]
+317b62: cmp dword ptr [rbx + 0x15c], 0
+317b69: je 0x317b7f
+317b6b: mov rdx, qword ptr [rbx + 0x1e8]
+317b72: mov rcx, rbx
+317b75: add rsp, 0x20
+317b79: pop rbx
+317b7a: jmp 0x33f540
+317b7f: add rsp, 0x20
+317b83: pop rbx
+FUNCTION 0x317c70
+317c9b: mov rax, qword ptr [rbx]
+317c9e: lea rdx, [rsp + 0x38]
+317ca3: mov r8d, 4
+317ca9: mov rcx, rbx
+317cac: call qword ptr [rax + 0x30]
+317caf: mov qword ptr [rdi + 0x1e8], 0
+317cba: lea rdx, [rsp + 0x30]
+317cbf: mov rax, qword ptr [rbx]
+317cc2: mov r8d, 4
+317cc8: mov rcx, rbx
+317ccb: call qword ptr [rax + 0x30]
+317cce: movsxd rax, dword ptr [rsp + 0x30]
+FUNCTION 0x318640
+31871e: mov eax, dword ptr [rbx + 0x50]
+318721: mov dword ptr [rbx + 0x1e0], eax
+318727: mov eax, dword ptr [rbx + 0x54]
+31872a: mov dword ptr [rbx + 0x1e4], eax
+318730: mov eax, dword ptr [rbx + 0x58]
+318733: mov dword ptr [rbx + 0x1e8], eax
+318739: mov qword ptr [rbx + 0x240], rdi
+318740: mov qword ptr [rbx + 0x250], 0x3b360b61
+31874b: mov dword ptr [rbx + 0x290], 0x3f4ccccd
+318755: mov qword ptr [rbx + 0x260], rdi
+31875c: mov qword ptr [rbx + 0x268], rdi
+318763: mov qword ptr [rbx + 0x27c], rdi
+FUNCTION 0x31a490
+31a55b: mov rdi, qword ptr [rip + 0x43f3936]
+31a562: cmp byte ptr [r10 + 0x16e6], sil
+31a569: jne 0x31a588
+31a56b: cmp byte ptr [rdi + 0x16e6], sil
+31a572: jne 0x31a588
+31a574: mov dword ptr [rbx + 0x1e8], esi
+31a57a: mov r10, qword ptr [rip + 0x43f390f]
+31a581: mov rdi, qword ptr [rip + 0x43f3910]
+31a588: mov eax, dword ptr [rbx + 0x1e8]
+31a58e: test eax, eax
+31a590: je 0x31a5a4
+31a592: cmp eax, -1
+FUNCTION 0x31a490
+31a56b: cmp byte ptr [rdi + 0x16e6], sil
+31a572: jne 0x31a588
+31a574: mov dword ptr [rbx + 0x1e8], esi
+31a57a: mov r10, qword ptr [rip + 0x43f390f]
+31a581: mov rdi, qword ptr [rip + 0x43f3910]
+31a588: mov eax, dword ptr [rbx + 0x1e8]
+31a58e: test eax, eax
+31a590: je 0x31a5a4
+31a592: cmp eax, -1
+31a595: jne 0x31a59c
+31a597: mov rsi, r10
+31a59a: jmp 0x31a5f7
+FUNCTION 0x31ab70
+31ab73: je 0x31ac5f
+31ab79: mov qword ptr [rsp + 8], rbx
+31ab7e: mov qword ptr [rsp + 0x10], rsi
+31ab83: push rdi
+31ab84: sub rsp, 0x20
+31ab88: mov eax, dword ptr [rcx + 0x1e8]
+31ab8e: mov rdi, r8
+31ab91: mov rbx, rdx
+31ab94: mov rsi, rcx
+31ab97: test eax, eax
+31ab99: je 0x31abcf
+31ab9b: cmp eax, -1
+FUNCTION 0x31bdac
+31be22: call 0x311c106
+31be27: mulss xmm6, dword ptr [rip + 0x3b6e5c5]
+31be2f: movaps xmm7, xmm0
+31be32: movaps xmm0, xmm6
+31be35: call 0x311c142
+31be3a: cmp dword ptr [rbx + 0x1e8], 0
+31be41: movaps xmm8, xmm0
+31be45: movss xmm3, dword ptr [rsp + 0x28]
+31be4b: movaps xmm6, xmm0
+31be4e: movss xmm2, dword ptr [rsp + 0x24]
+31be54: movaps xmm9, xmm7
+31be58: xorps xmm9, xmm10
+FUNCTION 0x31c190
+31c1a8: lea rdx, [rbx + 0x1d0]
+31c1af: mov r8d, 0x18
+31c1b5: mov rcx, rdi
+31c1b8: call qword ptr [rax + 0x28]
+31c1bb: mov rax, qword ptr [rdi]
+31c1be: lea rdx, [rbx + 0x1e8]
+31c1c5: mov r8d, 4
+31c1cb: mov rcx, rdi
+31c1ce: call qword ptr [rax + 0x28]
+31c1d1: mov rbx, qword ptr [rsp + 0x30]
+31c1d6: mov rax, rdi
+31c1d9: add rsp, 0x20
+FUNCTION 0x31c1e0
+31c1f8: lea rdx, [rbx + 0x1d0]
+31c1ff: mov r8d, 0x18
+31c205: mov rcx, rdi
+31c208: call qword ptr [rax + 0x30]
+31c20b: mov rax, qword ptr [rdi]
+31c20e: lea rdx, [rbx + 0x1e8]
+31c215: mov r8d, 4
+31c21b: mov rcx, rdi
+31c21e: call qword ptr [rax + 0x30]
+31c221: mov rbx, qword ptr [rsp + 0x30]
+31c226: mov rax, rdi
+31c229: add rsp, 0x20
+FUNCTION 0x31f899
+31fecd: addss xmm14, xmm10
+31fed2: movaps xmm0, xmm14
+31fed6: call 0x311c1ae
+31fedb: cmp word ptr [rdi + 0x24e], 0xf
+31fee3: addss xmm6, xmm0
+31fee7: mov rax, qword ptr [rbp + 0x1e8]
+31feee: mov ecx, dword ptr [rax]
+31fef0: jne 0x31ff3d
+31fef2: mov eax, ecx
+31fef4: cdq 
+31fef5: movzx edx, dx
+31fef8: add eax, edx
+FUNCTION 0x31f899
+320322: mov esi, 3
+320327: jmp 0x320336
+320329: cmp esi, 0x13
+32032c: mov r14d, 1
+320332: cmovg esi, r14d
+320336: mov rax, qword ptr [rbp + 0x1e8]
+32033d: lea rdx, [rip + 0x3dd52dc]
+320344: test rax, rax
+320347: mov qword ptr [rbx + 0x48], rdi
+32034b: mov dword ptr [rbx + 0x50], esi
+32034e: cmovne rdx, rax
+320352: mov dword ptr [rbx + 0x24], r13d
+FUNCTION 0x31f899
+32037e: cmp dword ptr [rip + 0x4525faf], 0xa
+320385: jne 0x32039d
+320387: mov rax, qword ptr [rbx + 0x7a0]
+32038e: mov dword ptr [rax + 0x9c], 0x13
+320398: jmp 0x320e61
+32039d: mov rax, qword ptr [rbp + 0x1e8]
+3203a4: movzx r9d, si
+3203a8: mov r8d, dword ptr [rbp + 0x1e0]
+3203af: mov rdx, rdi
+3203b2: mov rcx, qword ptr [rbx + 0x7a0]
+3203b9: test rax, rax
+3203bc: je 0x3203c6
+FUNCTION 0x31f899
+3203c6: mov dword ptr [rsp + 0x20], r13d
+3203cb: call 0x324320
+3203d0: mov rax, qword ptr [rbx + 0x7a0]
+3203d7: mov dword ptr [rax + 0x9c], 4
+3203e1: jmp 0x320e61
+3203e6: mov r8, qword ptr [rbp + 0x1e8]
+3203ed: mov rdx, rdi
+3203f0: mov rcx, qword ptr [rbx + 0x7a0]
+3203f7: call 0x324840
+3203fc: jmp 0x320e61
+320401: mov rcx, qword ptr [rbx + 0x7a0]
+320408: call 0x32f610
+FUNCTION 0x31f899
+320b58: je 0x320e61
+320b5e: mov ecx, dword ptr [rbp + 0x1e0]
+320b64: xorps xmm0, xmm0
+320b67: mov rdx, qword ptr [rax]
+320b6a: mov dword ptr [rax + 0x8c], ecx
+320b70: mov rcx, qword ptr [rbp + 0x1e8]
+320b77: cvtsi2ss xmm0, rsi
+320b7c: mov qword ptr [rax + 0x80], rcx
+320b83: mov rcx, rax
+320b86: mov qword ptr [rax + 0x98], rdi
+320b8d: movss dword ptr [rax + 0x90], xmm0
+320b95: call qword ptr [rdx + 0x10]
+FUNCTION 0x31f899
+320b9d: movd xmm2, esi
+320ba1: cvtdq2ps xmm2, xmm2
+320ba4: test esi, esi
+320ba6: jne 0x320bb0
+320ba8: movss xmm2, dword ptr [rip + 0x3b6976c]
+320bb0: mov rcx, qword ptr [rbp + 0x1e8]
+320bb7: test rcx, rcx
+320bba: je 0x320bda
+320bbc: movss xmm12, dword ptr [rcx]
+320bc1: movss xmm7, dword ptr [rcx + 4]
+320bc6: mov eax, dword ptr [rcx + 8]
+320bc9: movss xmm8, dword ptr [rcx + 0x10]

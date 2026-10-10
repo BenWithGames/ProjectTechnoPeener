@@ -338,6 +338,8 @@ struct FullStateProbe {
     std::array<TransformSnapshot,10> transforms{};
     static constexpr const char* blend_names[]={"original_a","original_b","restored","restored_after_save","replay","weights_corrected","blocks_corrected","wind_corrected","sway_corrected","constraints_corrected"};
     bool wind_restore_verified{},sway_restore_verified{},constraint_restore_verified{};
+    TransformSnapshot::WindDiagnostic wind_diagnostic;
+    CameraSnapshot::RestoreDiagnostic camera_diagnostic;
     bool blend_blocks_applied{},blend_blocks_verified{};
     bool preserve_blend_blocks(uintptr_t b) noexcept {
         __try {
@@ -571,7 +573,7 @@ struct FullStateProbe {
                         if(!preserve_blend_weights(b)){delayed_failure_line=__LINE__;fault=true;__leave;}
                         if(!preserve_blend_blocks(b)){delayed_failure_line=__LINE__;fault=true;__leave;}
                     }
-                    wind_restore_verified=transforms[0].restore_wind(transforms[1],transforms[6],b);
+                    wind_restore_verified=transforms[0].restore_wind(transforms[1],transforms[6],b,false,&wind_diagnostic);
                     if(!wind_restore_verified || !capture_blend(b,7)){delayed_failure_line=__LINE__;fault=true;__leave;}
                     sway_restore_verified=transforms[0].restore_sway(transforms[1],transforms[7],b);
                     if(!sway_restore_verified || !capture_blend(b,8)){delayed_failure_line=__LINE__;fault=true;__leave;}
@@ -588,7 +590,7 @@ struct FullStateProbe {
                     restored_save_unchanged=restored_save_unchanged && blends[6].bytes==blends[3].bytes;
                     if(!restored_valid || !restored_save_unchanged){delayed_failure_line=__LINE__;fault=true;__leave;}
                     if(camera_restore_requested){
-                        camera_restore_verified=cameras[0].restore_smoothing(cameras[1],cameras[2],b,false,combat_replay_requested || direction_restore_requested || a_restore_requested,false,charge_requested || direction_restore_requested || a_restore_requested);
+                        camera_restore_verified=cameras[0].restore_smoothing(cameras[1],cameras[2],b,false,combat_replay_requested || direction_restore_requested || a_restore_requested,false,charge_requested || direction_restore_requested || a_restore_requested,&camera_diagnostic);
                         if(!camera_restore_verified || !cameras[4].capture(restored,b)){delayed_failure_line=__LINE__;fault=true;__leave;}
                     }
                     if(combat_replay_requested && !throw_camera_flag.restore(saved,restored,b,attack_requested,edge_requested,reversal_requested)){delayed_failure_line=__LINE__;fault=true;__leave;}

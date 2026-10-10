@@ -25,6 +25,9 @@
 #include "NativeTwoMovement.hpp"
 #include "RepeatedMovement.hpp"
 #include "InputObservation.hpp"
+#include "RoundEventObserver.hpp"
+#include "NetworkGameHandoff.hpp"
+#include "NativeNetworkCheckpointProbe.hpp"
 
 extern "C" { void* SC6Original=nullptr; void SC6EntryBridge(); }
 extern "C" { void* SC6FieldOriginal=nullptr; void SC6FieldBridge(); }
@@ -150,6 +153,7 @@ struct Recorder {
     std::unique_ptr<sc6::research::NativeAdjacentRestore> native_restore;
     bool native_replay{};
     std::unique_ptr<sc6::research::NativePredictionProbe> native_prediction;
+    std::unique_ptr<sc6::research::NativeNetworkCheckpointProbe> network_checkpoints;
     std::unique_ptr<sc6::research::NativeTwoMovement> native_movement;
     std::unique_ptr<sc6::research::RepeatedMovement> repeated_movement;
     std::unique_ptr<sc6::research::NativeTwoFrameReplay> native_two;
@@ -683,7 +687,7 @@ void write_capture(Recorder& r) {
               <<"captured="<<n.captured<<"\nrestored="<<n.loads<<"\ndelivered="<<n.deliveries
               <<"\ndirty_detected="<<n.dirty_detected<<"\nobserved_state_changed="<<n.state_changed
               <<"\ncorrected="<<n.corrected<<"\ndone="<<n.done<<"\nfault="<<n.fault
-              <<"\nmovement_capture_only="<<(n.direction_mode && !n.movement_restore)<<"\nmovement_restore_requested="<<n.movement_restore<<"\nupdates_invoked=0\ndirection_mode="<<n.direction_mode<<"\nprediction_observed="<<n.prediction_observed
+              <<"\nmovement_capture_only="<<(n.direction_mode && !n.movement_restore)<<"\nmovement_restore_requested="<<n.movement_restore<<"\nupdates_invoked="<<n.immediate_call.invoked<<"\nsynchronous="<<n.synchronous<<"\ncomposed_inputs="<<n.compose_inputs<<"\ncomposition_passed="<<n.composition_passed<<"\nsynthetic_peer_aux_different="<<n.peer_aux_different<<"\ntraining_reset_applied="<<n.training_reset_applied<<"\nimmediate_completed="<<n.immediate_call.completed<<"\nimmediate_exception="<<n.immediate_call.exception<<"\ndirection_mode="<<n.direction_mode<<"\nprediction_observed="<<n.prediction_observed
               <<"\nprediction_player_input="<<n.prediction_player_input<<"\nprediction_player_move="<<n.prediction_player_move
               <<"\nsettle_samples="<<n.settle.samples<<"\nsettle_stable="<<n.settle.stable<<"\nsettle_ready="<<n.settle.ready
               <<"\nfailure_stage="<<n.failure_stage<<'\n';
@@ -810,8 +814,8 @@ extern "C" void SC6RecordEntry(uintptr_t argument,uintptr_t* replacement=nullptr
     else if(return_address!=r.first_return_address)++r.caller_changes;
     if(GetTickCount64()>=r.deadline){finish(r,"timeout");ReleaseSRWLockExclusive(&r.lock);return;}
     if(r.observing){
-        // Observation has an early return: none of the save/load/input replacement
-        // paths below can run while the network observer is armed.
+        // Network modes return before offline experiments. Only the separately
+        // opted-in NETWORK_REPLAY_LONG mode can invoke the one-shot replay here.
         sc6::observation::Record record;
         std::array<std::byte,40> envelope{};uint32_t after{};
         const bool ok=copy(&record.data[0],r.base+0x470D0C4,4) &&
@@ -822,9 +826,22 @@ extern "C" void SC6RecordEntry(uintptr_t argument,uintptr_t* replacement=nullptr
             std::memcpy(record.data.data()+1,envelope.data(),40);
             LARGE_INTEGER stamp{};QueryPerformanceCounter(&stamp);
             record.data[11]=static_cast<uint32_t>(stamp.QuadPart);record.data[12]=static_cast<uint32_t>(stamp.QuadPart>>32);
-            r.observation->records[r.count]=record;
-            MemoryBarrier();InterlockedExchange(&r.observation->count,static_cast<LONG>(++r.count));
-            if(r.count==(r.observation->reserved?sc6::observation::capacity:sc6::observation::limit)){InterlockedExchange(&r.observation->status,2);r.active.store(false);}
+            const auto record_limit=r.observation->reserved?sc6::observation::capacity:sc6::observation::limit;
+            const bool recording=r.count<record_limit;
+            if(recording)r.observation->records[r.count]=record;
+            const auto round=sc6::round_event::snapshot();
+            if(recording)r.observation->rounds[r.count]={round.round,round.counter};
+            sc6::NetworkGameHandoff::Boundary boundary{round.generation,record.data[0],round.round,round.counter,{}};
+            std::memcpy(boundary.input.data(),envelope.data(),40);
+            if(r.network_checkpoints)r.network_checkpoints->process(r.base,argument,return_address,tid,boundary,
+                reinterpret_cast<sc6::research::SingleUpdateCall::Routine>(SC6Original),r.observation->nonce);
+            else sc6::network_game_handoff.boundary(r.observation->nonce,tid,boundary);
+            if(recording){
+                MemoryBarrier();InterlockedExchange(&r.observation->count,static_cast<LONG>(++r.count));
+                if(r.count==record_limit){InterlockedExchange(&r.observation->status,2);if(!r.observation->reserved)r.active.store(false);}
+            }else if(sc6::network_game_handoff.drain_finished.load(std::memory_order_acquire))r.active.store(false);
+            // After the last sample, keep validation-only boundaries running
+            // until delivery/draining finishes or the existing deadline expires.
         }
         ReleaseSRWLockExclusive(&r.lock);return;
     }
@@ -880,7 +897,7 @@ extern "C" void SC6RecordEntry(uintptr_t argument,uintptr_t* replacement=nullptr
             if(replacement && r.native_movement->next_argument)*replacement=r.native_movement->next_argument;
         }
         if(r.native_prediction && !r.native_prediction->done){
-            const bool prediction_ok=r.native_prediction->step(r.base,argument,replacement!=nullptr);
+            const bool prediction_ok=r.native_prediction->step(r.base,argument,replacement!=nullptr,nullptr,nullptr,nullptr,reinterpret_cast<sc6::research::SingleUpdateCall::Routine>(SC6Original),return_address);
             if(!prediction_ok){r.restore_failed=true;++r.count;finish(r,"native_prediction_failed",true);ReleaseSRWLockExclusive(&r.lock);return;}
             if(replacement && r.native_prediction->next_argument)*replacement=r.native_prediction->next_argument;
         }
@@ -995,6 +1012,7 @@ void recorder_init() {
     std::filesystem::create_directories(r.directory);
     r.verified=hash_matches();status(r.verified?"ready; hook inactive until offline arm":"unsupported executable; recorder disabled");
     if(r.verified){
+        status(sc6::round_event::install(r.base)?"round event observer installed":"round event unavailable; network round agreement remains unverified");
         r.observation_mapping=CreateFileMappingW(INVALID_HANDLE_VALUE,nullptr,PAGE_READWRITE,0,sizeof(sc6::observation::Shared),sc6::observation::mapping_name(GetCurrentProcessId()).c_str());
         if(r.observation_mapping && GetLastError()!=ERROR_ALREADY_EXISTS){
             r.observation=static_cast<sc6::observation::Shared*>(MapViewOfFile(r.observation_mapping,FILE_MAP_WRITE,0,0,sizeof(sc6::observation::Shared)));
@@ -1006,6 +1024,17 @@ void recorder_init() {
 }
 void recorder_poll() {
     auto& r=state();auto now=GetTickCount64();if(now-r.lastPoll<250)return;r.lastPoll=now;
+    static ULONGLONG next_round_status=0;
+    if(r.verified && now>=next_round_status){
+        next_round_status=now+1000;
+        const auto marker=round_event::snapshot();const auto diagnostic=round_event::diagnostics();
+        std::ofstream ready(r.directory/("round-ready-"+std::to_string(GetCurrentProcessId())+".txt"));
+        ready<<"schema=1\npid="<<GetCurrentProcessId()<<"\ntick_ms="<<now
+             <<"\nhook_installed="<<diagnostic.installed<<"\nevents="<<diagnostic.count
+             <<"\nupstream_installed="<<diagnostic.upstream_installed<<"\nupstream_events="<<diagnostic.upstream_count
+             <<"\nfailed="<<diagnostic.failed<<"\nround="<<marker.round<<"\nboundary="<<marker.counter
+             <<"\ngeneration="<<marker.generation<<"\nready="<<(marker.round!=0 && marker.generation!=0)<<'\n';
+    }
     if(!TryAcquireSRWLockExclusive(&r.lock))return;
     if(r.observing){
         if(r.active.load() && now>=r.deadline){r.active.store(false);InterlockedExchange(&r.observation->status,3);}
@@ -1025,7 +1054,7 @@ void recorder_poll() {
     if(observe_network){
         std::istringstream parser(token);std::string label,extra;unsigned pid{};std::uint64_t nonce{};
         parser>>label>>pid>>nonce;
-        if(!parser || (parser>>extra) || (label!="NETWORK_OBSERVE_ONLY" && label!="NETWORK_OBSERVE_LONG") || pid!=GetCurrentProcessId() || !nonce || !r.observation || r.observation_used ||
+        if(!parser || (parser>>extra) || (label!="NETWORK_OBSERVE_ONLY" && label!="NETWORK_OBSERVE_LONG" && label!="NETWORK_CHECKPOINT_LONG" && label!="NETWORK_REPLAY_LONG") || pid!=GetCurrentProcessId() || !nonce || !r.observation || r.observation_used ||
             full_request || shared_request || save_request || std::filesystem::exists(r.directory/"offline-training.arm")){
             status("network observation arm rejected; stale, conflicting, or unavailable");return;
         }
@@ -1039,10 +1068,13 @@ void recorder_poll() {
         }
         AcquireSRWLockExclusive(&r.lock);
         r.observing=true;r.observation_used=true;r.count=0;r.owner=0;r.skipped=0;r.ready=false;
-        r.observation->reserved=label=="NETWORK_OBSERVE_LONG"?1u:0u;
+        r.network_checkpoints=(label=="NETWORK_CHECKPOINT_LONG" || label=="NETWORK_REPLAY_LONG")?std::make_unique<sc6::research::NativeNetworkCheckpointProbe>(label=="NETWORK_REPLAY_LONG"):nullptr;
+        sc6::network_checkpoint_status.replay_enabled=label=="NETWORK_REPLAY_LONG";
+        sc6::network_checkpoint_status.enabled=r.network_checkpoints?1u:0u;
+        r.observation->reserved=label!="NETWORK_OBSERVE_ONLY"?1u:0u;
         r.observation->nonce=nonce;r.observation->count=0;InterlockedExchange(&r.observation->status,1);
-        r.deadline=now+(r.observation->reserved?90000:20000);r.active.store(true,std::memory_order_release);ReleaseSRWLockExclusive(&r.lock);
-        status("network observation armed: bounded input records only; no restore or injection; restart required afterward");return;
+        r.deadline=now+(r.observation->reserved?240000:20000);r.active.store(true,std::memory_order_release);ReleaseSRWLockExclusive(&r.lock);
+        status(label=="NETWORK_REPLAY_LONG"?"private one-frame replay experiment armed; restart required after failure":"network checkpoint/observation armed; no restore or replay");return;
     }
     bool attack_observe_request=!full_request && !shared_request && !save_request && token=="OFFLINE_ATTACK_OBSERVE "+std::to_string(GetCurrentProcessId());
     bool observe_request=!full_request && !shared_request && !save_request && token=="OFFLINE_CHARGE_OBSERVE "+std::to_string(GetCurrentProcessId());
@@ -1056,7 +1088,9 @@ void recorder_poll() {
     bool native_two_direction_request=full_request && token=="OFFLINE_NATIVE_TWO_DIRECTION_CAPTURE "+std::to_string(GetCurrentProcessId());
     bool native_direction_restore_request=full_request && token=="OFFLINE_NATIVE_DIRECTION_RESTORE "+std::to_string(GetCurrentProcessId());
     bool native_direction_request=native_two_direction_request || native_direction_restore_request || (full_request && token=="OFFLINE_NATIVE_DIRECTION "+std::to_string(GetCurrentProcessId()));
-    bool native_a_restore_request=full_request && token=="OFFLINE_NATIVE_A_RESTORE "+std::to_string(GetCurrentProcessId());
+    bool composed_a_request=full_request && token=="OFFLINE_COMPOSED_A_CORRECTION "+std::to_string(GetCurrentProcessId());
+    bool immediate_a_request=composed_a_request || (full_request && token=="OFFLINE_IMMEDIATE_A_CORRECTION "+std::to_string(GetCurrentProcessId()));
+    bool native_a_restore_request=immediate_a_request || (full_request && token=="OFFLINE_NATIVE_A_RESTORE "+std::to_string(GetCurrentProcessId()));
     bool native_a_request=native_a_restore_request || (full_request && token=="OFFLINE_NATIVE_A_CAPTURE "+std::to_string(GetCurrentProcessId()));
     bool native_prediction_request=native_a_request || native_direction_request || (full_request && token=="OFFLINE_NATIVE_PREDICTION "+std::to_string(GetCurrentProcessId()));
     bool native_two_request=full_request && token=="OFFLINE_NATIVE_TWO_IDLE_REPLAY "+std::to_string(GetCurrentProcessId());
@@ -1091,7 +1125,7 @@ void recorder_poll() {
     bool attack_request=full_request && token=="OFFLINE_ATTACK_PRESERVE "+std::to_string(GetCurrentProcessId());
     bool charge_request=full_request && token=="OFFLINE_CHARGE_PRESERVE "+std::to_string(GetCurrentProcessId());
     bool preserve_request=reversal_request || edge_request || attack_request || charge_request || throw_request || (full_request && token=="OFFLINE_FULL_PRESERVE "+std::to_string(GetCurrentProcessId()));
-    if(token!=(six_immediate_request?"OFFLINE_SIX_SYNCHRONOUS_REPLAY ":field_only_request?"OFFLINE_FIELD_TRACE_ONLY ":three_immediate_request?"OFFLINE_THREE_SYNCHRONOUS_REPLAY ":immediate_request?"OFFLINE_SINGLE_SYNCHRONOUS_REPLAY ":native_a_restore_request?"OFFLINE_NATIVE_A_RESTORE ":native_a_request?"OFFLINE_NATIVE_A_CAPTURE ":native_left_request?"OFFLINE_NATIVE_LEFT_MOVEMENT ":repeated_movement_request?"OFFLINE_REPEATED_MOVEMENT ":native_three_movement_request?"OFFLINE_NATIVE_THREE_MOVEMENT ":native_movement_request?"OFFLINE_NATIVE_TWO_MOVEMENT ":native_two_direction_request?"OFFLINE_NATIVE_TWO_DIRECTION_CAPTURE ":native_direction_restore_request?"OFFLINE_NATIVE_DIRECTION_RESTORE ":native_direction_request?"OFFLINE_NATIVE_DIRECTION ":native_prediction_request?"OFFLINE_NATIVE_PREDICTION ":native_two_request?"OFFLINE_NATIVE_TWO_IDLE_REPLAY ":native_replay_request?"OFFLINE_NATIVE_IDLE_REPLAY ":native_idle_request?"OFFLINE_NATIVE_ADJACENT_IDLE ":reversal_structure_request?"OFFLINE_REVERSAL_STRUCTURE ":three_reversal_request?"OFFLINE_THREE_FRAME_REVERSAL_INPUTS ":three_edge_request?"OFFLINE_THREE_FRAME_EDGE_INPUTS ":attack_structure_request?"OFFLINE_ATTACK_STRUCTURE ":three_attack_request?"OFFLINE_THREE_FRAME_ATTACK_INPUTS ":three_charge_request?"OFFLINE_THREE_FRAME_CHARGE_INPUTS ":charge_inputs_request?"OFFLINE_TWO_FRAME_CHARGE_INPUTS ":two_charge_request?"OFFLINE_TWO_FRAME_CHARGE ":charge_replay_request?"OFFLINE_ONE_FRAME_CHARGE ":charge_trajectory_request?"OFFLINE_CHARGE_TRAJECTORY ":three_input_request?"OFFLINE_THREE_FRAME_THROW_INPUTS ":recorded_input_request?"OFFLINE_TWO_FRAME_THROW_INPUTS ":long_trajectory_request?"OFFLINE_THROW_TRAJECTORY_LONG ":two_throw_request?"OFFLINE_TWO_FRAME_THROW ":throw_trajectory_request?"OFFLINE_THROW_TRAJECTORY ":two_frame_request?"OFFLINE_TWO_FRAME_IDLE ":trajectory_request?"OFFLINE_IDLE_TRAJECTORY ":combat_later_request?"OFFLINE_THROW_REPLAY_LATER ":combat_replay_request?"OFFLINE_THROW_REPLAY ":throw_audit_request?"OFFLINE_THROW_AUDIT ":delayed_request?"OFFLINE_DELAY_RESTORE ":audit_request?"OFFLINE_DELAY_AUDIT ":attack_observe_request?"OFFLINE_ATTACK_OBSERVE ":observe_request?"OFFLINE_CHARGE_OBSERVE ":reversal_request?"OFFLINE_REVERSAL_PRESERVE ":edge_request?"OFFLINE_EDGE_PRESERVE ":attack_request?"OFFLINE_ATTACK_PRESERVE ":charge_request?"OFFLINE_CHARGE_PRESERVE ":throw_request?"OFFLINE_THROW_PRESERVE ":preserve_request?"OFFLINE_FULL_PRESERVE ":full_request?"OFFLINE_FULL_RESTORE ":shared_request?"OFFLINE_SHARED_RESTORE ":save_request?"OFFLINE_SAVE ":"OFFLINE_TRAINING ")+std::to_string(GetCurrentProcessId())){status("rejected stale/invalid arm");return;}
+    if(token!=(composed_a_request?"OFFLINE_COMPOSED_A_CORRECTION ":immediate_a_request?"OFFLINE_IMMEDIATE_A_CORRECTION ":six_immediate_request?"OFFLINE_SIX_SYNCHRONOUS_REPLAY ":field_only_request?"OFFLINE_FIELD_TRACE_ONLY ":three_immediate_request?"OFFLINE_THREE_SYNCHRONOUS_REPLAY ":immediate_request?"OFFLINE_SINGLE_SYNCHRONOUS_REPLAY ":native_a_restore_request?"OFFLINE_NATIVE_A_RESTORE ":native_a_request?"OFFLINE_NATIVE_A_CAPTURE ":native_left_request?"OFFLINE_NATIVE_LEFT_MOVEMENT ":repeated_movement_request?"OFFLINE_REPEATED_MOVEMENT ":native_three_movement_request?"OFFLINE_NATIVE_THREE_MOVEMENT ":native_movement_request?"OFFLINE_NATIVE_TWO_MOVEMENT ":native_two_direction_request?"OFFLINE_NATIVE_TWO_DIRECTION_CAPTURE ":native_direction_restore_request?"OFFLINE_NATIVE_DIRECTION_RESTORE ":native_direction_request?"OFFLINE_NATIVE_DIRECTION ":native_prediction_request?"OFFLINE_NATIVE_PREDICTION ":native_two_request?"OFFLINE_NATIVE_TWO_IDLE_REPLAY ":native_replay_request?"OFFLINE_NATIVE_IDLE_REPLAY ":native_idle_request?"OFFLINE_NATIVE_ADJACENT_IDLE ":reversal_structure_request?"OFFLINE_REVERSAL_STRUCTURE ":three_reversal_request?"OFFLINE_THREE_FRAME_REVERSAL_INPUTS ":three_edge_request?"OFFLINE_THREE_FRAME_EDGE_INPUTS ":attack_structure_request?"OFFLINE_ATTACK_STRUCTURE ":three_attack_request?"OFFLINE_THREE_FRAME_ATTACK_INPUTS ":three_charge_request?"OFFLINE_THREE_FRAME_CHARGE_INPUTS ":charge_inputs_request?"OFFLINE_TWO_FRAME_CHARGE_INPUTS ":two_charge_request?"OFFLINE_TWO_FRAME_CHARGE ":charge_replay_request?"OFFLINE_ONE_FRAME_CHARGE ":charge_trajectory_request?"OFFLINE_CHARGE_TRAJECTORY ":three_input_request?"OFFLINE_THREE_FRAME_THROW_INPUTS ":recorded_input_request?"OFFLINE_TWO_FRAME_THROW_INPUTS ":long_trajectory_request?"OFFLINE_THROW_TRAJECTORY_LONG ":two_throw_request?"OFFLINE_TWO_FRAME_THROW ":throw_trajectory_request?"OFFLINE_THROW_TRAJECTORY ":two_frame_request?"OFFLINE_TWO_FRAME_IDLE ":trajectory_request?"OFFLINE_IDLE_TRAJECTORY ":combat_later_request?"OFFLINE_THROW_REPLAY_LATER ":combat_replay_request?"OFFLINE_THROW_REPLAY ":throw_audit_request?"OFFLINE_THROW_AUDIT ":delayed_request?"OFFLINE_DELAY_RESTORE ":audit_request?"OFFLINE_DELAY_AUDIT ":attack_observe_request?"OFFLINE_ATTACK_OBSERVE ":observe_request?"OFFLINE_CHARGE_OBSERVE ":reversal_request?"OFFLINE_REVERSAL_PRESERVE ":edge_request?"OFFLINE_EDGE_PRESERVE ":attack_request?"OFFLINE_ATTACK_PRESERVE ":charge_request?"OFFLINE_CHARGE_PRESERVE ":throw_request?"OFFLINE_THROW_PRESERVE ":preserve_request?"OFFLINE_FULL_PRESERVE ":full_request?"OFFLINE_FULL_RESTORE ":shared_request?"OFFLINE_SHARED_RESTORE ":save_request?"OFFLINE_SAVE ":"OFFLINE_TRAINING ")+std::to_string(GetCurrentProcessId())){status("rejected stale/invalid arm");return;}
     if(full_request && r.full_used){status("full restore already used this process; restart required");return;}
     if(full_request && (shared_request || save_request)){status("conflicting restore requests rejected");return;}
     if(shared_request && r.shared_used){status("shared restore already used this process; restart required");return;}
@@ -1164,7 +1198,7 @@ void recorder_poll() {
         if(MH_EnableHook(target)!=MH_OK){MH_RemoveHook(target);status("Tail checkpoint enable failed; not armed");return;}
         r.tail_hooked=true;
     }
-    if((field_only_request || three_immediate_request) && !r.setter_zero_hooked){
+    if((field_only_request || three_immediate_request || immediate_a_request) && !r.setter_zero_hooked){
         const unsigned char expected[]={0x48,0x8B,0x01,0xFF,0x90,0x10,0x01,0x00,0x00};
         unsigned char actual[sizeof(expected)]{};void* target=reinterpret_cast<void*>(r.base+0x428334);
         if(!copy(actual,reinterpret_cast<uintptr_t>(target),sizeof(actual)) || std::memcmp(actual,expected,sizeof(actual))){status("setter checkpoint bytes mismatch; not armed");return;}
@@ -1172,7 +1206,7 @@ void recorder_poll() {
         if(MH_EnableHook(target)!=MH_OK){MH_RemoveHook(target);status("setter checkpoint enable failed; not armed");return;}
         r.setter_zero_hooked=true;
     }
-    if((field_only_request || three_immediate_request) && !r.setter_full_hooked){
+    if((field_only_request || three_immediate_request || immediate_a_request) && !r.setter_full_hooked){
         const unsigned char expected[]={0x48,0x8B,0x01,0xFF,0x90,0x10,0x01,0x00,0x00};
         unsigned char actual[sizeof(expected)]{};void* target=reinterpret_cast<void*>(r.base+0x4283b9);
         if(!copy(actual,reinterpret_cast<uintptr_t>(target),sizeof(actual)) || std::memcmp(actual,expected,sizeof(actual))){status("setter checkpoint bytes mismatch; not armed");return;}
@@ -1193,7 +1227,7 @@ void recorder_poll() {
     if(r.trajectory){r.trajectory->throw_mode=throw_trajectory_request || two_throw_request;r.trajectory->recorded_inputs=recorded_input_request || charge_inputs_request || three_attack_request || three_edge_request || three_reversal_request;r.trajectory->charge_mode=charge_trajectory_request || charge_replay_request;}
     r.repeated_movement=repeated_movement_request?std::make_unique<sc6::research::RepeatedMovement>():nullptr;
     r.native_movement=native_movement_request?std::make_unique<sc6::research::NativeTwoMovement>((native_left_request || native_three_movement_request)?3u:2u,native_left_request?0x800u:0x400u):nullptr;
-    r.native_prediction=native_prediction_request?std::make_unique<sc6::research::NativePredictionProbe>(native_direction_request,native_direction_restore_request,native_two_direction_request,native_a_request,native_a_restore_request):nullptr;
+    r.native_prediction=native_prediction_request?std::make_unique<sc6::research::NativePredictionProbe>(native_direction_request,native_direction_restore_request,native_two_direction_request,native_a_request,native_a_restore_request,immediate_a_request,composed_a_request):nullptr;
     r.native_two=native_two_request?std::make_unique<sc6::research::NativeTwoFrameReplay>():nullptr;
     r.three_immediate=three_immediate_request?std::make_unique<sc6::research::NativeThreeImmediateReplay>(six_immediate_request?6u:3u):nullptr;
     r.immediate_replay=immediate_request?std::make_unique<sc6::research::NativeImmediateReplay>():nullptr;

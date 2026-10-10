@@ -2,9 +2,12 @@
 #include "NativeAdjacentRestore.hpp"
 #include "DelayedInputHistory.hpp"
 #include "IdleBlendSettle.hpp"
+#include "SingleUpdateCall.hpp"
+#include "FieldUpdateTrace.hpp"
+#include "NetworkInputComposer.hpp"
 namespace sc6::research {
 // One bounded auxiliary-float or observed Player1 screen-right prediction.
-// Natural updates only; not proof of correcting attack/movement divergence.
+// Optional synchronous correction; all modes remain offline experiments.
 struct NativePredictionProbe {
     using Input=std::array<std::byte,40>;
     using History=DelayedInputHistory<Input,4>;
@@ -35,10 +38,15 @@ struct NativePredictionProbe {
     }
     unsigned captured{},loads{},deliveries{};uintptr_t next_argument{};
     bool dirty_detected{},state_changed{},done{},fault{},corrected{};
-    bool two_frame_capture{},a_capture{},a_restore{};
+    bool two_frame_capture{},a_capture{},a_restore{},synchronous{},trace_started{},training_reset_applied{};
+    SingleUpdateCall immediate_call;
+    TrainingFieldReset::Samples reference_resets{};
+    bool compose_inputs{},composition_passed{},peer_aux_different{};
     bool direction_mode{},movement_restore{},prediction_observed{};unsigned prediction_player_input{},prediction_player_move{};
     const char* failure_stage="none";
-    explicit NativePredictionProbe(bool direction=false,bool restore_movement=false,bool capture_two=false,bool capture_a=false,bool restore_a=false):two_frame_capture(capture_two),a_capture(capture_a),a_restore(restore_a),direction_mode(direction),movement_restore(restore_movement){
+    explicit NativePredictionProbe(bool direction=false,bool restore_movement=false,bool capture_two=false,bool capture_a=false,bool restore_a=false,bool immediate=false,bool compose=false):two_frame_capture(capture_two),a_capture(capture_a),a_restore(restore_a),synchronous(immediate),compose_inputs(compose),direction_mode(direction),movement_restore(restore_movement){
+        if(compose_inputs && !synchronous)fault=true;
+        if(synchronous && !a_restore)fault=true;
         if(a_restore && !a_capture)fault=true;
         if(a_capture && (direction_mode || movement_restore || two_frame_capture))fault=true;
         if(two_frame_capture && (!direction_mode || movement_restore))fault=true;
@@ -72,8 +80,9 @@ struct NativePredictionProbe {
     }
     __declspec(noinline) bool step(uintptr_t base,uintptr_t argument,bool bridge,
         FullStateProbe::Routine writer=nullptr,FullStateProbe::Routine reader=nullptr,
-        FullStateProbe::Preflight check=nullptr) noexcept {
+        FullStateProbe::Preflight check=nullptr,SingleUpdateCall::Routine original=nullptr,uintptr_t caller=0) noexcept {
         next_argument=0;if(fault)return false;if(done)return true;if(!bridge)return fail();
+        if(synchronous && (!original || reinterpret_cast<uintptr_t>(original)==base+0x2DBC60 || caller!=base+0x3FE816)){failure_stage="immediate_entry_guard";return fail();}
         if((direction_mode || a_capture) && !captured && !settle.ready){
             failure_stage="waiting_for_stable_idle";
             if(!settle.step(base))return fail();
@@ -94,6 +103,7 @@ struct NativePredictionProbe {
             if(!history || history->receive(0,actual)!=History::Arrival::accepted || history->correction()!=std::optional<std::size_t>{0})return fail();
             dirty_detected=true;failure_stage="none";done=true;return true;
         }
+        if(synchronous && !trace_started){field_update_trace.start(base);trace_started=true;}
         if(captured<3){
             if(captured==2 && !observe_prediction(base)){failure_stage="prediction_observation";return fail();}
             failure_stage="boundary_capture";
@@ -113,6 +123,10 @@ struct NativePredictionProbe {
                 if(!(a_capture?make_a_prediction(actual,predicted):make_prediction(actual,predicted,direction_mode)))return fail();
                 return true; // Clean reference update with the original argument.
             }
+            if(captured==2 && synchronous){
+                reference_resets=training_field_reset.latest;
+                if(!TrainingFieldReset::validate(reference_resets,base,frames[1]->data->before_keys[0])){failure_stage="reference_setter_guard";return fail();}
+            }
             if(captured==2){
                 for(unsigned side=0;side<2;++side){
                     const auto& a=frames[0]->data->blends[0];const auto& b=frames[1]->data->blends[0];
@@ -124,6 +138,24 @@ struct NativePredictionProbe {
             }
             auto& restore=*restores[captured-2];
             if(captured==3){
+                if(compose_inputs){
+                    // Synthetic received P1 pair, with deliberately different
+                    // non-owned words. Preserve this PC's historical auxiliary
+                    // block and P2 pair; never send this fixture over Steam.
+                    sc6::NetworkInputComposer::Envelope local{},peer{};
+                    std::memcpy(local.data(),actual.data(),40);peer=local;
+                    std::memcpy(local.data(),predicted.data(),8);
+                    for(unsigned w=2;w<10;++w)peer[w]^=1;
+                    peer_aux_different=std::memcmp(peer.data()+4,actual.data()+16,24)!=0;
+                    const auto frame=frames[0]->data->before_keys[0];
+                    const auto composed=sc6::NetworkInputComposer::compose(local,peer,1,frame,frame);
+                    if(!composed || !peer_aux_different || std::memcmp(composed->data(),actual.data(),40)){
+                        failure_stage="input_composition";return fail();
+                    }
+                    // This composed result, not a bypass copy of actual, is
+                    // accepted by history and consumed by the corrected update.
+                    std::memcpy(actual.data(),composed->data(),40);composition_passed=true;
+                }
                 if(!two_frame_capture){
                     if(!history || history->receive(0,actual)!=History::Arrival::accepted || history->correction()!=std::optional<std::size_t>{0})return fail();
                     dirty_detected=true;
@@ -165,6 +197,17 @@ struct NativePredictionProbe {
             q.original_next=b.measurements[0];q.rings[2]=b.rings[0];
             q.blends[1]=b.blends[0];q.transforms[1]=b.transforms[0];q.cameras[1]=b.cameras[0];
             restore.replay_delivered=true;
+            if(synchronous){
+                if(!state_changed){failure_stage="no_attack_divergence";return fail();}
+                failure_stage="immediate_corrected_update";
+                if(!immediate_call.run(original,delivery.assign(history->input_for(0)),reinterpret_cast<volatile uint32_t*>(base+0x470D0C4),frames[0]->data->before_keys[0],frames[0]->thread))return fail();
+                ++deliveries;failure_stage="immediate_training_setter";
+                if(!TrainingFieldReset::apply(reference_resets,base,immediate_call.after))return fail();
+                training_reset_applied=true;failure_stage="immediate_comparison";
+                if(!restore.replay_step(*frames[0],base,guard.assign(b.delayed_inputs),bridge,writer,reader,check))return fail();
+                if(!history->finish_correction(0))return fail();
+                field_update_trace.stop();failure_stage="none";corrected=done=true;return true;
+            }
             next_argument=delivery.assign(history->input_for(0));++deliveries;return true;
         }
         failure_stage="corrected_replay";
@@ -180,6 +223,6 @@ private:
             prediction_observed=true;return true;
         }__except(EXCEPTION_EXECUTE_HANDLER){return false;}
     }
-    bool fail(){fault=true;return false;}
+    bool fail(){if(synchronous)field_update_trace.stop();fault=true;return false;}
 };
 }

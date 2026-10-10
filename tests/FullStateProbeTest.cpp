@@ -178,9 +178,16 @@ int main(){
         *reinterpret_cast<float*>(owner+0x250)=0.5f;
         require(!ca->restore_smoothing(*cb,camera,base) && *reinterpret_cast<unsigned*>(owner+0x154)==0);
         *reinterpret_cast<float*>(owner+0x250)=1.0f;
+        sc6::research::CameraSnapshot::RestoreDiagnostic targetDiagnostic;
         cb->records[0].targets[0]^=std::byte{1};
-        require(!ca->restore_smoothing(*cb,camera,base) && *reinterpret_cast<unsigned*>(owner+0x154)==0);
+        require(!ca->restore_smoothing(*cb,camera,base,false,false,false,false,&targetDiagnostic) && *reinterpret_cast<unsigned*>(owner+0x154)==0);
+        require(targetDiagnostic.section==4 && targetDiagnostic.offset==0 && targetDiagnostic.a!=targetDiagnostic.b);
         cb->records[0].targets[0]^=std::byte{1};
+        *reinterpret_cast<unsigned*>(owner+0x2A4)^=1;
+        require(!ca->restore_smoothing(*cb,camera,base,false,false,false,false,&targetDiagnostic));
+        require(targetDiagnostic.section==5 && targetDiagnostic.offset==116 && targetDiagnostic.c!=targetDiagnostic.live);
+        require(*reinterpret_cast<unsigned*>(owner+0x154)==0);
+        *reinterpret_cast<unsigned*>(owner+0x2A4)^=1;
         *reinterpret_cast<float*>(owner+0x1D8)=0.5f;
         require(!ca->restore_smoothing(*cb,camera,base) && *reinterpret_cast<unsigned*>(owner+0x154)==0);
         *reinterpret_cast<float*>(owner+0x1D8)=0.375f;
@@ -190,7 +197,22 @@ int main(){
         camera.records[0].response[4]^=std::byte{1};
         require(!ca->restore_smoothing(*cb,camera,base) && *reinterpret_cast<unsigned*>(owner+0x154)==0);
         camera.records[0].response[4]^=std::byte{1};
+        // Observed idle selector -1 -> native-load zero, not arbitrary selector changes.
+        unsigned sentinel=0xFFFFFFFFu,invalid_selector=2,zero_selector=0;
+        std::memcpy(ca->records[0].targets.data(),&sentinel,4);
+        std::memcpy(cb->records[0].targets.data(),&sentinel,4);
+        std::memcpy(camera.records[0].targets.data(),&zero_selector,4);
+        *reinterpret_cast<unsigned*>(owner+0x1E8)=0;
+        require(ca->restore_smoothing(*cb,camera,base,false,false,true));
+        require(*reinterpret_cast<unsigned*>(owner+0x1E8)==0);
+        std::memcpy(camera.records[0].targets.data(),&invalid_selector,4);
+        *reinterpret_cast<unsigned*>(owner+0x1E8)=invalid_selector;
+        require(!ca->restore_smoothing(*cb,camera,base));
+        require(*reinterpret_cast<unsigned*>(owner+0x154)==0);
+        std::memcpy(camera.records[0].targets.data(),&zero_selector,4);
+        *reinterpret_cast<unsigned*>(owner+0x1E8)=0;
         require(ca->restore_smoothing(*cb,camera,base));
+        require(*reinterpret_cast<unsigned*>(owner+0x1E8)==0xFFFFFFFFu);
         require(*reinterpret_cast<float*>(owner+0x1D0)==0 && *reinterpret_cast<float*>(owner+0x1D8)==0);
         require(*reinterpret_cast<float*>(owner+0x1D4)==0.375f);
         for(unsigned off:{0x230u,0x234u,0x238u,0x240u,0x244u,0x248u})require(*reinterpret_cast<float*>(owner+off)==2.5f);
@@ -646,6 +668,27 @@ int main(){
         *reinterpret_cast<unsigned*>(base+0x470E2B0)=456;
         require(wind_a->restore_wind(*wind_b,*t,base));
         require(*reinterpret_cast<unsigned*>(global_nodes+0x70)==0 && *reinterpret_cast<unsigned*>(base+0x485EB30)==0 && *reinterpret_cast<unsigned*>(base+0x470E2B0)==0);
+        // Stage wind has its own bounded payload and narrow mutation mask.
+        std::memset(reinterpret_cast<void*>(global_nodes+0x18),0,0x1C8);
+        *reinterpret_cast<uintptr_t*>(global_nodes)=base+0x3E88CE8;
+        require(wind_a->capture(owners,base));
+        for(unsigned off:{0x30u,0x40u,0x70u,0x80u,0x90u,0xA0u,0xB0u,0xD0u,0x130u,0x138u,0x160u,0x190u,0x1D0u})
+            *reinterpret_cast<float*>(global_nodes+off)=0.25f;
+        *reinterpret_cast<unsigned*>(global_nodes+0x60)=1;
+        require(wind_b->capture(owners,base));
+        require(wind_a->restore_wind(*wind_b,*wind_b,base,true));
+        require(*reinterpret_cast<float*>(global_nodes+0x40)==0.25f);
+        *reinterpret_cast<unsigned*>(global_nodes+0x38)=1;
+        require(t->capture(owners,base));
+        require(!wind_a->restore_wind(*t,*t,base));
+        require(*reinterpret_cast<float*>(global_nodes+0x40)==0.25f);
+        *reinterpret_cast<unsigned*>(global_nodes+0x38)=0;
+        *reinterpret_cast<unsigned*>(global_nodes+0x40)=0x7F800000;
+        require(t->capture(owners,base));require(!wind_a->restore_wind(*t,*t,base));
+        *reinterpret_cast<float*>(global_nodes+0x40)=0.25f;
+        require(wind_b->capture(owners,base));
+        require(wind_a->restore_wind(*wind_b,*wind_b,base));
+        require(*reinterpret_cast<float*>(global_nodes+0x40)==0 && *reinterpret_cast<float*>(global_nodes+0x1D0)==0);
         *reinterpret_cast<uintptr_t*>(global_nodes)=base+0x3E88D18;
         *reinterpret_cast<unsigned*>(global_nodes+0x17C)=0x12345678;
         require(t->capture(owners,base));
@@ -1988,6 +2031,7 @@ int main(){
         auto correction=std::make_unique<sc6::research::ImmediateIdleCorrection>();
         bool ok=correction->apply(*a,*b,*c,base);
         require(ok==(failure==0 || failure==6 || failure==10) && correction->verified==ok);
+        require(ok ? correction->failure_line==0 : correction->failure_line!=0);
         require(*reinterpret_cast<float*>(root+0x1F0)==(ok?0.0f:newer));
         require(*reinterpret_cast<float*>(group)==(ok?0.0f:newer));
         require(*reinterpret_cast<float*>(camera+0x154)==(ok?newer:0.0f));

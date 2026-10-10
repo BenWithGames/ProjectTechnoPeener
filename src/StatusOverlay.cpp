@@ -62,7 +62,7 @@ void paint(HWND w,View& v){
     RECT subtitle{pad,top+MulDiv(24,v.dpi,96),r.right-pad,r.bottom};
     draw(stale?L"Network: telemetry stale":stats.connected?L"Network: peer connected":L"Network: inactive",subtitle,false,RGB(156,166,182));
     int start=MulDiv(255,v.dpi,96),column=(r.right-pad-start)/3;
-    const std::wstring texts[]={L"PING",L"DELAY",L"ROLLBACK"};
+    const std::wstring texts[]={L"PING ~",L"DELAY",L"ROLLBACK"};
     const std::wstring values[]={value(stats.ping_ms,L" ms"),value(stats.delay_frames,L" f"),value(stats.rollback_frames,L" f")};
     for(int i=0;i<3;++i){RECT cell{start+i*column,top,start+(i+1)*column,top+MulDiv(20,v.dpi,96)};
         draw(texts[i].c_str(),cell,false,RGB(156,166,182),true);

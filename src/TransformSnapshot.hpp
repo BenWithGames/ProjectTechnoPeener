@@ -103,6 +103,7 @@ struct TransformSnapshot {
                         auto vtable=pointer(records[n].bytes.data());
                         // Observation only: ShockWave methods3322C0/332B60 use
                         // fields through17F. Do not treat it as a validated wind restorer.
+                        if(vtable==module_base+0x3E88CE8 && !append(node+0x18,2,24,0,n,0x1C8))return false;
                         if(vtable==module_base+0x3E88D18){
                             if(!append(node+0x18,2,23,0,n,0x168))return false;
                         }
@@ -204,7 +205,7 @@ struct TransformSnapshot {
             return true;
         }__except(EXCEPTION_EXECUTE_HANDLER){return false;}
     }
-    static bool wind_field(unsigned kind){return (kind>=7 && kind<=11) || kind==23;}
+    static bool wind_field(unsigned kind){return (kind>=7 && kind<=11) || kind==23 || kind==24;}
     bool restore_constraints(const TransformSnapshot& next,const TransformSnapshot& current,uintptr_t module_base,bool validate_only=false)const noexcept {
         __try {
             if(!same_topology(next) || !same_topology(current))return false;
@@ -279,64 +280,119 @@ struct TransformSnapshot {
             return true;
         }__except(EXCEPTION_EXECUTE_HANDLER){return false;}
     }
-    bool restore_wind(const TransformSnapshot& next,const TransformSnapshot& current,uintptr_t module_base,bool validate_only=false)const noexcept {
+    // Pinned Iw_WindForStage methods333130/333550/333C20: scalar writes,
+    // phase loops at70/80/A0/B0, and matrix output160..19F/1D0..1DF.
+    static bool stage_wind_byte(unsigned offset){
+        return (offset>=0x30 && offset<0x34) || (offset>=0x40 && offset<0x68) ||
+            (offset>=0x6C && offset<0x74) || (offset>=0x80 && offset<0x84) ||
+            (offset>=0x90 && offset<0x94) || (offset>=0xA0 && offset<0xA4) ||
+            (offset>=0xB0 && offset<0xB4) || (offset>=0xD0 && offset<0xE0) ||
+            (offset>=0x120 && offset<0x144) || (offset>=0x148 && offset<0x14C) ||
+            (offset>=0x160 && offset<0x1A0) || (offset>=0x1D0 && offset<0x1E0);
+    }
+    struct WindDiagnostic {unsigned failure_line{},record{UINT32_MAX},kind{},size{},offset{},saved_word{},next_word{},control_saved{},control_next{};uintptr_t vtable_rva{};};
+    static bool wind_reject(WindDiagnostic* diagnostic,unsigned line) noexcept {
+        if(diagnostic)diagnostic->failure_line=line;
+        return false;
+    }
+    static bool stage_wind_finite(const Record& a,const Record& b,WindDiagnostic* diagnostic=nullptr){
+        if(a.kind!=24 || b.kind!=24 || a.size!=0x1C8 || b.size!=a.size)return wind_reject(diagnostic,__LINE__);
+        for(unsigned j=0;j<a.size;j+=4){const auto offset=j+0x18;
+            if(!stage_wind_byte(offset) || offset==0x60 || offset==0x6C || offset==0x148)continue;
+            uint32_t x{},y{};std::memcpy(&x,a.bytes.data()+j,4);std::memcpy(&y,b.bytes.data()+j,4);
+            // The update skips phase accumulation at +138 when control +EC is zero.
+            // Permit only the observed unchanged inactive bit pattern, never arbitrary NaNs.
+            if(offset==0x138 && x==0xFFFFFFFFu && y==x){
+                uint32_t ac{},bc{};std::memcpy(&ac,a.bytes.data()+0xEC-0x18,4);std::memcpy(&bc,b.bytes.data()+0xEC-0x18,4);
+                if(diagnostic){diagnostic->control_saved=ac;diagnostic->control_next=bc;}
+                if((ac&0x7FFFFFFFu)==0 && (bc&0x7FFFFFFFu)==0)continue;
+            }
+            if((x&0x7F800000u)==0x7F800000u || (y&0x7F800000u)==0x7F800000u){
+                if(diagnostic){diagnostic->offset=offset;diagnostic->saved_word=x;diagnostic->next_word=y;}
+                return wind_reject(diagnostic,__LINE__);
+            }
+        }
+        return true;
+    }
+    bool restore_wind(const TransformSnapshot& next,const TransformSnapshot& current,uintptr_t module_base,bool validate_only=false,WindDiagnostic* diagnostic=nullptr)const noexcept {
+        if(diagnostic)*diagnostic={};
         __try {
-            if(!same_topology(next) || !same_topology(current))return false;
+            if(!same_topology(next) || !same_topology(current))return wind_reject(diagnostic,__LINE__);
             unsigned rng_records=0;
             // Validate all shared records before writing any wind or RNG data.
             for(unsigned i=0;i<count;++i){auto& a=records[i];auto& b=next.records[i];auto& c=current.records[i];
                 if(a.side!=2)continue;
-                if(std::memcmp(b.bytes.data(),c.bytes.data(),a.size) ||
-                   std::memcmp(c.bytes.data(),reinterpret_cast<void*>(a.address),a.size))return false;
-                if(!wind_field(a.kind) && std::memcmp(a.bytes.data(),b.bytes.data(),a.size))return false;
+                if(diagnostic){diagnostic->record=i;diagnostic->kind=a.kind;}
+                if(std::memcmp(b.bytes.data(),c.bytes.data(),a.size))return wind_reject(diagnostic,__LINE__);
+                if(std::memcmp(c.bytes.data(),reinterpret_cast<void*>(a.address),a.size))return wind_reject(diagnostic,__LINE__);
+                if(!wind_field(a.kind) && std::memcmp(a.bytes.data(),b.bytes.data(),a.size))return wind_reject(diagnostic,__LINE__);
                 if(a.kind==4){auto vt=pointer(a.bytes.data());
-                    if(vt!=module_base+0x3E88CB8 && vt!=module_base+0x3E88C88 && vt!=module_base+0x3E88D18)return false;
+                    if(diagnostic){diagnostic->size=a.size;diagnostic->vtable_rva=vt>=module_base?vt-module_base:0;}
+                    if(vt!=module_base+0x3E88CB8 && vt!=module_base+0x3E88C88 && vt!=module_base+0x3E88D18 && vt!=module_base+0x3E88CE8)return wind_reject(diagnostic,__LINE__);
+                    if(vt==module_base+0x3E88CE8){
+                        unsigned children=0;
+                        for(unsigned j=0;j<count;++j)if(records[j].kind==24 && records[j].parent==i)++children;
+                        if(children!=1)return wind_reject(diagnostic,__LINE__);
+                    }
                     if(vt==module_base+0x3E88D18){
                         unsigned children=0;
                         for(unsigned j=0;j<count;++j)if(records[j].kind==23 && records[j].parent==i)++children;
-                        if(children!=1)return false;
+                        if(children!=1)return wind_reject(diagnostic,__LINE__);
                     }
                 }
                 if(a.kind>=7 && a.kind<=9){
-                    if(a.parent>=count || records[a.parent].kind!=4)return false;
+                    if(a.parent>=count || records[a.parent].kind!=4)return wind_reject(diagnostic,__LINE__);
                     auto offset=a.kind==7?0x40u:a.kind==8?0x70u:0x120u;
                     auto length=a.kind==7?32u:a.kind==8?112u:12u;
-                    if(a.address!=records[a.parent].address+offset || a.size!=length)return false;
+                    if(a.address!=records[a.parent].address+offset || a.size!=length)return wind_reject(diagnostic,__LINE__);
+                }
+                if(a.kind==24){
+                    if(a.size!=0x1C8 || a.parent>=count)return wind_reject(diagnostic,__LINE__);
+                    const auto& parent=records[a.parent];
+                    if(parent.kind!=4 || parent.side!=2 || pointer(parent.bytes.data())!=module_base+0x3E88CE8 ||
+                       a.address!=parent.address+0x18)return wind_reject(diagnostic,__LINE__);
+                    for(unsigned j=0;j<a.size;++j)
+                        if(!stage_wind_byte(j+0x18) && a.bytes[j]!=b.bytes[j])return wind_reject(diagnostic,__LINE__);
+                    if(!stage_wind_finite(a,b,diagnostic))return false;
                 }
                 if(a.kind==23){
-                    if(a.size!=0x168 || a.parent>=count)return false;
+                    if(a.size!=0x168 || a.parent>=count)return wind_reject(diagnostic,__LINE__);
                     auto& parent=records[a.parent];
                     if(parent.kind!=4 || parent.side!=2 || pointer(parent.bytes.data())!=module_base+0x3E88D18 ||
-                       a.address!=parent.address+0x18)return false;
+                       a.address!=parent.address+0x18)return wind_reject(diagnostic,__LINE__);
                     for(unsigned j=0;j<a.size;++j)
-                        if(!shockwave_byte(j+0x18) && a.bytes[j]!=b.bytes[j])return false;
+                        if(!shockwave_byte(j+0x18) && a.bytes[j]!=b.bytes[j])return wind_reject(diagnostic,__LINE__);
                     for(unsigned j=0;j<a.size;j+=4)if(shockwave_byte(j+0x18) && j+0x18!=0x60){
                         std::uint32_t x{},y{};std::memcpy(&x,a.bytes.data()+j,4);std::memcpy(&y,b.bytes.data()+j,4);
-                        if((x&0x7F800000u)==0x7F800000u || (y&0x7F800000u)==0x7F800000u)return false;
+                        if((x&0x7F800000u)==0x7F800000u || (y&0x7F800000u)==0x7F800000u)return wind_reject(diagnostic,__LINE__);
                     }
                     unsigned old{},next_index{};std::memcpy(&old,a.bytes.data()+0x48,4);std::memcpy(&next_index,b.bytes.data()+0x48,4);
-                    if(old==UINT32_MAX || next_index!=old+1)return false;
+                    if(old==UINT32_MAX || next_index!=old+1)return wind_reject(diagnostic,__LINE__);
                 }
                 if(a.kind==10){
-                    if(a.address!=module_base+0x485EB30 || a.size!=104)return false;
-                    unsigned index{};std::memcpy(&index,a.bytes.data()+100,4);if(index>25)return false;
-                    std::memcpy(&index,b.bytes.data()+100,4);if(index>25)return false;++rng_records;
+                    if(a.address!=module_base+0x485EB30 || a.size!=104)return wind_reject(diagnostic,__LINE__);
+                    unsigned index{};std::memcpy(&index,a.bytes.data()+100,4);if(index>25)return wind_reject(diagnostic,__LINE__);
+                    std::memcpy(&index,b.bytes.data()+100,4);if(index>25)return wind_reject(diagnostic,__LINE__);++rng_records;
                 }
-                if(a.kind==11){if(a.address!=module_base+0x470E2B0 || a.size!=24)return false;++rng_records;}
+                if(a.kind==11){if(a.address!=module_base+0x470E2B0 || a.size!=24)return wind_reject(diagnostic,__LINE__);++rng_records;}
             }
-            if(rng_records!=2)return false;
+            if(rng_records!=2)return wind_reject(diagnostic,__LINE__);
             if(validate_only)return true;
             for(unsigned i=0;i<count;++i){auto& a=records[i];
-                if(a.side==2 && a.kind==23){
+                if(a.side==2 && a.kind==24){
+                    for(unsigned j=0;j<a.size;j+=4)if(stage_wind_byte(j+0x18))
+                        std::memcpy(reinterpret_cast<void*>(a.address+j),a.bytes.data()+j,4);
+                }else if(a.side==2 && a.kind==23){
                     for(unsigned j=0;j<a.size;j+=4)if(shockwave_byte(j+0x18))
                         std::memcpy(reinterpret_cast<void*>(a.address+j),a.bytes.data()+j,4);
                 }else if(a.side==2 && wind_field(a.kind))std::memcpy(reinterpret_cast<void*>(a.address),a.bytes.data(),a.size);
             }
             for(unsigned i=0;i<count;++i){auto& a=records[i];
-                if(a.side==2 && std::memcmp(reinterpret_cast<void*>(a.address),a.bytes.data(),a.size))return false;
+                if(diagnostic){diagnostic->record=i;diagnostic->kind=a.kind;}
+                if(a.side==2 && std::memcmp(reinterpret_cast<void*>(a.address),a.bytes.data(),a.size))return wind_reject(diagnostic,__LINE__);
             }
             return true;
-        }__except(EXCEPTION_EXECUTE_HANDLER){return false;}
+        }__except(EXCEPTION_EXECUTE_HANDLER){return wind_reject(diagnostic,__LINE__);}
     }
 };
 }

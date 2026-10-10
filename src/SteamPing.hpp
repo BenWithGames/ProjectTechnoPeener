@@ -1,20 +1,45 @@
 #pragma once
+#include <array>
 #include <cstdint>
 #include <optional>
 namespace sc6 {
-// All times use the sender's monotonic clock. No cross-machine clock subtraction.
+// RTT estimate: subtract only responder-measured handling duration. Unknown
+// Steam/OS queueing and receive polling remain; never subtract clock offsets.
 struct SteamPing {
-    uint32_t sequence=0,pending=0;
-    uint64_t sent_us=0,next_us=0,received_us=0;
+    static constexpr unsigned burst_size=5;
+    struct Probe {uint32_t id{};uint64_t sent{};bool pending{};};
+    std::array<Probe,burst_size> probes{};
+    uint32_t sequence=0;
+    uint64_t next_us=0,sample_due=0,deadline=0,received_us=0;
+    unsigned attempted=0,accepted=0,latest_samples=0;
+    bool active=false;
     std::optional<unsigned> latest;
-    bool due(uint64_t now)const{return now>=next_us;}
-    uint32_t begin(uint64_t now){
-        if(++sequence==0)++sequence;
-        pending=sequence;sent_us=now;next_us=now+3000000;return pending;
+    std::optional<uint64_t> best_us;
+    uint64_t best_raw_us=0,best_handling_us=0,latest_raw_us=0,latest_handling_us=0;
+    void update(uint64_t now){
+        if(!active || (now<deadline && accepted<burst_size))return;
+        if(best_us){latest=static_cast<unsigned>((*best_us+500)/1000);received_us=now;
+            latest_samples=accepted;latest_raw_us=best_raw_us;latest_handling_us=best_handling_us;}
+        active=false;for(auto& p:probes)p.pending=false;
     }
-    bool pong(uint32_t id,uint64_t now){
-        if(!pending||id!=pending||now<sent_us||now-sent_us>3000000)return false;
-        latest=static_cast<unsigned>((now-sent_us+500)/1000);received_us=now;pending=0;return true;
+    bool due(uint64_t now)const{return active?(attempted<burst_size && now>=sample_due && now<deadline):now>=next_us;}
+    uint32_t begin(uint64_t now){
+        if(!due(now))return 0;
+        if(!active){active=true;attempted=accepted=0;best_us.reset();
+            probes={};next_us=now+3000000;deadline=now+500000;}
+        if(++sequence==0)++sequence;
+        probes[attempted++]={sequence,now,true};sample_due=now+20000;return sequence;
+    }
+    void send_failed(uint32_t id){for(auto& p:probes)if(p.id==id)p.pending=false;}
+    bool pong(uint32_t id,uint64_t now,uint64_t handling_us){
+        if(!active || now>=deadline)return false;
+        for(auto& p:probes)if(p.pending && p.id==id){
+            if(now<p.sent || handling_us>now-p.sent)return false;
+            const auto raw=now-p.sent,adjusted=raw-handling_us;p.pending=false;++accepted;
+            if(!best_us || adjusted<*best_us){best_us=adjusted;best_raw_us=raw;best_handling_us=handling_us;}
+            return true;
+        }
+        return false;
     }
     std::optional<unsigned> value(uint64_t now)const{
         return latest && now>=received_us && now-received_us<=9000000?latest:std::nullopt;

@@ -1,0 +1,664 @@
+FUNCTION 0x333130
+333130: mov qword ptr [rsp + 8], rbx
+333135: push rbp
+333136: lea rbp, [rsp - 0x57]
+33313b: sub rsp, 0xe0
+333142: movss xmm0, dword ptr [rip + 0x45131b2]
+33314a: mov rbx, rcx
+33314d: movss dword ptr [rcx + 0x12c], xmm0
+333155: movss xmm1, dword ptr [rip + 0x451319b]
+33315d: movss dword ptr [rcx + 0x130], xmm1
+333165: mov dword ptr [rcx + 0xdc], 0x3f800000
+33316f: movups xmm0, xmmword ptr [rcx + 0xd0]
+333176: movups xmmword ptr [rcx + 0x1d0], xmm0
+33317d: mov eax, dword ptr [rcx + 0xf0]
+333183: mov dword ptr [rcx + 0x30], eax
+333186: xorps xmm0, xmm0
+333189: movss xmm1, dword ptr [rcx + 0xec]
+333191: ucomiss xmm1, xmm0
+333194: jp 0x33319c
+333196: je 0x33353f
+33319c: movaps xmmword ptr [rsp + 0xd0], xmm6
+3331a4: movaps xmmword ptr [rsp + 0xc0], xmm7
+3331ac: movss xmm7, dword ptr [rcx + 0xe0]
+3331b4: movaps xmmword ptr [rsp + 0xb0], xmm8
+3331bd: movaps xmm0, xmm7
+3331c0: mulss xmm0, dword ptr [rip + 0x3b5722c]
+3331c8: movaps xmmword ptr [rsp + 0xa0], xmm9
+3331d1: movaps xmmword ptr [rsp + 0x90], xmm10
+3331da: movss xmm10, dword ptr [rcx + 0xe4]
+3331e3: movaps xmmword ptr [rsp + 0x80], xmm11
+3331ec: movaps xmmword ptr [rsp + 0x70], xmm12
+3331f2: movaps xmmword ptr [rsp + 0x60], xmm13
+3331f8: movaps xmmword ptr [rsp + 0x50], xmm14
+3331fe: call 0x311c142
+333203: movaps xmm9, xmm0
+333207: movaps xmm0, xmm10
+33320b: mulss xmm0, dword ptr [rip + 0x3b571e5]
+333213: call 0x311c106
+333218: mulss xmm7, dword ptr [rip + 0x3b571d8]
+333220: movaps xmm11, xmm0
+333224: xorps xmm11, xmmword ptr [rip + 0x3b575e4]
+33322c: mulss xmm11, xmm9
+333231: movaps xmm0, xmm7
+333234: call 0x311c106
+333239: mulss xmm10, dword ptr [rip + 0x3b571b2]
+333242: movaps xmm6, xmm0
+333245: movaps xmm0, xmm10
+333249: call 0x311c142
+33324e: movss xmm1, dword ptr [rbx + 0x12c]
+333256: mulss xmm1, dword ptr [rip + 0x3b570de]
+33325e: mov dword ptr [rbp - 0x4d], 0x3f800000
+333265: mulss xmm0, xmm9
+33326a: mulss xmm1, dword ptr [rbx + 0xc8]
+333272: movss xmm9, dword ptr [rip + 0x3b570a1]
+33327b: mulss xmm0, xmm1
+33327f: movss dword ptr [rbx + 0x134], xmm1
+333287: mulss xmm11, xmm1
+33328c: movss dword ptr [rbp - 0x51], xmm0
+333291: mulss xmm6, xmm1
+333295: movss dword ptr [rbp - 0x59], xmm11
+33329b: movss dword ptr [rbp - 0x55], xmm6
+3332a0: movaps xmm0, xmmword ptr [rbp - 0x59]
+3332a4: movups xmmword ptr [rbx + 0xe0], xmm0
+3332ab: movss xmm11, dword ptr [rbx + 0xe4]
+3332b4: movss xmm12, dword ptr [rbx + 0xe0]
+3332bd: movaps xmm1, xmm11
+3332c1: movss xmm13, dword ptr [rbx + 0xe8]
+3332ca: movaps xmm0, xmm12
+3332ce: mulss xmm0, xmm12
+3332d3: movaps xmm2, xmm13
+3332d7: mulss xmm1, xmm11
+3332dc: mulss xmm2, xmm13
+3332e1: addss xmm0, xmm1
+3332e5: addss xmm0, xmm2
+3332e9: call 0x311c1ae
+3332ee: movss xmm14, dword ptr [rbx + 0xec]
+3332f7: movaps xmm1, xmm9
+3332fb: divss xmm1, xmm0
+3332ff: mulss xmm11, xmm1
+333304: mulss xmm12, xmm1
+333309: cvtps2pd xmm0, xmm11
+33330d: mulss xmm13, xmm1
+333312: andps xmm0, xmmword ptr [rip + 0x3b574e7]
+333319: cvtpd2ps xmm1, xmm0
+33331d: movss xmm0, dword ptr [rip + 0x3b56ff3]
+333325: comiss xmm0, xmm1
+333328: jbe 0x333408
+33332e: movss xmm2, dword ptr [rip + 0x3dc2722]
+333336: movaps xmm0, xmm13
+33333a: mulss xmm0, dword ptr [rip + 0x3dc2712]
+333342: movaps xmm8, xmm2
+333346: movss xmm1, dword ptr [rip + 0x3dc2702]
+33334e: movaps xmm7, xmm13
+333352: mulss xmm7, xmm1
+333356: movaps xmm6, xmm12
+33335a: mulss xmm6, dword ptr [rip + 0x3dc26f2]
+333362: movaps xmm10, xmm14
+333366: mulss xmm1, xmm11
+33336b: mulss xmm8, xmm11
+333370: subss xmm6, xmm1
+333374: subss xmm8, xmm0
+333379: movaps xmm0, xmm12
+33337d: mulss xmm0, xmm2
+333381: movaps xmm2, xmm6
+333384: mulss xmm2, xmm6
+333388: subss xmm7, xmm0
+33338c: movaps xmm1, xmm8
+333390: mulss xmm1, xmm8
+333395: movaps xmm0, xmm7
+333398: mulss xmm0, xmm7
+33339c: addss xmm0, xmm1
+3333a0: addss xmm0, xmm2
+3333a4: call 0x311c1ae
+3333a9: divss xmm9, xmm0
+3333ae: movaps xmm3, xmm9
+3333b2: movaps xmm2, xmm9
+3333b6: mulss xmm9, xmm6
+3333bb: mulss xmm3, xmm7
+3333bf: movaps xmm7, xmm14
+3333c3: movaps xmm0, xmm9
+3333c7: mulss xmm2, xmm8
+3333cc: mulss xmm0, xmm11
+3333d1: movaps xmm5, xmm9
+3333d5: movaps xmm4, xmm3
+3333d8: mulss xmm5, xmm12
+3333dd: mulss xmm4, xmm13
+3333e2: movaps xmm6, xmm2
+3333e5: mulss xmm6, xmm11
+3333ea: subss xmm4, xmm0
+3333ee: movaps xmm0, xmm2
+3333f1: mulss xmm0, xmm13
+3333f6: subss xmm5, xmm0
+3333fa: movaps xmm0, xmm3
+3333fd: mulss xmm0, xmm12
+333402: subss xmm6, xmm0
+333406: jmp 0x333448
+333408: movaps xmm0, xmmword ptr [rip + 0x3b57371]
+33340f: movaps xmm1, xmmword ptr [rip + 0x3b573aa]
+333416: movaps xmmword ptr [rbp - 0x69], xmm0
+33341a: movss xmm10, dword ptr [rbp - 0x5d]
+333420: movss xmm9, dword ptr [rbp - 0x61]
+333426: movss xmm3, dword ptr [rbp - 0x65]
+33342b: movss xmm2, dword ptr [rbp - 0x69]
+333430: movaps xmmword ptr [rbp - 0x59], xmm1
+333434: movss xmm7, dword ptr [rbp - 0x4d]
+333439: movss xmm6, dword ptr [rbp - 0x51]
+33343e: movss xmm5, dword ptr [rbp - 0x55]
+333443: movss xmm4, dword ptr [rbp - 0x59]
+333448: movss xmm0, dword ptr [rbx + 0x158]
+333450: movss xmm1, dword ptr [rbx + 0x150]
+333458: movaps xmm8, xmmword ptr [rsp + 0xb0]
+333461: mulss xmm12, xmm0
+333466: mulss xmm11, xmm0
+33346b: mulss xmm13, xmm0
+333470: mulss xmm14, xmm0
+333475: movss xmm0, dword ptr [rbx + 0x154]
+33347d: mulss xmm6, xmm0
+333481: mulss xmm7, xmm0
+333485: mulss xmm4, xmm0
+333489: mulss xmm5, xmm0
+33348d: mulss xmm9, xmm1
+333492: mulss xmm10, xmm1
+333497: movss dword ptr [rbp - 0x61], xmm9
+33349d: movaps xmm9, xmmword ptr [rsp + 0xa0]
+3334a6: movss dword ptr [rbp - 0x5d], xmm10
+3334ac: movaps xmm10, xmmword ptr [rsp + 0x90]
+3334b5: movss dword ptr [rbp - 0x51], xmm6
+3334ba: movaps xmm6, xmmword ptr [rsp + 0xd0]
+3334c2: movss dword ptr [rbp - 0x4d], xmm7
+3334c7: movaps xmm7, xmmword ptr [rsp + 0xc0]
+3334cf: movss dword ptr [rbp - 0x49], xmm12
+3334d5: movaps xmm12, xmmword ptr [rsp + 0x70]
+3334db: movss dword ptr [rbp - 0x45], xmm11
+3334e1: movaps xmm11, xmmword ptr [rsp + 0x80]
+3334ea: movss dword ptr [rbp - 0x41], xmm13
+3334f0: movaps xmm13, xmmword ptr [rsp + 0x60]
+3334f6: movss dword ptr [rbp - 0x3d], xmm14
+3334fc: movaps xmm14, xmmword ptr [rsp + 0x50]
+333502: mulss xmm2, xmm1
+333506: mulss xmm3, xmm1
+33350a: movss dword ptr [rbp - 0x69], xmm2
+33350f: movss dword ptr [rbp - 0x59], xmm4
+333514: movss dword ptr [rbp - 0x65], xmm3
+333519: movaps xmm0, xmmword ptr [rbp - 0x69]
+33351d: movups xmmword ptr [rbx + 0x1a0], xmm0
+333524: movss dword ptr [rbp - 0x55], xmm5
+333529: movaps xmm0, xmmword ptr [rbp - 0x59]
+33352d: movups xmmword ptr [rbx + 0x1b0], xmm0
+333534: movaps xmm0, xmmword ptr [rbp - 0x49]
+333538: movups xmmword ptr [rbx + 0x1c0], xmm0
+33353f: mov rbx, qword ptr [rsp + 0xf0]
+333547: add rsp, 0xe0
+33354e: pop rbp
+33354f: ret 
+FUNCTION 0x333550
+333550: mov rax, rsp
+333553: push rbx
+333554: sub rsp, 0xd0
+33355b: cmp byte ptr [rip + 0x4512d6e], 0
+333562: mov rbx, rcx
+333565: jne 0x333c14
+33356b: movss xmm0, dword ptr [rip + 0x4512d85]
+333573: mov qword ptr [rax + 8], rbp
+333577: mov qword ptr [rax + 0x10], rsi
+33357b: mov rsi, qword ptr [rip + 0x43daab6]
+333582: mov qword ptr [rax + 0x18], rdi
+333586: mov qword ptr [rax + 0x20], r14
+33358a: xor r14d, r14d
+33358d: movaps xmmword ptr [rax - 0x18], xmm6
+333591: movaps xmmword ptr [rax - 0x28], xmm7
+333595: movaps xmmword ptr [rax - 0x38], xmm8
+33359a: movaps xmmword ptr [rax - 0x48], xmm9
+33359f: movaps xmmword ptr [rax - 0x58], xmm10
+3335a4: movss xmm10, dword ptr [rip + 0x3b56d6f]
+3335ad: movaps xmmword ptr [rax - 0x68], xmm11
+3335b2: xorps xmm11, xmm11
+3335b6: movaps xmmword ptr [rax - 0x78], xmm12
+3335bb: movss xmm12, dword ptr [rip + 0x3b56e34]
+3335c4: movaps xmmword ptr [rsp + 0x50], xmm13
+3335ca: movss xmm13, dword ptr [rip + 0x3b569c1]
+3335d3: movaps xmmword ptr [rsp + 0x40], xmm14
+3335d9: movaps xmmword ptr [rsp + 0x30], xmm15
+3335df: movss dword ptr [rcx + 0x130], xmm0
+3335e7: nop word ptr [rax + rax]
+3335f0: movss xmm6, dword ptr [rbx + 0x30]
+3335f5: movaps xmm9, xmm11
+3335f9: comiss xmm6, xmm11
+3335fd: movss dword ptr [rbx + 0x64], xmm6
+333602: movaps xmm7, xmm11
+333606: movaps xmm8, xmm10
+33360a: jbe 0x333656
+33360c: movaps xmm0, xmm6
+33360f: mulss xmm0, dword ptr [rip + 0x3b56c09]
+333617: divss xmm0, dword ptr [rbx + 0xf0]
+33361f: addss xmm0, dword ptr [rip + 0x3b56c81]
+333627: mulss xmm0, xmm12
+33362c: call 0x311c106
+333631: subss xmm6, dword ptr [rbx + 0x130]
+333639: movaps xmm15, xmm0
+33363d: addss xmm15, xmm10
+333642: comiss xmm6, xmm11
+333646: movss dword ptr [rbx + 0x30], xmm6
+33364b: ja 0x33365a
+33364d: mov dword ptr [rbx + 0x6c], r14d
+333651: jmp 0x333bab
+333656: movaps xmm15, xmm10
+33365a: movss xmm0, dword ptr [rbx + 0xec]
+333662: ucomiss xmm0, xmm11
+333666: jp 0x333678
+333668: jne 0x333678
+33366a: mov eax, dword ptr [rbx + 0x118]
+333670: mov dword ptr [rbx + 0x13c], eax
+333676: jmp 0x3336f6
+333678: movss xmm0, dword ptr [rbx + 0xe0]
+333680: addss xmm0, dword ptr [rbx + 0xd0]
+333688: movss dword ptr [rbx + 0xd0], xmm0
+333690: movss xmm1, dword ptr [rbx + 0xe4]
+333698: addss xmm1, dword ptr [rbx + 0xd4]
+3336a0: movss dword ptr [rbx + 0xd4], xmm1
+3336a8: movss xmm0, dword ptr [rbx + 0xe8]
+3336b0: addss xmm0, dword ptr [rbx + 0xd8]
+3336b8: movss dword ptr [rbx + 0xd8], xmm0
+3336c0: movups xmm0, xmmword ptr [rbx + 0xd0]
+3336c7: movss xmm1, dword ptr [rbx + 0x134]
+3336cf: addss xmm1, dword ptr [rbx + 0x138]
+3336d7: movups xmmword ptr [rbx + 0x1d0], xmm0
+3336de: movss dword ptr [rbx + 0x138], xmm1
+3336e6: minss xmm1, dword ptr [rbx + 0x118]
+3336ee: movss dword ptr [rbx + 0x13c], xmm1
+3336f6: movaps xmm0, xmm10
+3336fa: divss xmm0, dword ptr [rbx + 0x13c]
+333702: movss dword ptr [rbx + 0x140], xmm0
+33370a: test rsi, rsi
+33370d: je 0x333716
+33370f: movss xmm1, dword ptr [rsi + 0xc]
+333714: jmp 0x33371a
+333716: movaps xmm1, xmm10
+33371a: call 0x34f130
+33371f: mulss xmm1, dword ptr [rbx + 0x94]
+333727: xorps xmm0, xmm0
+33372a: and eax, 0x7fffff
+33372f: cvtsi2ss xmm0, rax
+333734: mulss xmm0, xmm13
+333739: addss xmm0, xmm0
+33373d: subss xmm0, xmm10
+333742: mulss xmm0, dword ptr [rbx + 0x98]
+33374a: addss xmm0, xmm10
+33374f: mulss xmm0, xmm1
+333753: addss xmm0, dword ptr [rbx + 0x90]
+33375b: movss dword ptr [rbx + 0x90], xmm0
+333763: mulss xmm0, xmm12
+333768: call 0x311c106
+33376d: movaps xmm14, xmm0
+333771: lea rdi, [rbx + 0xa4]
+333778: mulss xmm14, dword ptr [rbx + 0x9c]
+333781: mov ebp, 2
+333786: addss xmm14, xmm11
+33378b: nop dword ptr [rax + rax]
+333790: test rsi, rsi
+333793: je 0x33379c
+333795: movss xmm1, dword ptr [rsi + 0xc]
+33379a: jmp 0x3337a0
+33379c: movaps xmm1, xmm10
+3337a0: call 0x34f130
+3337a5: mulss xmm1, dword ptr [rdi - 0x30]
+3337aa: xorps xmm0, xmm0
+3337ad: and eax, 0x7fffff
+3337b2: cvtsi2ss xmm0, rax
+3337b7: mulss xmm0, xmm13
+3337bc: addss xmm0, xmm0
+3337c0: subss xmm0, xmm10
+3337c5: mulss xmm0, dword ptr [rdi - 0x2c]
+3337ca: addss xmm0, xmm10
+3337cf: mulss xmm0, xmm1
+3337d3: addss xmm0, dword ptr [rdi - 0x34]
+3337d8: movss dword ptr [rdi - 0x34], xmm0
+3337dd: test rsi, rsi
+3337e0: je 0x3337e9
+3337e2: movss xmm0, dword ptr [rsi + 0xc]
+3337e7: jmp 0x3337ed
+3337e9: movaps xmm0, xmm10
+3337ed: call 0x34f130
+3337f2: mulss xmm0, dword ptr [rdi]
+3337f6: xorps xmm6, xmm6
+3337f9: and eax, 0x7fffff
+3337fe: cvtsi2ss xmm6, rax
+333803: mulss xmm6, xmm13
+333808: addss xmm6, xmm6
+33380c: subss xmm6, xmm10
+333811: mulss xmm6, dword ptr [rdi + 4]
+333816: addss xmm6, xmm10
+33381b: mulss xmm6, xmm0
+33381f: addss xmm6, dword ptr [rdi - 4]
+333824: movss dword ptr [rdi - 4], xmm6
+333829: movss xmm0, dword ptr [rdi - 0x34]
+33382e: mulss xmm0, xmm12
+333833: call 0x311c106
+333838: mulss xmm0, dword ptr [rdi - 0x28]
+33383d: mulss xmm6, xmm12
+333842: mulss xmm0, xmm8
+333847: addss xmm9, xmm0
+33384c: movaps xmm0, xmm6
+33384f: call 0x311c106
+333854: movsd xmm3, qword ptr [rip + 0x3b56fa4]
+33385c: xorps xmm1, xmm1
+33385f: cvtss2sd xmm1, xmm0
+333863: andps xmm1, xmm3
+333866: cvtpd2ps xmm2, xmm1
+33386a: mulss xmm2, xmm0
+33386e: mulss xmm2, dword ptr [rdi + 8]
+333873: add rdi, 0x10
+333877: mulss xmm2, xmm8
+33387c: mulss xmm8, dword ptr [rip + 0x3b569f3]
+333885: addss xmm7, xmm2
+333889: sub rbp, 1
+33388d: jne 0x333790
+333893: mov ecx, dword ptr [rbx + 0x60]
+333896: mulss xmm9, dword ptr [rip + 0x3b569f9]
+33389f: mulss xmm7, dword ptr [rip + 0x3b569f1]
+3338a7: lea eax, [rcx + 1]
+3338aa: mov dword ptr [rbx + 0x60], eax
+3338ad: cmp ecx, 3
+3338b0: jle 0x3338e2
+3338b2: comiss xmm11, xmm7
+3338b6: jbe 0x3338e2
+3338b8: call 0x34f3c0
+3338bd: movss xmm0, dword ptr [rbx + 0xcc]
+3338c5: and eax, 0x7fffff
+3338ca: xorps xmm1, xmm1
+3338cd: cvtsi2ss xmm1, rax
+3338d2: mulss xmm1, xmm13
+3338d7: comiss xmm0, xmm1
+3338da: jbe 0x3338e2
+3338dc: movaps xmm7, xmm11
+3338e0: jmp 0x3338e7
+3338e2: addss xmm7, xmm10
+3338e7: addss xmm9, dword ptr [rbx + 0xc0]
+3338f0: movss dword ptr [rbx + 0x120], xmm9
+3338f9: addss xmm14, dword ptr [rbx + 0xc4]
+333902: movss dword ptr [rbx + 0x124], xmm14
+33390b: mulss xmm7, dword ptr [rbx + 0xc8]
+333913: comiss xmm7, xmm11
+333917: movss dword ptr [rbx + 0x128], xmm7
+33391f: jbe 0x3339bb
+333925: movss xmm0, dword ptr [rip + 0x3b56a5b]
+33392d: comiss xmm0, xmm7
+333930: jbe 0x33395a
+333932: movaps xmm0, xmm7
+333935: mulss xmm0, dword ptr [rip + 0x3b5687f]
+33393d: addss xmm0, dword ptr [rip + 0x3b56963]
+333945: mulss xmm0, xmm12
+33394a: call 0x311c106
+33394f: addss xmm0, xmm10
+333954: mulss xmm0, xmm7
+333958: jmp 0x3339a3
+33395a: subss xmm7, xmm10
+33395f: ucomiss xmm7, xmm11
+333963: jp 0x33396d
+333965: jne 0x33396d
+333967: movaps xmm0, xmm11
+33396b: jmp 0x33399e
+33396d: xorps xmm0, xmm0
+333970: cvtss2sd xmm0, xmm7
+333974: andps xmm0, xmm3
+333977: cvtpd2ps xmm0, xmm0
+33397b: cvtps2pd xmm0, xmm0
+33397e: call 0x311c28c
+333983: xorps xmm1, xmm1
+333986: cvtsd2ss xmm1, xmm0
+33398a: mulss xmm1, dword ptr [rip + 0x3b569ae]
+333992: cvtps2pd xmm0, xmm1
+333995: call 0x311c2f8
+33399a: cvtsd2ss xmm0, xmm0
+33399e: addss xmm0, xmm10
+3339a3: mulss xmm15, xmm0
+3339a8: movss dword ptr [rbx + 0x128], xmm0
+3339b0: movss dword ptr [rbx + 0x128], xmm15
+3339b9: jmp 0x3339c2
+3339bb: mov dword ptr [rbx + 0x128], r14d
+3339c2: cmp dword ptr [rbx + 0xf8], r14d
+3339c9: je 0x3339fa
+3339cb: movss xmm0, dword ptr [rbx + 0x30]
+3339d0: divss xmm0, dword ptr [rbx + 0xf0]
+3339d8: mulss xmm0, dword ptr [rip + 0x3b56840]
+3339e0: mulss xmm0, xmm12
+3339e5: call 0x311c106
+3339ea: mulss xmm0, dword ptr [rbx + 0x128]
+3339f2: movss dword ptr [rbx + 0x128], xmm0
+3339fa: movaps xmm6, xmm9
+3339fe: movaps xmm8, xmm14
+333a02: movaps xmm0, xmm6
+333a05: mulss xmm0, dword ptr [rip + 0x3b569e7]
+333a0d: call 0x311c142
+333a12: movaps xmm7, xmm0
+333a15: movaps xmm0, xmm14
+333a19: mulss xmm0, xmm12
+333a1e: call 0x311c106
+333a23: movaps xmm9, xmm0
+333a27: mulss xmm6, xmm12
+333a2c: xorps xmm9, xmmword ptr [rip + 0x3b56ddc]
+333a34: mulss xmm9, xmm7
+333a39: movaps xmm0, xmm6
+333a3c: call 0x311c106
+333a41: mulss xmm8, dword ptr [rip + 0x3b569aa]
+333a4a: movaps xmm6, xmm0
+333a4d: movaps xmm0, xmm8
+333a51: call 0x311c142
+333a56: movss xmm1, dword ptr [rbx + 0x12c]
+333a5e: lea rdx, [rbx + 0x160]
+333a65: mulss xmm1, dword ptr [rip + 0x3b56713]
+333a6d: movaps xmm2, xmm0
+333a70: mov rcx, rdx
+333a73: movss xmm0, dword ptr [rbx + 0x54]
+333a78: movss xmm14, dword ptr [rip + 0x3b5682b]
+333a81: mulss xmm1, dword ptr [rbx + 0x128]
+333a89: movss xmm15, dword ptr [rip + 0x3b56782]
+333a92: mulss xmm0, xmm15
+333a97: mulss xmm9, xmm1
+333a9c: mulss xmm6, xmm1
+333aa0: mulss xmm2, xmm7
+333aa4: mulss xmm6, xmm14
+333aa9: mulss xmm2, xmm1
+333aad: movss xmm1, dword ptr [rbx + 0x50]
+333ab2: addss xmm0, xmm6
+333ab6: mulss xmm1, xmm15
+333abb: mulss xmm2, xmm14
+333ac0: movss dword ptr [rsp + 0x24], xmm0
+333ac6: movss xmm0, dword ptr [rbx + 0x5c]
+333acb: mulss xmm0, xmm15
+333ad0: mulss xmm9, xmm14
+333ad5: addss xmm0, xmm14
+333ada: addss xmm9, xmm1
+333adf: movss xmm1, dword ptr [rbx + 0x58]
+333ae4: mulss xmm1, xmm15
+333ae9: movss dword ptr [rsp + 0x2c], xmm0
+333aef: addss xmm1, xmm2
+333af3: movss dword ptr [rsp + 0x20], xmm9
+333afa: movss dword ptr [rsp + 0x28], xmm1
+333b00: movaps xmm0, xmmword ptr [rsp + 0x20]
+333b05: movdqa xmmword ptr [rbx + 0x50], xmm0
+333b0a: mov eax, dword ptr [rbx + 0x1a0]
+333b10: mov dword ptr [rdx], eax
+333b12: mov eax, dword ptr [rbx + 0x1a4]
+333b18: mov dword ptr [rdx + 4], eax
+333b1b: mov eax, dword ptr [rbx + 0x1a8]
+333b21: mov dword ptr [rdx + 8], eax
+333b24: mov dword ptr [rdx + 0xc], r14d
+333b28: mov eax, dword ptr [rbx + 0x1b0]
+333b2e: mov dword ptr [rdx + 0x10], eax
+333b31: mov eax, dword ptr [rbx + 0x1b4]
+333b37: mov dword ptr [rdx + 0x14], eax
+333b3a: mov eax, dword ptr [rbx + 0x1b8]
+333b40: mov dword ptr [rdx + 0x18], eax
+333b43: mov dword ptr [rdx + 0x1c], r14d
+333b47: mov eax, dword ptr [rbx + 0x1c0]
+333b4d: mov dword ptr [rdx + 0x20], eax
+333b50: mov eax, dword ptr [rbx + 0x1c4]
+333b56: mov dword ptr [rdx + 0x24], eax
+333b59: mov eax, dword ptr [rbx + 0x1c8]
+333b5f: mov dword ptr [rdx + 0x28], eax
+333b62: mov dword ptr [rdx + 0x2c], r14d
+333b66: mov eax, dword ptr [rbx + 0xd0]
+333b6c: mov dword ptr [rdx + 0x30], eax
+333b6f: mov eax, dword ptr [rbx + 0xd4]
+333b75: mov dword ptr [rdx + 0x34], eax
+333b78: mov eax, dword ptr [rbx + 0xd8]
+333b7e: mov dword ptr [rdx + 0x38], eax
+333b81: mov dword ptr [rdx + 0x3c], 0x3f800000
+333b88: call 0x2d22d0
+333b8d: mov ecx, dword ptr [rbx + 0x148]
+333b93: lea eax, [rcx - 1]
+333b96: mov dword ptr [rbx + 0x148], eax
+333b9c: test ecx, ecx
+333b9e: jg 0x3335f0
+333ba4: mov dword ptr [rbx + 0x148], r14d
+333bab: movaps xmm14, xmmword ptr [rsp + 0x40]
+333bb1: movaps xmm15, xmmword ptr [rsp + 0x30]
+333bb7: movaps xmm12, xmmword ptr [rsp + 0x60]
+333bbd: movaps xmm11, xmmword ptr [rsp + 0x70]
+333bc3: movaps xmm10, xmmword ptr [rsp + 0x80]
+333bcc: movaps xmm9, xmmword ptr [rsp + 0x90]
+333bd5: movaps xmm8, xmmword ptr [rsp + 0xa0]
+333bde: movaps xmm7, xmmword ptr [rsp + 0xb0]
+333be6: movaps xmm6, xmmword ptr [rsp + 0xc0]
+333bee: mov r14, qword ptr [rsp + 0xf8]
+333bf6: mov rdi, qword ptr [rsp + 0xf0]
+333bfe: mov rsi, qword ptr [rsp + 0xe8]
+333c06: mov rbp, qword ptr [rsp + 0xe0]
+333c0e: movaps xmm13, xmmword ptr [rsp + 0x50]
+333c14: add rsp, 0xd0
+333c1b: pop rbx
+333c1c: ret 
+333c1d: int3 
+333c1e: int3 
+333c1f: int3 
+FUNCTION 0x333c20
+333c20: mov rax, rsp
+333c23: push rdi
+333c24: sub rsp, 0x90
+333c2b: movss xmm2, dword ptr [rdx + 4]
+333c30: mov rdi, r9
+333c33: movss xmm3, dword ptr [rdx + 8]
+333c38: mov qword ptr [rax + 8], rbx
+333c3c: movaps xmm1, xmm3
+333c3f: mulss xmm1, dword ptr [rcx + 0x180]
+333c47: mov rbx, rcx
+333c4a: movaps xmmword ptr [rax - 0x28], xmm7
+333c4e: movss xmm7, dword ptr [rdx]
+333c52: movaps xmmword ptr [rax - 0x48], xmm9
+333c57: movaps xmm0, xmm7
+333c5a: mulss xmm0, dword ptr [rcx + 0x160]
+333c62: movaps xmm9, xmm7
+333c66: mulss xmm9, dword ptr [rcx + 0x164]
+333c6f: mulss xmm7, dword ptr [rcx + 0x168]
+333c77: movaps xmmword ptr [rax - 0x68], xmm11
+333c7c: movaps xmm11, xmm2
+333c80: mulss xmm11, dword ptr [rcx + 0x170]
+333c89: addss xmm11, xmm0
+333c8e: movaps xmm0, xmm2
+333c91: mulss xmm0, dword ptr [rcx + 0x174]
+333c99: mulss xmm2, dword ptr [rcx + 0x178]
+333ca1: addss xmm9, xmm0
+333ca6: addss xmm11, xmm1
+333cab: movaps xmm1, xmm3
+333cae: mulss xmm1, dword ptr [rcx + 0x184]
+333cb6: addss xmm7, xmm2
+333cba: mulss xmm3, dword ptr [rcx + 0x188]
+333cc2: addss xmm11, dword ptr [rcx + 0x190]
+333ccb: addss xmm9, xmm1
+333cd0: addss xmm7, xmm3
+333cd4: movaps xmm1, xmm11
+333cd8: addss xmm9, dword ptr [rcx + 0x194]
+333ce1: addss xmm7, dword ptr [rcx + 0x198]
+333ce9: mulss xmm1, xmm11
+333cee: movaps xmm0, xmm9
+333cf2: mulss xmm0, xmm9
+333cf7: movaps xmm2, xmm7
+333cfa: mulss xmm2, xmm7
+333cfe: addss xmm0, xmm1
+333d02: addss xmm0, xmm2
+333d06: call 0x311c1ae
+333d0b: movss xmm1, dword ptr [rbx + 0x118]
+333d13: comiss xmm1, xmm0
+333d16: jbe 0x333e46
+333d1c: movaps xmmword ptr [rsp + 0x80], xmm6
+333d24: movaps xmmword ptr [rsp + 0x60], xmm8
+333d2a: movss xmm8, dword ptr [rip + 0x3b56655]
+333d33: movaps xmmword ptr [rsp + 0x40], xmm10
+333d39: movss xmm10, dword ptr [rip + 0x3b565da]
+333d42: comiss xmm10, xmm0
+333d46: movaps xmmword ptr [rsp + 0x20], xmm12
+333d4c: xorps xmm12, xmm12
+333d50: jbe 0x333d58
+333d52: movaps xmm6, xmm10
+333d56: jmp 0x333d65
+333d58: movaps xmm6, xmm8
+333d5c: subss xmm6, xmm0
+333d60: maxss xmm6, xmm12
+333d65: mulss xmm7, dword ptr [rbx + 0x140]
+333d6d: xorps xmm7, xmmword ptr [rip + 0x3b56a9c]
+333d74: comiss xmm7, dword ptr [rip + 0x3b5621d]
+333d7b: jbe 0x333dd6
+333d7d: movaps xmm1, xmm7
+333d80: movaps xmm2, xmm10
+333d84: mulss xmm1, dword ptr [rbx + 0x114]
+333d8c: addss xmm1, xmm10
+333d91: divss xmm2, xmm1
+333d95: mulss xmm9, xmm2
+333d9a: mulss xmm11, xmm2
+333d9f: mulss xmm9, xmm9
+333da4: mulss xmm11, xmm11
+333da9: addss xmm9, xmm11
+333dae: movaps xmm0, xmm9
+333db2: call 0x311c1ae
+333db7: comiss xmm0, xmm10
+333dbb: movaps xmm1, xmm10
+333dbf: subss xmm1, xmm7
+333dc3: jbe 0x333dda
+333dc5: subss xmm8, xmm0
+333dca: maxss xmm8, xmm12
+333dcf: mulss xmm1, xmm8
+333dd4: jmp 0x333dda
+333dd6: movaps xmm1, xmm12
+333dda: maxss xmm6, xmm1
+333dde: mulss xmm6, dword ptr [rip + 0x3b5643a]
+333de6: mulss xmm6, dword ptr [rip + 0x3b5660a]
+333dee: movaps xmm0, xmm6
+333df1: call 0x311c106
+333df6: movaps xmm12, xmmword ptr [rsp + 0x20]
+333dfc: lea rax, [rbx + 0x40]
+333e00: movaps xmm10, xmmword ptr [rsp + 0x40]
+333e06: movaps xmm1, xmm0
+333e09: mulss xmm1, dword ptr [rbx + 0x50]
+333e0e: movaps xmm2, xmm0
+333e11: movaps xmm8, xmmword ptr [rsp + 0x60]
+333e17: movaps xmm6, xmmword ptr [rsp + 0x80]
+333e1f: movss dword ptr [rax], xmm1
+333e23: movaps xmm1, xmm0
+333e26: mulss xmm2, dword ptr [rbx + 0x54]
+333e2b: movss dword ptr [rax + 4], xmm2
+333e30: mulss xmm1, dword ptr [rbx + 0x58]
+333e35: movss dword ptr [rax + 8], xmm1
+333e3a: mulss xmm0, dword ptr [rbx + 0x5c]
+333e3f: movss dword ptr [rax + 0xc], xmm0
+333e44: jmp 0x333e53
+333e46: lea rax, [rbx + 0x40]
+333e4a: xor ecx, ecx
+333e4c: mov qword ptr [rax], rcx
+333e4f: mov qword ptr [rax + 8], rcx
+333e53: movaps xmm11, xmmword ptr [rsp + 0x30]
+333e59: movaps xmm9, xmmword ptr [rsp + 0x50]
+333e5f: movaps xmm7, xmmword ptr [rsp + 0x70]
+333e64: mov rbx, qword ptr [rsp + 0xa0]
+333e6c: test rdi, rdi
+333e6f: je 0x333e77
+333e71: movups xmm0, xmmword ptr [rax]
+333e74: movaps xmmword ptr [rdi], xmm0
+333e77: add rsp, 0x90
+333e7e: pop rdi
+333e7f: ret 
+333e80: mov qword ptr [rsp + 8], rbx
+333e85: mov qword ptr [rsp + 0x10], rsi
+333e8a: push rdi
+333e8b: sub rsp, 0x50

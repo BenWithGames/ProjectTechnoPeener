@@ -28,6 +28,10 @@ if (!$vs) { throw 'MSVC x64 tools not found.' }
 & (Join-Path $PSScriptRoot 'Test-SteamPing.ps1')
 & (Join-Path $PSScriptRoot 'Test-SingleUpdateCall.ps1')
 & (Join-Path $PSScriptRoot 'Test-LiveShadowPrediction.ps1')
+& (Join-Path $PSScriptRoot 'Test-NetworkInputComposer.ps1')
+& (Join-Path $PSScriptRoot 'Test-LiveInputComposition.ps1')
+& (Join-Path $PSScriptRoot 'Test-NetworkGameHandoff.ps1')
+& (Join-Path $PSScriptRoot 'Test-RoundBoundaryIdentity.ps1')
 $build = Join-Path $project 'build-native'
 $dllDir = Join-Path $project 'package\Mods\SC6Rollback\dlls'
 New-Item -ItemType Directory -Force -Path $build,$dllDir | Out-Null
