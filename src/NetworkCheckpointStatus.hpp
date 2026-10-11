@@ -5,6 +5,9 @@
 namespace sc6 {
 struct NetworkCheckpointStatus {
     std::atomic<unsigned> window_reuse_completed{};
+    std::atomic<unsigned> window_topology_retries{},window_topology_retry_first{},window_topology_retry_last{};
+    std::atomic<unsigned> owned_cancel_reason{},owned_cancel_thread{},owned_cancel_expected{},owned_cancel_had_refs{};
+    std::atomic<unsigned> owned_replay_started{},owned_replay_captures{},owned_replay_cleanup{};
     std::atomic<unsigned> window_missing_mask{},window_retry_frame{};
     std::atomic<unsigned> topology_mask{},topology_index{UINT32_MAX},topology_before_count{},topology_after_count{};
     std::array<std::atomic<uint64_t>,6> topology_before{},topology_after{};
@@ -16,7 +19,7 @@ struct NetworkCheckpointStatus {
     std::array<std::array<std::atomic<unsigned>,4>,3> confirmation_attempts{};
     std::atomic<unsigned> comparison_stage{},comparison_flags{},comparison_rng_expected{},comparison_rng_actual{},comparison_pass_mask{};
     std::array<std::atomic<uint64_t>,10> comparison_ring{};
-    std::array<std::atomic<uint64_t>,8> comparison_native{};
+    std::array<std::atomic<uint64_t>,12> comparison_native{};
     std::array<std::atomic<uint64_t>,10> blend_block_diagnostic{};
     std::array<std::atomic<unsigned>,8> comparison_scalars{};
     std::atomic<unsigned long long> comparison_bytes{};

@@ -31,6 +31,25 @@ public:
     State state{State::idle};
     uint64_t corrections{},replayed{},stalls{};
     uint64_t head()const{return head_;}
+    enum class Admission {ready,waiting,restart_required};
+    // Read-only forecast of advance after reconcile. No native work belongs in
+    // clock admission; confirmations arriving later can only free more space.
+    Admission admission(uint64_t session,uint64_t round)const{
+        if(session!=session_ || round!=round_ || state==State::idle || state==State::restart_required || head_==UINT64_MAX)
+            return Admission::restart_required;
+        if(dirty_){
+            if(*dirty_>=head_ || head_-*dirty_>Limit)return Admission::restart_required;
+            for(auto n=*dirty_;n<head_;++n){const auto& f=frames_[n%Capacity];
+                if(!f.valid || f.number!=n || !f.simulated)return Admission::restart_required;
+            }
+        }
+        auto confirmed=settled_;
+        while(confirmed<head_){const auto& f=frames_[confirmed%Capacity];
+            if(!f.valid || f.number!=confirmed || !f.confirmed)break;
+            ++confirmed;
+        }
+        return head_-confirmed<Limit?Admission::ready:Admission::waiting;
+    }
     // Attach before begin; journal must outlive this simulation session.
     bool attach_journal(RollbackJournal<>& journal){if(state!=State::idle)return false;journal_=&journal;return true;}
     // Only at an independently established clean round boundary.
@@ -74,7 +93,7 @@ public:
             for(auto n=first;n<head_;++n){auto& f=frames_[n%Capacity];
                 if(!f.valid || f.number!=n || !f.simulated)return fail(n,6);
                 f.used=f.confirmed?f.actual:adapter.predict(held);held=f.used;
-                if(!adapter.save(f.before))return fail(n,7);
+                if(!save_inputs(adapter,f))return fail(n,7);
                 if(!adapter.step(f.local,f.used))return fail(n,8);
                 ++replayed;
             }
@@ -99,9 +118,14 @@ public:
         Input held=seed_;
         if(head_>settled_)held=frames_[(head_-1)%Capacity].used;
         f.local=local;f.used=f.confirmed?f.actual:adapter.predict(held);
-        if(!adapter.save(f.before))return fail(head_,10);
+        if(!save_inputs(adapter,f))return fail(head_,10);
         if(!adapter.step(f.local,f.used))return fail(head_,11);
         f.simulated=true;event(RollbackEvent::advance,head_,unsigned(!f.confirmed));++head_;return true;
+    }
+private:
+    template<class Adapter> static bool save_inputs(Adapter& adapter,Frame& f){
+        if constexpr(requires {adapter.save(f.before,f.local,f.used);})return adapter.save(f.before,f.local,f.used);
+        else return adapter.save(f.before);
     }
 };
 }

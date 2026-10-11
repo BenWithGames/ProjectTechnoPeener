@@ -512,6 +512,24 @@ static void snapshot_hold_cancel_test(){
 int main(){
     {
         namespace g=sc6::research::generated_observer;
+        unsigned char buffer_bytes[]={1,2,3,4};
+        const auto buffer_address=reinterpret_cast<uintptr_t>(buffer_bytes);
+        using Fingerprint=sc6::research::GeneratedBufferFingerprint;
+        const auto initial=Fingerprint::read(buffer_address,4);assert(initial.valid && initial.matches(Fingerprint::read(buffer_address,4)));
+        buffer_bytes[3]=5;assert(!initial.matches(Fingerprint::read(buffer_address,4)));
+        assert(!Fingerprint::read(0,4).valid && !Fingerprint::read(buffer_address,0).valid && !Fingerprint::read(buffer_address,1024*1024+1).valid);
+        assert(!Fingerprint::read((std::numeric_limits<uintptr_t>::max)()-1,4).valid);
+        struct FakeControl {uintptr_t table{};LONG strong{1},weak{1};} control;
+        auto dispose=+[](uintptr_t){assert(false);};
+        sc6::research::GeneratedBufferHold held;
+        assert(!held.capture(reinterpret_cast<uintptr_t>(&control),0,dispose,dispose));
+        assert(held.capture(reinterpret_cast<uintptr_t>(&control),GetCurrentThreadId(),dispose,dispose));
+        assert(control.strong==2);held.before_setup(100,200);assert(held.pending() && held.cancelled==0 && control.strong==2);held.step();held.step();assert(held.pending() && control.strong==2);
+        held.step();assert(!held.pending() && held.released==1 && held.depth()==3 && held.cancel_reason==0 && control.strong==1);held.step();assert(control.strong==1);
+        sc6::research::GeneratedBufferHold cancelled;
+        assert(cancelled.capture(reinterpret_cast<uintptr_t>(&control),GetCurrentThreadId(),dispose,dispose));
+        cancelled.before_setup(100,100);assert(cancelled.cancelled==1 && cancelled.cancel_reason==1 && cancelled.depth()==0 && control.strong==1);cancelled.step(true,2);assert(cancelled.cancel_reason==1);
+        g::ThreadCorrelation threads;assert(threads.classify(7)==0);threads.observe(7);assert(threads.classify(7)==1 && threads.classify(8)==2);threads.observe(8);assert(threads.classify(7)==0);
         auto mock=+[](uintptr_t,uintptr_t,uintptr_t)->bool{SetLastError(765);return true;};
         g::armed=false;
         assert(g::observe_allocate(0,0,0,mock) && GetLastError()==765);

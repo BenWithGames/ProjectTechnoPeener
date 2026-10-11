@@ -5,6 +5,33 @@ namespace sc6::research {
 // Capture only on the offline update thread. Does not invoke native loading.
 struct NativeBoundarySnapshot {
     enum class Mode {idle,throw_move,charge,attack,edge,reversal,direction_observation,a_observation,combat_capture_only};
+    // This is fixture routing, not a generic move detector. The caller must
+    // identify an approved character/profile before enabling non-idle routes.
+    static Mode supported_mode(unsigned p1_input,unsigned p2_input,unsigned p1_move,unsigned p2_move,
+        float scale,int selector,unsigned gate,bool charge_aux,bool approved_profile){
+        if(!p1_input && !p2_input && p1_move==65535 && p2_move==65535 && scale==1.0f && !gate)return Mode::idle;
+        if(!approved_profile)return Mode::combat_capture_only;
+        if(FullStateProbe::throw_values(p1_move,p2_move,scale,selector))return Mode::throw_move;
+        if(FullStateProbe::charge_values(p1_move,p2_move,scale,selector) && charge_aux)return Mode::charge;
+        if(FullStateProbe::attack_values(p1_move,p2_move,scale,selector))return Mode::attack;
+        if(FullStateProbe::edge_values(p1_move,p2_move,scale,selector))return Mode::edge;
+        if(FullStateProbe::reversal_values(p1_move,p2_move,scale,selector))return Mode::reversal;
+        return Mode::combat_capture_only;
+    }
+    void select_mode(Mode value){
+        mode=value;data->throw_requested=value==Mode::throw_move;data->charge_requested=value==Mode::charge;
+        data->attack_requested=value==Mode::attack;data->edge_requested=value==Mode::edge;data->reversal_requested=value==Mode::reversal;
+    }
+    bool capture_supported(uintptr_t base,uintptr_t argument,bool approved_profile=false) noexcept {
+        if(attempted)return false;
+        __try {
+            select_mode(supported_mode(*reinterpret_cast<uint16_t*>(base+0x4717840),*reinterpret_cast<uint16_t*>(base+0x47AEC30),
+                *reinterpret_cast<uint16_t*>(base+0x475A04A),*reinterpret_cast<uint16_t*>(base+0x47F143A),
+                *reinterpret_cast<float*>(base+0x48462F4),*reinterpret_cast<int*>(base+0x4846458),
+                *reinterpret_cast<unsigned char*>(base+0x48462D0),approved_profile && FullStateProbe::charge_aux_active(base),approved_profile));
+        }__except(EXCEPTION_EXECUTE_HANDLER){fault=true;exception=GetExceptionCode();return false;}
+        return capture(base,argument);
+    }
     std::unique_ptr<FullStateProbe> data=std::make_unique<FullStateProbe>();
     unsigned direction_bits{0x400},direction_slot{1};
     unsigned capture_stage{};bool mode_values_valid{};std::array<unsigned,6> mode_values{};
@@ -84,6 +111,23 @@ struct NativeBoundarySnapshot {
         constexpr const char* names[]={"none","invalid_capture","module","mode","thread","used_probe","frame_adjacency","player_identity","stream_shape","ring_rotation","rng_changed","transform_topology","camera_identity","input_changed","reader_copy","serializer_source","combat_readiness","root_wind","charge_readiness"};
         return names[static_cast<unsigned>(r)];
     }
+    // Pure structural assessment is available for combat captures too. Passing
+    // it does not authorize loading or relax move/input-specific readiness.
+    Rejection structural_readiness(const NativeBoundarySnapshot& current)const{
+        if(!valid || fault || !current.valid || current.fault)return Rejection::invalid_capture;
+        if(module!=current.module)return Rejection::module;
+        if(thread!=current.thread || thread!=GetCurrentThreadId())return Rejection::thread;
+        const auto& a=*data;const auto& b=*current.data;
+        if(a.before_keys[0]==UINT32_MAX || b.before_keys[0]!=a.before_keys[0]+1u)return Rejection::frame;
+        if(std::memcmp(a.before_players,b.before_players,sizeof(a.before_players)))return Rejection::players;
+        if(!IdleTrajectoryAudit::same_shape(a.saved,b.saved))return Rejection::shape;
+        if(!b.rings[0].rotated_from(a.rings[0]))return Rejection::rings;
+        if(!a.measurements[0].rng || a.measurements[0].rng>=2147483647 ||
+           !b.measurements[0].rng || b.measurements[0].rng>=2147483647)return Rejection::rng;
+        if(!a.transforms[0].same_topology(b.transforms[0]))return Rejection::transforms;
+        if(!IdleTrajectoryAudit::camera_identity(a.cameras[0],b.cameras[0]))return Rejection::camera;
+        return Rejection::none;
+    }
     bool prepare_adjacent(const NativeBoundarySnapshot& current,FullStateProbe& q,Rejection* reason=nullptr,bool direction_restore=false,bool a_restore=false)const {
         auto reject=[&](Rejection r){if(reason)*reason=r;return false;};
         if(reason)*reason=Rejection::none;
@@ -100,14 +144,8 @@ struct NativeBoundarySnapshot {
         if(q.saved.sealed || q.attempted || q.restore_invoked)return reject(Rejection::used_probe);
         const auto& a=*data;const auto& b=*current.data;
         const bool combat=mode!=Mode::idle && !direction_pair;
-        if(b.before_keys[0]!=a.before_keys[0]+1u)return reject(Rejection::frame);
-        if(std::memcmp(a.before_players,b.before_players,sizeof(a.before_players)))return reject(Rejection::players);
-        if(!IdleTrajectoryAudit::same_shape(a.saved,b.saved))return reject(Rejection::shape);
-        if(!b.rings[0].rotated_from(a.rings[0]))return reject(Rejection::rings);
-        if(!a.measurements[0].rng || a.measurements[0].rng>=2147483647 ||
-           !b.measurements[0].rng || b.measurements[0].rng>=2147483647)return reject(Rejection::rng);
-        if(!a.transforms[0].same_topology(b.transforms[0]))return reject(Rejection::transforms);
-        if(!IdleTrajectoryAudit::camera_identity(a.cameras[0],b.cameras[0]))return reject(Rejection::camera);
+        const auto structural=structural_readiness(current);
+        if(structural!=Rejection::none)return reject(structural);
         // Idle permits only finite normalized auxiliary variation. Buttons and
         // flags (first24bytes) remain exact, including when both inputs match.
         if(!combat){if(!RecordedInput::compatible(a.delayed_inputs,b.delayed_inputs))return reject(Rejection::inputs);}

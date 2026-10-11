@@ -2,13 +2,20 @@
 #include "NativeRollbackWindow.hpp"
 #include "NativeNetworkCheckpointProbe.hpp"
 #include "RngTransition.hpp"
+#include "ReplayOwnedResources.hpp"
 namespace sc6::research {
 // Explicit private reference replay; two windows reuse the same native memory.
 // No predicted branch or continuous correction is enabled by this experiment.
 struct NativeWindowReuseProbe {
     NativeRollbackWindow window;
+    ReplayOwnedResources resources;
+    bool ownership_started{},ownership_stopped{};
+    bool start_ownership(uintptr_t base){ownership_started=resources.start(base);network_checkpoint_status.owned_replay_started=ownership_started;return ownership_started;}
+    void stop_ownership(){const auto& trace=resources.cancellation();network_checkpoint_status.owned_cancel_reason=trace.reason.load();network_checkpoint_status.owned_cancel_thread=trace.thread.load();network_checkpoint_status.owned_cancel_expected=trace.expected.load();network_checkpoint_status.owned_cancel_had_refs=trace.had_owned.load();if(!ownership_stopped && window.release_owned_dependencies() && resources.stop()){ownership_stopped=true;network_checkpoint_status.owned_replay_cleanup=1;}}
     std::array<RollbackBoundaryKey,4> keys{};
     std::array<bool,3> confirmed{};
+    unsigned topology_retries{};
+    static bool topology_retry_allowed(unsigned attempts,unsigned readiness,bool mutation){return attempts<3 && readiness==2 && !mutation;}
     unsigned captured{},stable{},completed{},retries{};bool failed{},done{};
     static bool retry_allowed(unsigned attempts,bool handoff_failed,const std::array<bool,3>& inputs){
         return attempts<2 && !handoff_failed && !(inputs[0] && inputs[1] && inputs[2]);
@@ -31,14 +38,18 @@ struct NativeWindowReuseProbe {
     void body(uintptr_t base,uintptr_t argument,uintptr_t caller,unsigned thread,
         const NetworkGameHandoff::Boundary& boundary,SingleUpdateCall::Routine original,uint64_t session){
         auto& h=network_game_handoff;auto& s=network_checkpoint_status;
-        if(failed || done){h.boundary(session,thread,boundary);return;}
+        if(failed || done){stop_ownership();h.boundary(session,thread,boundary);return;}
         if(caller!=base+0x3FE816 || !original || reinterpret_cast<uintptr_t>(original)==base+0x2DBC60){fail(1);h.boundary(session,thread,boundary);return;}
         RollbackBoundaryKey key{session,h.peer_nonce.load(),boundary.generation,boundary.round,boundary.event,boundary.frame,h.slot.load(),thread};
         const bool ready=session==h.local_nonce.load() && key.same_round(key) &&
             NativeNetworkCheckpointProbe::normal_battle(base) && NativeNetworkCheckpointProbe::idle(base);
         if(!ready){stable=0;if(captured)fail(23);h.boundary(session,thread,boundary);return;}
+        if(!ownership_started || resources.cancelled()){fail(26);stop_ownership();h.boundary(session,thread,boundary);return;}
+        if(!resources.ready()){stable=0;h.boundary(session,thread,boundary);return;}
         if(!captured && ++stable<30){h.boundary(session,thread,boundary);return;}
-        if(!window.capture(key,base,argument)){s.capture_stage=window.capture_stage;s.capture_exception=window.capture_exception;fail(4);h.boundary(session,thread,boundary);return;}
+        auto ownership=resources.source();
+        if(!window.capture(key,base,argument,NativeBoundarySnapshot::Mode::idle,true,&ownership)){s.capture_stage=window.capture_stage;s.capture_exception=window.capture_exception;fail(4);h.boundary(session,thread,boundary);return;}
+        ++s.owned_replay_captures;
         s.window_rng[completed][captured]=window.captured_rng;
         s.window_rng_after_save[completed][captured]=window.captured_rng_after_save;
         if(captured)s.window_rng_steps[completed][captured-1]=RngTransition::distance(s.window_rng[completed][captured-1].load(),window.captured_rng);
@@ -54,6 +65,14 @@ struct NativeWindowReuseProbe {
             if(!retry_allowed(retries,h.failed,confirmed) || !window.discard_unmodified()){fail(15);return;}
             ++retries;++s.confirmation_retries;
             captured=stable=0;keys={};confirmed={};s.captured=0;
+            return;
+        }
+        const unsigned topology_state=window.topology_readiness();
+        if(topology_state!=1){
+            if(!topology_retry_allowed(topology_retries,topology_state,window.rewind_started()) || !window.discard_unmodified()){fail(27);return;}
+            ++topology_retries;s.window_topology_retries=topology_retries;
+            s.window_topology_retry_first=window.source_frame;s.window_topology_retry_last=window.next_frame;
+            captured=stable=retries=0;keys={};confirmed={};s.captured=0;
             return;
         }
         // Clear success from the prior cycle before a new mutation starts.
@@ -81,7 +100,7 @@ struct NativeWindowReuseProbe {
         if(!window.recycle()){s.replay_verified=0;fail(25);return;}
         ++completed;s.window_reuse_completed=completed;
         captured=stable=retries=0;keys={};confirmed={};
-        if(completed==2){done=true;s.phase=2;}
+        if(completed==2){done=true;s.phase=2;stop_ownership();}
     }
 };
 }

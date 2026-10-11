@@ -5,6 +5,24 @@
 #include <thread>
 int main(){
     using H=sc6::NetworkGameHandoff;
+    for(unsigned side:{1u,2u}){
+        H correction;assert(correction.bind(10,20,side));
+        H::Boundary original{1,100,1,80,{}};original.input[4]=23;
+        correction.boundary(10,7,original);
+        H::Request truth{10,20,side,100,1,80,original.input};truth.input[(2-side)*2]=1024;
+        assert(correction.publish(truth));auto next=original;++next.frame;correction.boundary(10,7,next);
+        H::Confirmation c;assert(correction.confirmed(10,20,7,original,c));
+        assert(c.input==truth.input && c.boundary.input==original.input);
+        assert(correction.validated==0 && correction.rejection_reasons[5]==1);
+        assert(!correction.confirmed(10,21,7,original,c));assert(!correction.confirmed(10,20,8,original,c));
+        assert(correction.publish(truth));++next.frame;correction.boundary(10,7,next);
+        assert(!correction.confirmation_conflict);
+        truth.input[(2-side)*2]=2048;assert(correction.publish(truth));++next.frame;correction.boundary(10,7,next);
+        assert(correction.confirmation_conflict && !correction.confirmed(10,20,7,original,c));
+        H invalid;assert(invalid.bind(10,20,side));invalid.boundary(10,7,original);
+        truth.input=original.input;truth.input[4]=24;assert(invalid.publish(truth));next=original;++next.frame;
+        invalid.boundary(10,7,next);assert(!invalid.confirmed(10,20,7,original,c));
+    }
     auto h=std::make_unique<H>();assert(h->bind(10,20,1));assert(h->bind(10,20,1));assert(!h->bind(10,21,1));
     H::Boundary b{1,100,1,80,{}};b.input[4]=23;h->boundary(10,7,b);
     H::Request r{10,20,1,100,1,80,b.input};assert(h->publish(r));++b.frame;h->boundary(10,7,b);

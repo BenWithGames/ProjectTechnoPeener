@@ -2,8 +2,33 @@
 #include "../src/SteamHandshakeProtocol.hpp"
 #include <cassert>
 #include <iostream>
+#include <memory>
 using namespace sc6::steam_inputs;
 int main(){
+    {
+        using namespace sc6;
+        const auto handle=CreateFileMappingW(INVALID_HANDLE_VALUE,nullptr,PAGE_READWRITE,0,sizeof(observation::Shared),
+            observation::mapping_name(GetCurrentProcessId()).c_str());
+        assert(handle && GetLastError()!=ERROR_ALREADY_EXISTS);
+        auto shared=static_cast<observation::Shared*>(MapViewOfFile(handle,FILE_MAP_WRITE,0,0,sizeof(observation::Shared)));assert(shared);
+        *shared={};shared->signature=observation::magic;shared->schema=observation::version;
+        shared->pid=GetCurrentProcessId();shared->nonce=77;shared->frequency=10000000;shared->status=1;
+        auto capture=std::make_unique<Capture>();
+        shared->reserved=1;assert(!capture->attach_owned(77));
+        shared->reserved=observation::owned_mode;assert(!capture->attach_owned(78));
+        shared->count=1;assert(!capture->attach_owned(77));shared->count=0;
+        assert(!research::owned_transport_attachment.ready(77));
+        assert(capture->attach_owned(77));assert(!capture->attach_owned(77));
+        assert(research::owned_transport_attachment.ready(77) && !research::owned_transport_attachment.ready(78));
+        research::owned_transport_attachment.detach(78);assert(research::owned_transport_attachment.ready(77));
+        auto duplicate=std::make_unique<Capture>();assert(!duplicate->attach_owned(77));duplicate.reset();
+        assert(research::owned_transport_attachment.ready(77));
+        bool rejected=false;try{capture->arm({},77);}catch(const std::runtime_error&){rejected=true;}assert(rejected);
+        shared->records[0].data[0]=123;shared->rounds[0]={2,4};MemoryBarrier();InterlockedExchange(&shared->count,1);
+        capture->update(77);assert(capture->exchange.published==1 && capture->exchange.local[0].data[0]==123);
+        assert(capture->exchange.local_rounds[0].number==2);
+        capture.reset();assert(!research::owned_transport_attachment.ready(77));UnmapViewOfFile(shared);CloseHandle(handle);
+    }
     static Exchange a,b;
     a.published=b.published=limit;
     for(unsigned i=0;i<limit;++i)for(unsigned w=0;w<13;++w){a.local[i].data[w]=i*100+w;b.local[i].data[w]=50000+i*100+w;}

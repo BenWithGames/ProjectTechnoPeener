@@ -1,6 +1,11 @@
 #include "../src/NativeClockAccess.hpp"
 #include "../src/NativeClockDispatch.hpp"
 #include <array>
+#include "../src/CombatClockBridge.hpp"
+#include "../src/BoundedRollbackSession.hpp"
+#include "../src/CombatRouteBundle.hpp"
+#include "../src/NativeStartHold.hpp"
+#include "../src/NativeClockDiscovery.hpp"
 #include <cassert>
 #include <cstring>
 #include <iostream>
@@ -47,10 +52,60 @@ struct Fixture {
 };
 int main(){
     {
+        Fixture f;sc6::research::NativeClockDiscovery discovery;
+        sc6::research::NativeClockDiscovery::Observation out;
+        const auto object=reinterpret_cast<uintptr_t>(f.object.data());
+        assert(!discovery.read(1000,out));
+        discovery.observe(f.base,object,1000);
+        assert(discovery.read(1000,out) && out.object==object && out.thread==GetCurrentThreadId());
+        assert(out.clock.frame==100 && out.clock.local_mask==1 && out.clock.identity==7);
+        assert(services==0 && waits==0 && advances==0);
+        assert(!discovery.read(999,out) && !out.valid);
+        assert(!discovery.read(1251,out));
+        f.object[0x4424]=1;discovery.observe(f.base,object,1001);
+        assert(!discovery.read(1001,out));
+        f.object[0x4424]=2;f.put(0x39C,2);f.put(0x4400,1);
+        discovery.observe(f.base,object,1002);assert(discovery.read(1002,out) && out.clock.local_mask==2);
+        discovery.observe(f.base,1,1003);assert(!discovery.read(1003,out));
+    }
+    {
+        Fixture f;sc6::research::NativeStartHold<Clock> hold;
+        auto object=reinterpret_cast<uintptr_t>(f.object.data());
+        assert(hold.bind(f.base,object,GetCurrentThreadId(),7,100,1000,100,true,true,true));
+        for(unsigned i=0;i<10;++i){order=0;waiting=i%2!=0;assert(hold.run(object,1000+i));}
+        assert(services==10 && advances==0 && hold.serviced==10);
+        struct Exchange {unsigned reports{};bool report_local_hold(uint64_t ticket){++reports;return ticket==55;}} exchange;
+        assert(hold.announce(exchange,55,object,1050) && exchange.reports==1);
+        assert(!hold.run(object,1100) && hold.failed());
+        assert(!hold.announce(exchange,55,object,1100) && exchange.reports==1);
+        assert(!hold.run(object,1101) && services==10);
+    }
+    {
+        Fixture f;sc6::research::NativeStartHold<Clock> hold;auto object=reinterpret_cast<uintptr_t>(f.object.data());
+        assert(hold.bind(f.base,object,GetCurrentThreadId(),7,100,1000,100,true,true,true));
+        f.put(0x3A4,101);assert(!hold.run(object,1001) && services==0 && advances==0);
+    }
+    {
+        using namespace sc6::research;
+        Fixture f;NativeClockDispatch<> dispatch;
+        assert(dispatch.bind(f.base,reinterpret_cast<uintptr_t>(f.object.data()),GetCurrentThreadId(),true,true,true,nullptr,
+            [](void*,const NativeClockAccess<>::State&)noexcept{return true;},
+            [](void*,NativeClockAccess<>::Result)noexcept{}));
+        unsigned context=0;ExclusiveBattleRoute battle;
+        assert(battle.bind(GetCurrentThreadId(),&context,[](void*,uintptr_t,uintptr_t){return true;},true,true));
+        sc6::SchedulerInputSink sink{&context,[](void*,const sc6::NetworkGameHandoff::Request&){return sc6::SchedulerPublish::accepted;}};
+        CombatRouteBundle routes{&dispatch,&battle,&sink};assert(publish_combat_routes(routes));
+        assert(combat_routes.load()==&routes && combat_routes.load()->inputs==&sink);
+        assert(!publish_combat_routes(routes));dispatch.stop();
+        assert(combat_routes.load()==&routes); // stop retains ownership
+        combat_routes.store(nullptr); // fixture-only teardown, no native hooks installed
+    }
+    {
         Fixture f;Clock c;
         assert(c.service()==R::unbound);
         assert(!c.bind(f.base,reinterpret_cast<uintptr_t>(f.object.data()),GetCurrentThreadId(),true,false,true));
         assert(f.bind(c));
+        assert(c.at_boundary(7,100));assert(!c.at_boundary(7,101));assert(!c.at_boundary(8,100));
         for(unsigned i=0;i<10;++i){
             order=0;assert(c.service()==R::ready);assert(c.finish(false)==R::withheld);
         }
@@ -103,6 +158,43 @@ int main(){
         const auto original_count=originals;d.run(object,original);
         assert(d.restart_required() && services==1 && advances==0 && originals==original_count);
         assert(notified==R::restart_required);
+    }
+    {
+        Fixture f;
+        sc6::research::BoundedRollbackSession<int,int> session;assert(session.begin(1,2));
+        sc6::research::CombatClockBridge<decltype(session),Clock> bridge(session);
+        unsigned drained=0;
+        assert(bridge.attach_confirmations(&drained,[](void* p){++*static_cast<unsigned*>(p);return true;}));
+        const auto object=reinterpret_cast<uintptr_t>(f.object.data());
+        assert(bridge.bind(f.base,object,GetCurrentThreadId(),true,true,true,1,2,7,100,500));
+        auto& d=bridge.dispatch();waiting=true;d.run(object,original);
+        assert(services==1 && advances==0 && !bridge.restart_required());
+        order=0;waiting=false;d.run(object,original);
+        assert(advances==1 && bridge.reservation().consume(1,2,GetCurrentThreadId(),500));
+        assert(drained==1);
+        order=0;d.run(object,original);assert(advances==2);
+        // Deliberately omit the battle call. Next admission must stop BEFORE advance.
+        order=0;d.run(object,original);assert(advances==2 && bridge.restart_required());
+        const auto stopped=services;d.run(object,original);assert(services==stopped);
+    }
+    {
+        Fixture f;sc6::research::BoundedRollbackSession<int,int> session;assert(session.begin(1,2));
+        sc6::research::CombatClockBridge<decltype(session),Clock> bridge(session);
+        unsigned drained=0;
+        assert(bridge.attach_confirmations(&drained,[](void* p){++*static_cast<unsigned*>(p);return false;}));
+        const auto object=reinterpret_cast<uintptr_t>(f.object.data());
+        assert(bridge.bind(f.base,object,GetCurrentThreadId(),true,true,true,1,2,7,100,500));
+        bridge.dispatch().run(object,original);
+        assert(drained==1 && advances==0 && bridge.restart_required());
+    }
+    {
+        Fixture f;sc6::research::BoundedRollbackSession<int,int> session;assert(session.begin(1,2));
+        sc6::research::CombatClockBridge<decltype(session),Clock> bridge(session);
+        const auto object=reinterpret_cast<uintptr_t>(f.object.data());
+        assert(bridge.bind(f.base,object,GetCurrentThreadId(),true,true,true,1,2,7,100,500));
+        bad_advance=true;bridge.dispatch().run(object,original);
+        assert(bridge.restart_required());const auto stopped=services;
+        bridge.dispatch().run(object,original);assert(services==stopped);
     }
     std::cout<<"PASS: dispatcher pass-through, no duplicate advance, servicing during waits, and terminal identity/counter/reentry failures\n";
 }

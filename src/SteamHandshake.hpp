@@ -8,8 +8,13 @@
 #include "SteamPing.hpp"
 #include "RoundEventObserver.hpp"
 #include "NetworkGameHandoff.hpp"
+#include "SchedulerInputSink.hpp"
+#include "CombatRouteBundle.hpp"
+#include "CombatStartPacket.hpp"
+#include "CombatPeerContext.hpp"
 #include "NetworkCheckpointStatus.hpp"
 #include "StatusOverlay.hpp"
+#include "FrameRecorder.hpp"
 #include <chrono>
 
 namespace sc6::steam_handshake {
@@ -38,8 +43,11 @@ inline void poll() {
     static bool data_done=false;
     static uint64_t initial_round_generation=0;
     static std::array<bool,steam_inputs::limit> handed_off{};
+    static std::array<bool,steam_inputs::limit> scheduler_handed_off{};
     static ULONGLONG last_peer=0,last_announcement=0;
     const auto now=GetTickCount64();
+    sc6::research::combat_peer_context.clear();
+    if(stopped || !running || data_done)sc6::research::owned_transport_attachment.detach(capture.owned_nonce);
     if(stopped||now<next)return;
     next=now+(running?(input_mode?0:250):1000);
     ping.update(clock_us());
@@ -56,8 +64,8 @@ inline void poll() {
            <<"\nnative_comparison_rng_actual="<<network_checkpoint_status.comparison_rng_actual.load()<<"\n";
         {constexpr const char* fields[]={"status","validity","group","slot","offset","field","expected","actual","expected_word","actual_word"};
             for(unsigned i=0;i<10;++i)out<<"native_comparison_ring_"<<fields[i]<<"="<<network_checkpoint_status.comparison_ring[i].load()<<"\n";}
-        {constexpr const char* fields[]={"reason","record","offset","length","writer_rva","source","expected","actual"};
-            for(unsigned i=0;i<8;++i)out<<"native_comparison_serialized_"<<fields[i]<<"="<<network_checkpoint_status.comparison_native[i].load()<<"\n";}
+        {constexpr const char* fields[]={"reason","record","offset","length","writer_rva","source","expected","actual","word_offset","expected_word","actual_word","changed_bytes"};
+            for(unsigned i=0;i<12;++i)out<<"native_comparison_serialized_"<<fields[i]<<"="<<network_checkpoint_status.comparison_native[i].load()<<"\n";}
         {constexpr const char* fields[]={"stage","side","block","offset","expected","actual","index","loaded_index","mask","loaded_mask"};
             for(unsigned i=0;i<10;++i)out<<"native_blend_block_"<<fields[i]<<"="<<network_checkpoint_status.blend_block_diagnostic[i].load()<<"\n";}
         out<<"native_comparison_pass_mask="<<network_checkpoint_status.comparison_pass_mask.load()<<"\n";
@@ -131,7 +139,7 @@ inline void poll() {
             <<"\nnative_readiness_prepared="<<network_checkpoint_status.readiness_prepared.load()
             <<"\nnative_readiness_rejection="<<network_checkpoint_status.readiness_rejection.load()
             <<"\nnative_readiness_restore_invoked="<<network_checkpoint_status.restore_invoked.load()
-            <<"\nnative_window_missing_mask="<<network_checkpoint_status.window_missing_mask.load()<<"\nnative_window_retry_frame="<<network_checkpoint_status.window_retry_frame.load()<<"\nnative_window_plan_result="<<network_checkpoint_status.window_plan_result.load()<<"\nnative_window_prepare_stage="<<network_checkpoint_status.window_prepare_stage.load()<<"\nnative_window_hop="<<network_checkpoint_status.window_hop.load()<<"\nnative_window_source_frame="<<network_checkpoint_status.window_source_frame.load()<<"\nnative_window_next_frame="<<network_checkpoint_status.window_next_frame.load()<<"\nnative_window_workspace_flags="<<network_checkpoint_status.window_workspace_flags.load()<<"\nnative_window_reuse_completed="<<network_checkpoint_status.window_reuse_completed.load()<<"\nnative_replay_enabled="<<(replay_mode || reuse_mode)
+            <<"\nnative_window_topology_retries="<<network_checkpoint_status.window_topology_retries.load()<<"\nnative_window_topology_retry_first="<<network_checkpoint_status.window_topology_retry_first.load()<<"\nnative_window_topology_retry_last="<<network_checkpoint_status.window_topology_retry_last.load()<<"\nnative_window_missing_mask="<<network_checkpoint_status.window_missing_mask.load()<<"\nnative_window_retry_frame="<<network_checkpoint_status.window_retry_frame.load()<<"\nnative_window_plan_result="<<network_checkpoint_status.window_plan_result.load()<<"\nnative_window_prepare_stage="<<network_checkpoint_status.window_prepare_stage.load()<<"\nnative_window_hop="<<network_checkpoint_status.window_hop.load()<<"\nnative_window_source_frame="<<network_checkpoint_status.window_source_frame.load()<<"\nnative_window_next_frame="<<network_checkpoint_status.window_next_frame.load()<<"\nnative_window_workspace_flags="<<network_checkpoint_status.window_workspace_flags.load()<<"\nnative_owned_cancel_reason="<<network_checkpoint_status.owned_cancel_reason.load()<<"\nnative_owned_cancel_thread="<<network_checkpoint_status.owned_cancel_thread.load()<<"\nnative_owned_cancel_expected="<<network_checkpoint_status.owned_cancel_expected.load()<<"\nnative_owned_cancel_had_refs="<<network_checkpoint_status.owned_cancel_had_refs.load()<<"\nnative_owned_replay_started="<<network_checkpoint_status.owned_replay_started.load()<<"\nnative_owned_replay_captures="<<network_checkpoint_status.owned_replay_captures.load()<<"\nnative_owned_replay_cleanup="<<network_checkpoint_status.owned_replay_cleanup.load()<<"\nnative_window_reuse_completed="<<network_checkpoint_status.window_reuse_completed.load()<<"\nnative_replay_enabled="<<(replay_mode || reuse_mode)
             <<"\nnative_replay_attempted="<<network_checkpoint_status.replay_attempted.load()
             <<"\nnative_restore_diagnostic_schema=5"
             <<"\nnative_wind_verified="<<network_checkpoint_status.wind_verified.load()
@@ -270,6 +278,7 @@ inline void poll() {
         // The other player may start first. Validate queued messages through the
         // normal size, mode, peer and fresh-nonce checks instead of rejecting them.
         if(BCryptGenRandom(nullptr,reinterpret_cast<PUCHAR>(&protocol.local_nonce),sizeof(protocol.local_nonce),BCRYPT_USE_SYSTEM_PREFERRED_RNG)<0||!protocol.local_nonce){report("random_failed");return;}
+        if(reuse_mode && (!prepare_owned_replay || !prepare_owned_replay())){report("ownership_prepare_failed");return;}
         start=now;running=true;stopped=false;report("running");return;
     }
     const auto phase_start=input_mode && capture.armed?capture.armed_at:start;
@@ -282,6 +291,13 @@ inline void poll() {
     // Bounded work once per host update; no additional 16ms input-mode gate.
     for(unsigned i=0;i<(input_mode?128u:8u);++i){
         uint32_t bytes=0;if(!available(net,&bytes,channel))break;
+        if(auto* start=sc6::research::combat_start_exchange.load(std::memory_order_acquire);
+            start && input_mode && bytes==sc6::research::CombatStartPacket::Bytes{}.size()){
+            sc6::research::CombatStartPacket::Bytes packet{};uint64_t sender=0;uint32_t size=0;
+            if(!read(net,packet.data(),static_cast<uint32_t>(packet.size()),&size,&sender,channel))break;
+            if(start->receive(sender,protocol.mutual,packet,size)){++received;last_peer=now;}else ++rejected;
+            continue;
+        }
         if(input_mode && bytes==sizeof(steam_inputs::Packet)){
             steam_inputs::Packet packet{};uint64_t sender=0;uint32_t size=0;
             if(!read(net,&packet,sizeof(packet),&size,&sender,channel))break;
@@ -317,10 +333,18 @@ inline void poll() {
         if(protocol.receive(sender,packet,size)){++received;if(packet.echo==protocol.local_nonce)last_peer=now;}else ++rejected;
     }
     const auto receive_end=steam_inputs::Capture::timestamp();
+    if(auto* start=sc6::research::combat_start_exchange.load(std::memory_order_acquire);start && input_mode && protocol.mutual && !data_done){
+        static uint64_t last_start_send=0;
+        if(now-last_start_send>=250){
+            const auto start_packet=start->outgoing();last_start_send=now;
+            if(send(net,protocol.expected_peer,start_packet.data(),static_cast<uint32_t>(start_packet.size()),1,channel))++sent;else ++send_failed;
+        }
+    }
     const auto packet=protocol.outgoing();
     // UnreliableNoDelay prevents deferred sends after the bounded test ends.
     if(!data_done){if(send(net,protocol.expected_peer,&packet,sizeof(packet),1,channel))++sent;else ++send_failed;}
     peer_live=protocol.mutual && last_peer && now-last_peer<=9000;
+    if(input_mode && !data_done)sc6::research::combat_peer_context.publish(protocol,capture.composition.local_slot,now,peer_live);
     ping.update(clock_us());
     if(input_mode && protocol.mutual && ping.due(clock_us())){
         steam_inputs::Packet probe;probe.nonce=protocol.local_nonce;probe.echo=protocol.remote_nonce;probe.kind=3;probe.own_hash=1;probe.index=ping.begin(clock_us());
@@ -358,6 +382,18 @@ inline void poll() {
                     exchange.local[i].data[0],round.number,round.event_counter,capture.composition.envelopes[i]};
                 if(!network_game_handoff.publish(request))break;
                 handed_off[i]=true;
+            }
+            const auto* combat=sc6::research::combat_routes.load(std::memory_order_acquire);
+            if(const auto* sink=combat?combat->inputs:sc6::scheduler_input_sink.load(std::memory_order_acquire)){
+                unsigned budget=8;
+                for(unsigned i=0;i<exchange.published && budget;++i)if(capture.composition.staged[i] && !scheduler_handed_off[i]){
+                    --budget;const auto round=exchange.local_rounds[i];
+                    NetworkGameHandoff::Request request{protocol.local_nonce,protocol.remote_nonce,capture.composition.local_slot,
+                        exchange.local[i].data[0],round.number,round.event_counter,capture.composition.envelopes[i]};
+                    const auto result=sc6::submit_scheduler_input(*sink,request,scheduler_handed_off[i]);
+                    if(result==sc6::SchedulerPublish::full)break;
+                    if(result==sc6::SchedulerPublish::rejected){running=false;stopped=true;report("scheduler_confirmation_rejected");return;}
+                }
             }
             capture.shadow.update(exchange.local,exchange.published,exchange.remote,exchange.seen,capture.arrival_qpc,exchange.received==steam_inputs::limit);
             const auto send_begin=steam_inputs::Capture::timestamp();

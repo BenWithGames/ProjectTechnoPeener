@@ -26,12 +26,22 @@ SC6EntryBridge PROC FRAME
     movdqu [rsp+0B0h], xmm5
     stmxcsr [rsp+0C0h]
     fnstcw [rsp+0C4h]
-    ; Explicit opt-in can replace only the saved first argument.
+    ; Default continuation is the original trampoline. An exclusively owned
+    ; void update may instead return without calling it a second time.
+    mov rax, qword ptr [SC6Original]
+    mov [rsp+0C8h], rax
+    lea r9, [rsp+0C8h]
+    ; Explicit opt-in can replace the saved first argument.
     lea rdx, [rsp+28h]
     ; Original return address: D0h saved area plus the pushed flags (8).
     ; Observe the caller without changing the original call/return path.
     mov r8, [rsp+0D8h]
     call SC6RecordEntry
+    cmp qword ptr [rsp+0C8h], 0
+    jne continuation_ready
+    lea rax, consumed_return
+    mov [rsp+0C8h], rax
+continuation_ready:
     fldcw [rsp+0C4h]
     ldmxcsr [rsp+0C0h]
     movdqu xmm0, [rsp+60h]
@@ -49,7 +59,10 @@ SC6EntryBridge PROC FRAME
     mov r11, [rsp+50h]
     lea rsp, [rsp+0D0h]
     popfq
-    jmp qword ptr [SC6Original]
+    jmp qword ptr [rsp-10h]
 SC6EntryBridge ENDP
+consumed_return PROC
+    ret
+consumed_return ENDP
 END
 

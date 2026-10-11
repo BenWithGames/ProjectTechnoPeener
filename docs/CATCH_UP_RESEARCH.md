@@ -1599,3 +1599,421 @@ Corrected generated-owner prefix build installed after user confirmed closure. L
 Corrected observer armed successfully. Two-minute report: one record, zero drops, CSV written; no reference acquisition, restore or injection. Validated root 140695231548880, buffer 2918614830496, control 2917589658048, requested size 27344, strong=1, weak=1. Allocation thread=76728; frame_thread=0 means the frame-thread identity was not established at the observation, not that the allocation was on a different thread. Native destination pair/type/back-pointer/count/size checks passed. User confirmed normal gameplay with no glitches. Both report files archived in captures.
 
 This confirms the setup-scoped allocation observation works and sees a live owner. It does not establish thread equality, cross-thread transfer, retention, or complete snapshot coverage. Next change should correlate the recorded allocation thread with the subsequently established game-frame thread and validate a bounded ownership handoff; do not treat frame_thread=0 as proof of thread affinity. Continuous rollback remains disabled.
+
+### Generated-owner delayed thread correlation
+
+Added direct frame-entry thread sampling during the generated-owner capture, rather than relying solely on an owner ID already established at allocation time. Report records first frame thread, sample count and differing-thread count. Each CSV row gains thread_relation: 0 unknown/unstable, 1 same, 2 different. Classification reads saved numeric IDs only; it never revisits unowned buffer/control addresses. Changing frame threads reject a stable classification. Sampling uses the observer lock and counts contention as dropped evidence; LastError preserved. Focused tests cover unknown, matching, differing and unstable thread evidence. Full build running in generated-owner-thread-build.log. No retention or restoration enabled; partner needs no update.
+`nThread-correlation observer installed after user confirmed closure; no leftover process or elevated termination required. Prior DLL backed up under build-native/install-backups/generated-owner-thread-*. Installed/staged SHA256: 5894FB780BD55D49B1AFEB81BC01FD656D236E6830D80EA69280DD12D2A814F0. No capture armed; awaiting lobby readiness. Partner needs no update.
+
+### Generated-owner thread correlation capture 33160
+
+Capture completed with one valid allocation observation and zero drops. Allocation thread 35552 matched the subsequently observed game-frame thread 35552 across 5773 samples, with zero thread changes (thread_relation=1). Allocation-time frame_thread was still zero, but delayed correlation resolved the identity. Requested buffer size 34336; strong=1, weak=1; pinned control/back-pointer/size checks passed. User confirmed gameplay normal without glitches. Reports archived in captures/generated-owner-33160.txt and .csv.
+
+This establishes same-thread allocation/frame observation for this run, not universal thread affinity or reference-retention correctness. Next is a bounded strong-reference hold acquired synchronously from the validated allocator-owned pair, transferred to frame service and released on the verified owner thread with cancellation handling. No raw saved control pointer may be used for later acquisition. No references acquired, restoration or injection in this capture; continuous rollback disabled.
+
+### Generated buffer bounded ownership probe
+
+Added GeneratedBufferHold and GENERATED_HOLD_ONLY PID arm. Acquires at most one strong reference synchronously from the validated allocator-owned pair only when current thread equals an already established lease-service frame owner. Unknown/different thread rejects acquisition. Release uses audited generated-buffer disposer 0x37C7B0 and control disposer 0x2DE1D0, not descriptor-resource callbacks. Three subsequent frame callbacks release normally; a new query setup cancels on owner thread. Deadline signals cancellation and delays report until owner-thread cleanup completes; worker never releases native references. One successful arm per process prevents report/rearm mixing. No snapshot restoration or buffer payload access added.
+
+Focused tests passed for unknown-owner rejection, 1->2->1 counts, exact three-callback release, cancellation and no duplicate release. Full build running in generated-buffer-hold-build.log. Live test requires warmup match and return to lobby before arm so owner is established; partner needs no update. This is bounded lifetime testing, not complete teardown/mutation coverage or continuous rollback.
+
+Generated-buffer hold build installed after user confirmed closure. Leftover PID 42320 required elevated termination. Prior DLL backed up under build-native/install-backups/generated-buffer-hold-*. Installed/staged SHA256: 6A0B8207018919AD66676C0C076C4F6FD31127565986EAB3AF0B7FFAB1C18CAA. No capture armed. Awaiting warmup match and return to lobby before arming GENERATED_HOLD_ONLY; partner needs no update.
+
+### Generated-buffer hold capture 41636: cancellation cleanup observed
+
+User confirmed normal gameplay/no glitches. One valid allocation record, zero drops; one reference acquired and released, cancellation=1, rejected=0, pending=0. Allocation and established frame thread both 41232; 5373 frame samples with no changes. Requested buffer bytes 23248. Capture demonstrates balanced acquisition and cancellation cleanup, NOT normal three-callback expiry. Current report does not distinguish cancellation from setup reentry versus deadline, so do not claim which caused it. No restore/injection/rollback occurred. Report and CSV archived. Before snapshot integration, distinguish cancellation reason and arrange the hold after final setup or otherwise establish three-frame retention without weakening cleanup.
+
+### Generated hold cancellation diagnostic
+
+Added report fields hold_depth_callbacks, hold_cancel_reason (0 none, 1 query setup, 2 deadline), held_root and cancel_setup_root. Reason/root recorded only when cancellation actually releases on the owner thread; subsequent callbacks cannot overwrite it. Existing acquisition, three-callback expiry and cancellation policy unchanged. Tests cover normal depth/reason, setup cancellation before any frame, and preserving original reason after a later cancellation attempt. Focused observer tests passed. Full build generated-hold-cancel-diagnostic-build.log running; installation pending. Next capture uses warmup then lobby, same GENERATED_HOLD_ONLY arm, to distinguish setup cancellation from timeout and identify whether another root triggered it.
+
+Generated hold cancellation diagnostic installed after user confirmed closure. Leftover PID 2944 required elevated termination. Prior DLL backed up under build-native/install-backups/generated-hold-cancel-*. Installed/staged SHA256: 2B459081C08B0EC0658142E9C20D6BC96A6CC070E6CE1D9D7873306EFF2307B1. No capture armed. Awaiting warmup match and return to lobby before GENERATED_HOLD_ONLY; partner needs no update.
+
+### Generated hold cancellation diagnosed: different query root
+
+Capture 43348: user confirmed normal gameplay/no glitches. One valid allocation, no dropped records; one reference acquired/released, no pending references. Cancellation reason 1 (query setup), depth_callbacks=0. Held root 140696369647056; cancelling setup root 140696369651328, different by 4272 (0x10B0). Allocation and frame thread 42684 match across 5596 samples without changes. This identifies the blanket setup_bridge cancellation as the trigger before any frame callbacks, specifically setup of another query root. Not a deadline or failure to finish the match. Report/CSV archived.
+
+Next correction should scope setup cancellation to the held root, preserving cancellation for replacement of that root and timeout owner-thread cleanup. Add a regression for a different root not ending the hold, then verify normal three-callback expiry before snapshot ownership integration. No rollback/restoration/injection occurred.
+
+### Scope generated hold cancellation to its own query root
+
+Corrected setup cancellation to call GeneratedBufferHold::before_setup with the held and incoming root. Only a nonzero matching root cancels; another query object's setup no longer ends this hold. Owner-thread release and deadline cancellation remain unchanged. Regression tests verify unrelated setup preserves the reference until normal three-callback release, while matching setup releases immediately and preserves the diagnostic reason. Focused observer tests passed. Full build generated-hold-root-filter-build.log running; install/live verification pending. No complete snapshot ownership or rollback enabled.
+
+Root-filtered generated hold build installed after user confirmed closure. Leftover PID 36524 required elevated termination. Prior DLL backed up under build-native/install-backups/generated-hold-root-filter-*. Installed/staged SHA256: 3D52FB08577584A4AB19771828E09B736840C78F2E9674D824835769653571F1. No capture armed; awaiting warmup match and return to lobby. Partner needs no update.
+
+### Generated buffer normal three-callback hold completed: 11972
+
+One validated allocation, one reference acquired and released after exactly three frame callbacks. No cancellation, rejected acquisition, pending references or dropped records. Allocation/frame thread 44616 matched; 5416 frame samples, zero changes. Requested buffer size 19792. Root-specific cancellation correction allowed normal expiry. Report/CSV archived. User reported finished; visual gameplay confirmation pending. This verifies bounded reference retention/release in this run, not payload immutability, complete dependency coverage, snapshot binding or restoration. Next is binding generated-buffer ownership to a snapshot alongside descriptor ownership and checking retirement cleanup. No restore/injection/rollback occurred.
+
+User confirmed capture 11972 gameplay remained normal without visible glitches. Bounded generated-buffer three-callback hold and normal release are confirmed for this run; snapshot integration remains next.
+
+### Generated-buffer dependency bound to snapshot probe
+
+Added GeneratedSnapshotDependency with same-owner acquisition/bind/reset and explicit callbacks for generated-buffer disposal. GeneratedOwnerObserver now offers synchronous validated allocation and setup notifications, independent of its diagnostic arm. SnapshotDependencyProbe installs these hooks, acquires from a verified fixed stage root only on the established frame owner, and holds that owned reference across native capture. It requires captured range index 4 to match the retained buffer and current root raw/control identity. Descriptor dependencies bind first, then the generated reference binds separately with the correct disposer callbacks. Temporary generated ownership releases before the existing three-frame snapshot hold; snapshot retirement owns final probe-reference cleanup. Same-root setup signals cancellation; timeout/failed capture drains bridge ownership on the frame thread. Other-root setup is ignored. Reports add generated buffer match, snapshot binding, bridge release and pending flags. Complete dependency coverage remains false; no restore or injection.
+
+Focused observer and snapshot-pool tests passed. New tests cover buffer identity rejection, wrong-thread bind/reset, separate bridge/pool ownership counts and retirement without double release. Full build generated-snapshot-dependency-build.log running. Live probe requires warmup match then lobby before SNAPSHOT_DEPENDENCIES_ONLY arm; partner needs no update. First observed fixed-root buffer must match range 4 or capture rejects; no inferred ownership from saved raw pointers.
+
+Generated snapshot dependency build installed after user confirmed closure. Leftover PID 42372 required elevated termination. Prior DLL backed up under build-native/install-backups/generated-snapshot-dependency-*. Installed/staged SHA256: E58DCF0BD12C1DA18835AB4B34C2697E8AE8D3005C5E38133E725CE7900AC5B2. No capture armed. Awaiting warmup match and return to lobby before SNAPSHOT_DEPENDENCIES_ONLY; partner needs no update.
+
+### Snapshot generated-buffer integration passed: 3328
+
+User confirmed normal gameplay/no glitches. Native capture stage 15, no exception. Descriptor identity/coverage/binding passed (one observed descriptor). Generated buffer matched captured range 4 and bound separately to snapshot; temporary generated bridge released with zero pending ownership. Snapshot held three frames/three samples, zero descriptor fingerprint changes or invalid reads, no cancellation, and retired successfully. Range inventory valid with 143 entries. Report/CSV archived. This verifies bounded snapshot ownership and retirement for descriptor plus generated buffer in this run. Fingerprint stability applies to descriptor payloads, not generated buffer content; complete_dependency_coverage remains 0. No restore, injection or rollback occurred. Next integration must establish generated-buffer content stability/restoration requirements and remaining snapshot dependencies before claiming complete replay coverage; do not repeat identical ownership test without new evidence.
+
+### Generated buffer content fingerprint probe
+
+Added GeneratedBufferFingerprint: FNV-1a over actual allocator byte length, capped at 1 MiB with null/zero/overflow guards and SEH read failure reporting. Caller must own a buffer reference. SnapshotDependencyProbe takes a baseline after native capture and verified root/range match while bridge still owns the buffer, then samples during each of the three snapshot-owned frame boundaries. Changed hashes are counted without early cancellation; invalid reads cancel and retire. PASS now requires three valid unchanged samples as well as existing ownership checks. Reports byte length, baseline/last hash, sample/change/invalid counts. Hash equality remains bounded evidence, not universal immutability proof; uninitialized padding may also produce changes and would need investigation.
+
+Focused tests passed for stable content, mutation, zero/null/oversized lengths and address overflow after resolving Windows max macro collision. Full build generated-buffer-fingerprint-build.log running. No restore/injection enabled. Installation pending; partner needs no update. Warmup match and lobby required before arm.
+
+Generated-buffer fingerprint build installed after user confirmed closure. Leftover PID 42348 required elevated termination. Prior DLL backed up under build-native/install-backups/generated-buffer-fingerprint-*. Installed/staged SHA256: 82D737D443629EF930CAB70682C38BE4E4C2C50B45BBAE810465830EC8F282DE. No capture armed. Awaiting warmup match and return to lobby before SNAPSHOT_DEPENDENCIES_ONLY; partner needs no update.
+
+### Generated buffer fingerprint capture 43288 passed
+
+Native snapshot capture stage 15 without exception; descriptor and generated buffer ownership binding passed, temporary references released, snapshot retired after three frames. Generated allocation length 25312 bytes, baseline and final FNV hash 11464050325345625150; three samples, zero hash changes or invalid reads. Descriptor fingerprints also unchanged. No cancellation or pending generated bridge references. Range inventory valid, 143 entries. Report and CSV archived. User reported finished; visual gameplay confirmation pending. This demonstrates unchanged contents over this bounded window only, not permanent immutability or complete snapshot coverage. No restore/injection/rollback occurred.
+
+User confirmed capture 43288 gameplay remained normal without visible glitches. Generated-buffer fingerprint and snapshot retirement checks are confirmed for this bounded capture; complete dependency coverage and restoration remain unverified.
+
+### Replay-window ownership interface integration
+
+NativeRollbackWindow::capture now accepts optional ReplayDependencySource supplying a synchronous owned descriptor seed and GeneratedSnapshotDependency. Ownership mode requires a live bridge, seed success, descriptor identity stability/coverage, generated identity and bounded content fingerprint validation, and binds both dependency categories to each pool slot. The slot retains references after caller bridge release. Existing discard/recycle retire paths drain pool dependencies and clear guard metadata. Rewind and reference replay check retained generated-buffer identity/content and descriptor globals before mutation; source root's first query pointer and descriptor linkage must agree. No acquisition from saved raw control pointers. Existing caller thread guards precede replay validation.
+
+This is a reusable interface implementation, not live enablement: NativeWindowReuseProbe still invokes legacy capture with no dependency source. Installing this alone would not test ownership-backed replay. Next required work is arming/seeding a live ownership source for the multi-frame replay experiment, with capture timing and owner-thread teardown connected; do not claim restoration validation from this change. Native rollback-window and snapshot-pool tests passed (local fixture tests, no game invocation). No DLL installed or capture armed this turn.
+
+### Owned resources connected to private reference replay
+
+Added ReplayOwnedResources, using synchronous descriptor and generated-buffer ownership callbacks. It retains descriptor pairs and one fixed-root generated buffer on the established game-frame owner, seeds each replay-window capture from already-owned references, and rejects changed/missing identities. Resource clear after ownership or same-root setup cancels the source. NativeWindowReuseProbe now requires this source before its existing idle reference-replay capture; missing ownership waits, cancellation fails closed. Two-cycle legacy replay mode remains an explicit private experiment, not continuous combat rollback.
+
+FrameRecorder arms ownership hooks only for NETWORK_REUSE_LONG, rejects unavailable/conflicting callbacks, and services deferred cleanup on inactive game-frame entries. Probe completion/failure drains snapshot dependencies then source references on the owner thread; if game callbacks stop, cleanup awaits another owner boundary rather than releasing on the worker. Generated source buffer must still match the query root identity/fingerprint guards in NativeRollbackWindow. No automatic/ranked path enabled. Partner transport protocol unchanged.
+
+Native rollback-window tests passed; full build owned-live-replay-build.log running. Live installation and ownership-backed restore/replay validation pending. A fresh-process warmup match then lobby is needed so allocation ownership is known before arming the explicit private experiment. Existing callers of NETWORK_REUSE_LONG now require this ownership source and cannot silently run without it.
+
+Owned live replay build installed after user confirmed closure. Leftover PID 43484 required elevated termination. Prior DLL backed up under build-native/install-backups/owned-live-replay-*. Installed/staged SHA256: 7E939CB00BAB027F18A8EDA472F38190F009641BDCA472AB9281504F4BBD20FC. No capture armed. Requires warmup match and return to lobby before explicit NETWORK_REUSE_LONG private experiment. Partner build unchanged; transport inputs still needed.
+
+### Fix replay ownership arming order before live attempt
+
+User ready in lobby as P1, PID 46504, automatic compatible peer 76561199553590821. Inspection found SteamHandshake defers capture.arm until a new round marker, which installed ownership hooks after stage allocation. No live experiment was armed. Added prepare_owned_replay callback from recorder to explicit PRIVATE_STEAM_REUSE arm processing after transport prerequisites; creates the ownership source/hooks while still in lobby. NETWORK_REUSE_LONG later consumes that already-prepared source instead of replacing it. Waiting source receives a ten-minute deadline; inactive frame cleanup is deferred while waiting and serviced on owner thread after deadline. Switching experiment with an existing source is rejected rather than destroying native references on worker. No automatic/ranked path changed.
+
+Steam handshake tests passed; full build owned-replay-early-arm-build.log running. Replacement installation required before testing. Partner must use matching Steam-WindowReuse mode (protocol signature differs from ordinary Steam-Inputs); existing partner build may remain, but ordinary input mode cannot handshake with reuse mode. No test run/capture occurred in PID 46504.
+
+Early-arm owned replay correction installed after user confirmed closure. Leftover PID 39052 required elevated termination. Prior DLL backed up under build-native/install-backups/owned-replay-early-arm-*. Installed/staged SHA256: 33EB62C487BEB112A3354DB52F551D98612054ED505DE2CCEF53BCE1DF122ED1. No capture armed. Warmup match then lobby; both peers require matching WindowReuse protocol, partner uses Steam-WindowReuse.cmd. Both idle ten seconds after FIGHT for reference replay.
+
+### Owned replay attempt 24848: rejected before capture
+
+Transport completed PASS, 7200 local/remote records, checksum match. Owned replay source started=1, captures=0, cleanup=1; failure=26, restore=0, replay_attempted/invoked/verified=0, completed windows=0, restart_required=0. In current NativeWindowReuseProbe, failure 26 means ownership not started or resources cancelled; started=1 narrows this to source cancellation. Current source does not report which callback/predicate cancelled it. Do not claim clear/setup/thread/identity trigger without additional evidence. No restoration occurred. User reported finished; gameplay confirmation and partner report pending. Report archived. Next diagnostic must preserve first cancellation reason and callback stage/identity; transport PASS is not replay success.
+
+User confirmed gameplay remained normal without visible glitches for owned replay attempt 24848. Partner report remains pending. Local cancellation preceded snapshot capture/restoration; ownership cleanup completed.
+
+Partner report received for attempt 24848 and archived as captures/owned-replay-24848-partner.txt. Partner local slot 2, peer 76561198243481488. Same result as local: transport PASS, 7200/7200 records, checksum match, failure 26, ownership started 1, captures 0, cleanup 1, replay attempted/invoked/verified 0, restore 0, restart_required 0. Both cancelled their ownership source before capture. Exact cancellation reason still unavailable; agreement does not identify the callback that triggered it.
+
+### Owned replay cancellation diagnostic and empty-clear correction
+
+Added first-cancellation reason/thread/expected-thread/held-reference report fields. Codes: 1 descriptor thread, 2 changed descriptor payload, 3 capacity, 4 descriptor acquire, 5 buffer thread, 6 buffer acquire, 7 resource clear, 8 setup thread, 9 retained root replacement. Fixed clear callback incorrectly marking ownership present when no references existed. This bug could cause false cancellation on a subsequent clear; prior logs do not establish causality. Regression covers repeated empty clears and first-reason preservation. NativeRollbackWindow test passed; full build running in owned-replay-cancel-diagnostic-build.log. No live test armed.
+Full build and tests passed. ZIP DLL verified against staged SHA256 EE78A9862D9BD6914A1200F3339B7C6CEDAD9F0A006FC65B43F6054BEE82A1C4; package copied to Downloads/SC6Rollback-Owned-Replay-CancelDiagnostic.zip. Installation pending game closure.
+Installed cancellation diagnostic after confirmed closure and elevated termination of leftover PID48008. Installed hash verified: EE78A9862D9BD6914A1200F3339B7C6CEDAD9F0A006FC65B43F6054BEE82A1C4. No test armed.
+
+Owned cancellation diagnostic attempt 47244: four snapshots captured, three links, no ownership cancellation (reason0), cleanup1. Restore verified1 and replay invoked1, but replay verified0, failure12, completed0, restart_required1. Transport stopped composition_local_counter_reset at153 local/151 remote records. Thus previous before-capture ownership blocker did not recur, but replay did not pass. Archived report owned-replay-cancel-diagnostic-47244.txt. Need partner report and gameplay confirmation; do not equate invoked with verified or assume counter reset is the root replay failure.
+Partner report for47244 received. Both captured4 linked3, rewind depth3, restore verified1, replay invoked1/verified0, failure12, cancellation0, cleanup1, completed0; composition counter reset at153 local records on each. Partner first serialized mismatch record2 offset1968 length6208 writer3189232 (ring differs); local first serialized mismatch record673 offset544 length864 writer3687427 (ring matches). RNG and both player-buffer comparisons match on both. These are different first mismatch locations, not evidence of identical underlying cause. User confirmed normal gameplay and closedSC6. Next investigate replay serialized state differences and recorder handling of intentional rewind; do not bypass comparisons or claim completed replay.
+
+### Serialized replay mismatch diagnostic
+Added aligned 64-bit expected/actual values, aligned offset, and changed-byte count for the first mismatching serialized record. Existing pointer-padding exclusion preserved; comparison remains strict. Regression checks offset9 aligned to8, expected0/actual5888, changed count1 despite ignored padding. Focused test passed. Full build owned-replay-state-diagnostic-build.log running. Recorder emits boundary before replay process; failed replay can leave counter rewound, making subsequent composition reset plausible consequence. Do not suppress counter guard or claim cause proven. Partner first record differs from local; no restoration correction justified yet. User reordered internet combat playtest before transition testing once replay/integration prerequisites pass.
+Full build passed; installed after elevated leftover PID33912 termination. Installed/staged/archive hashes match FCBB72E778B648B785DE0B2C8019D04BE3C5B16D55A04253F24CA1AE6F216E93. Partner ZIP copied to Downloads/SC6Rollback-Owned-Replay-StateDiagnostic.zip. No live test armed.
+
+State diagnostic attempt45268: user reports finished, normal gameplay/no glitches. Report read while transport still running (1010local/1000remote); archived interim. native_window_reuse_completed1 proves first complete three-frame reference replay and recycle passed. Second cycle captured4 more (owned captures8 total) then preflight rejected transforms (readiness rejection11), failure20, planresult2 preparefailed, preparestage3 hop2. No second-cycle restoration began; cumulative restore/replay flags refer to first cycle. cleanup1,cancelreason0,restart_required1. Current mismatch fields zero because overwritten by second-cycle preparation, not proof first run failure resolved universally. Partner report requested. Need restart before next test.
+Partner state-diagnostic report received and archived. Both completed1 full three-frame replay/recycle, ownedcaptures8, cancellation0 cleanup1. Both second-cycle preflight rejects transforms at241->242, hop2, failure20/rejection11. Partner topology count2049->2047; first differing record2039 address changed, side2 kind4 size24 parent2036. Report transport peer_disconnected,2964local/2970remote, not replay failure cause evidence. Need support/handle changing transform object set rather than bypass topology guard. Prior first-replay serialized mismatch remains intermittent and not proven fixed by diagnostic-only changes.
+
+### Bounded topology retry
+Added read-only topology classification of all three snapshot pairs before prepare/load. Changing object sets can discard an untouched window using existing discard_unmodified, at most three retries per test; invalid classification or mutation remains terminal. Does not weaken restore comparisons or enable replay across creation/deletion. Report tracks retries and last skipped pair. Focused policy tests pass (budget, invalid state, prior mutation); full build running owned-replay-topology-retry-build.log. Needs live validation; prior serialized mismatch remains unresolved.
+Full build passed; installed after elevated leftover process48484 termination. Installed/staged/ZIP verified 8C81E15A3DF2D983084FC63EEE64E52860C0A2CB24ACE2ACF9A3413AA21E2A02. Partner ZIP in Downloads/SC6Rollback-Owned-Replay-TopologyRetry.zip. No test armed.
+
+### Owned replay4660: local two-cycle success
+User confirmed gameplay normal/no glitches. Transport PASS7200/7200 checksum1. Completed2 three-frame reference replays, comparison mask1023, replayverified1, failure0, captures8 cleanup1, cancellation0 restart_required0. Topology retries0: bounded retry path did not execute, so this run does not validate live topology-skip behavior or resolve earlier intermittent state mismatch. Local ownership-backed replay/reuse milestone passed this run. Partner report pending. No continuous combat rollback enabled; next planned milestone combat correction integration, then internet playtest before transition coverage per user preference.
+Partner report4660 archived: confirms PASS7200/7200 checksum1, completed2, replayverified1, comparison1023, failure0, cleanup1, restart0, topologyretries0. Both PCs passed two controlled three-frame reference replay/reuse cycles. Continuous combat rollback remains disabled. Earlier intermittent mismatch and topology-changing windows not resolved or exercised by this pass.
+
+### Combat rolling history storage bridge
+Implemented NativeRollingHistory<4> using actual NativeSnapshotPool. Consecutive full session/peer/generation/round/event/slot/thread identities, no eviction at/after caller oldest-required horizon, explicit owner-thread reference drain, terminal capture failure. capture_owned calls general combat capture serializer with descriptor/reference seeding and binding plus generated buffer fingerprint stability and ownership. Keeps combat_capture_only restriction; not a general restore backend and not installed/armed by live hooks. Tests20 frames through bounded four-slot history, resource count stays bounded, stale lookup rejected, unresolved eviction blocked, identity/thread rejection, failed-capture cleanup, idempotent cleanup; native snapshot pool and rollback window tests passed. Next remains arbitrary combat restore/clock integration. No new game test or ZIP needed; current installed DLL unchanged. Do not present local component tests as live continuous rollback.
+
+Combat history branch replacement implemented: rewind_for_replay retains snapshot resources through backend restore callback; verified success retires predicted suffix in reverse, then requires recapture at exact restored boundary. Failed loading latches terminal state and keeps references for cleanup. Partial retirement updates count immediately so cleanup cannot stop on previously retired handles and leak remaining dependencies. Tests cover recapture order, reference lifetimes, failed load and partial retirement cleanup. Native snapshot pool test passed; rollback-window regression passed. This is callback/backend infrastructure only: no native general-combat loader, no live hook route publication, no DLL update or player test.
+
+### Clock-to-battle reservation connection
+Added CombatBoundaryReservation: explicit independently established clock/battle origins, one admitted clock advancement per consumed battle boundary, identity/thread/session/round checks, overflow and duplicate/missed consumption rejection. SimulationBoundaryDriver::tick_reserved consumes reservation before simulation; if controller unexpectedly waits after outer advance it latches restart, not false stall/pass-through. Tests10 paired counter steps with different origins, denied admission, duplicate/missing battle calls, mistaken clock origin, failed clock completion, and actual adapter+controller depth-limit wait after advance. CombatUpdateAdapter tests pass. Not wired to native_clock_hook route; general combat restore still capture-only and native admission must prevent late stall. No DLL install/live test performed. Do not describe as continuous combat rollback implementation complete.
+
+### Controller-aware clock admission
+Added BoundedRollbackSession::admission(session,round), read-only forecast of available prediction budget after reconciliation. Counts only contiguous confirmations; validates dirty history and rejects wrong/failed identity. CombatBoundaryReservation::reserve_from now uses controller readiness instead of arbitrary caller bool. Integration test advances3, withholds4th, ignores later confirmation gap, accepts oldest correction without replay at admission, then executes3 correction steps plus new step at battle boundary. 7200-frame synthetic stream verifies admission before reconcile equals post-reconcile and advance result at every tick. CombatUpdateAdapter and Test-BoundedRollback passed. Native dispatcher publication and arbitrary-combat restoration still not connected; installed game DLL unchanged.
+
+### Native clock callback bridge
+Added CombatClockBridge<Session,Clock> connecting NativeClockDispatch admission/notification callbacks to controller admission and CombatBoundaryReservation. Preserves native wait, does not replay at clock boundary, explicit independent counter origins. Added terminal stop on dispatcher/reservation; callback failure prevents finish/advance, native completion faults invalidate reservation as well. Bridge is noncopyable because dispatch stores its address. Tests actual NativeClockAccess memory fixture with real rollback controller, native wait, paired consume, missing battle consume stopping before next advance, and bad native advance permanently stopping service. Test-NativeClockAccess and Test-CombatUpdateAdapter passed. No production publish call/no installed DLL change. General combat restoration remains unimplemented; this timing bridge alone cannot enable live rollback.
+Structural assessment implemented in NativeBoundarySnapshot and shared with existing prepare_adjacent; exposed through NativeRollingHistory::assess_pair. Capture-only mode still cannot load; frame wrap rejected. Test-FullRestore passed. Pair test initially expected frame rejection for synthetic snapshots lacking thread identity; corrected expected rejection to thread. Snapshot pool tests then passed. No live build installed; move/input-specific restoration generalization remains outstanding.
+
+### Input representation versus transition equality
+Added RecordedInput::valid_envelope (finite normalized axes, exact bit preservation) and transition (changed10-word mask) independent of button equality. Existing charge/compatible predicates reuse validation and retain exact legacy transition policy. CombatUpdateAdapter rejects malformed composed envelope before invoking update, dedicated input failure. Tests validate changed attack and signedzero without normalization, NaN/infinity/out-of-range rejection, zero game update on invalid input, and legacy same-input rejection remains. Combat adapter passed; full restore regression run. This does not authorize changing-input combat load; move-specific restore guards remain outstanding. No game install or capture.
+
+### Supported snapshot mode routing
+NativeBoundarySnapshot::capture_supported routes idle automatically and exact legacy throw/charge/attack/edge/reversal patterns only when caller explicitly supplies approved_profile. Profile defaults false; no generic character detection claimed. Charge requires existing native aux validation. Unknown/input-active ordinary states remain combat_capture_only. select_mode clears previous move flags. NativeRollingHistory::capture_owned now calls supported capture with optional approved-profile argument; no live production caller added. Tests cover known routes, profile false, unknown IDs, charge aux absent, input-active not idle, stale move flags. Snapshot tests and full restore regression passed. General changing-input combat restoration and production route remain outstanding. Installed DLL unchanged.
+
+### Retained-history native restore bridge
+Added NativeHistoryRestore one-attempt bridge over NativeRollingHistory: full identity/depth1..3 validation, owned resource validation across entire window, all-hop prepare before any load, reverse-order existing NativeAdjacentRestore loads, per-load full dependency revalidation. No automatic suffix retirement or resume: caller must replay to head. NativeRollingHistory now stores descriptor/root/control/buffer fingerprints per owned snapshot and preserves/clears guards during eviction and branch replacement; validates live ownership identity before restore. Native tests verify reverse order12,11,10; third preparation rejection causes zero loads; second load rejection stops further loads; stale ownership rejects; repeat invocation denied. Snapshot pool and rollback window tests pass. Existing move-specific/general-capture-only guards remain; bridge not installed/published in live hook, not continuous combat correction and no arbitrary-state support claimed.
+
+### 2026-10-11: corrected-history replay transaction
+
+Added CorrectedHistoryReplay.hpp, a one-shot coordinator for one to three confirmed input frames. It validates complete boundary identity and normalized composed inputs before calling NativeHistoryRestore; after successful restoration it retires the predicted suffix, asks the backend to recapture each corrected pre-frame state, advances each frame, and captures the endpoint. Remote slot is derived from the local slot; only the remote player pair is replaced. Failures after entering restoration conservatively require restart, including exceptions. Completion does not assert equality to the old predicted branch.
+
+NativeRollbackWindowTest now tests three-frame convergence with independent fixture state, exact operation order, preservation of local/auxiliary words and signed zero, invalid late confirmation/identity/axis rejection without mutation, one-shot use, and stopping at a partial update failure. Test-NativeRollbackWindow.ps1 passed under /W4 /WX.
+
+This coordinator is backend-parametric. The production capture/update backend is NOT connected, no live route was armed, no DLL was installed, and this is not a live combat rollback result. Existing unsupported native restore guards remain in force.
+
+### 2026-10-11: native corrected replay backend
+
+Added NativeCorrectedReplayBackend.hpp and replay_corrected_native, connecting the transaction to NativeRollingHistory::capture_owned, NativeHistoryRestore, and SingleUpdateCall. Backend preflight now occurs before any restoration and checks endpoint counter, owner/identity, dependency availability, endpoint input representation, depth, and rejection of the hooked entry in place of the original trampoline. Corrected captures retain resources, validate the counter before and after saving, and require an exact captured input match before update. Every update must advance exactly one frame; endpoint capture is one-shot. The caller supplies an explicit endpoint envelope rather than silently reusing the last frame's input.
+
+Test-NativeRollbackWindow.ps1 passed under /W4 /WX. Fixture-memory tests exercise the production backend and SingleUpdateCall for three updates and endpoint capture, invalid head counter/trampoline, missed/double counter advance, failed capture, changed input between capture and update, and stopping further calls after failure. The full native template bridge is compiled and invalid requests rejected. These are local fixture tests, not SC6 runtime validation or proof of arbitrary combat restoration.
+
+No live hook has been armed, no DLL installed, and partner package is unchanged. Next integration must provide the owned simulation boundary, authenticated confirmed input window and endpoint envelope, dependency source, and failure/teardown handling. Existing capture-only and unsupported-mode restore guards remain intact.
+
+### 2026-10-11: confirmed network window bridge
+
+The existing game-thread handoff rejected envelopes differing from the recorded frame, so its validated callback could not deliver a prediction correction. Added a separate owner-thread confirmation ring after nonce, round, generation, frame-age and history checks. It accepts differences only in the remote player's pair; local input and auxiliary words must still match retained history. Identical duplicate confirmations are idempotent; conflicting confirmations disable retrieval. Legacy exact-input callback and diagnostics remain unchanged.
+
+ConfirmedReplayWindow copies a complete one-to-three-frame window into the replay coordinator's format. Missing or invalid confirmation clears output and does not begin restoration. replay_confirmed_native connects this window builder to the native backend transaction. Focused NetworkGameHandoff and NativeRollbackWindow tests passed, covering both sides, remote differences, auxiliary rejection, conflicts, wrong peer/thread, and three-frame extraction.
+
+The handoff code is used by the existing observer route, but no mutation route is enabled or installed. Exclusive live battle/clock hook integration remains outstanding: the current EntryBridge still automatically invokes stock simulation, and must not be treated as an owned update boundary. No DLL/package update was delivered this turn.
+
+### 2026-10-11: exclusive battle entry continuation
+
+EntryBridge now supplies a continuation slot initialized to the original trampoline. The recorder can mark an exclusively consumed void update by clearing it; the assembly restores saved registers, control state and flags and returns to the original caller without invoking the trampoline again. Default recording and argument replacement preserve the existing pass-through behavior.
+
+Added ExclusiveBattleRoute with explicit owner, verified void-entry and clock-ownership prerequisites. The recorder checks its process-lifetime atomic route before recording or stock dispatch. Reentry, wrong thread, callback failure and C++ exceptions make the route terminal; stock advancement is never used as an automatic fallback. No code publishes this route yet: continuous scheduling, clock reservation and round/session lifecycle still need to be connected before arming it.
+
+Test-Recorder.ps1 passed, including actual assembled bridge tests for exactly one callback-driven original update, failure suppression and recursive-entry suppression, plus existing argument/return and hook tests. A full Build-Native.ps1 run is recorded in build-native/exclusive-battle-route-build.log. No installation or partner package was performed; the live route remains unarmed.
+
+Full native build completed successfully (exit 0), including its test suite; DLL staged locally only.
+
+### 2026-10-11: reserved battle scheduler connection
+
+Added ReservedBattleDriver, joining ExclusiveBattleRoute to SimulationBoundaryDriver::tick_reserved and CombatUpdateAdapter. Binding requires an active clock dispatcher, bilateral private-session readiness and a verified void entry. The supplied boundary reader provides current session/round/frame and local inputs; the adapter's expected frame must match. Failed reads, reservations, scheduler updates and exceptions stop the clock bridge. No hook route is published by construction or binding.
+
+Test-CombatUpdateAdapter.ps1 passed: actual BoundedRollbackSession and CombatUpdateAdapter with fixture snapshot/clock storage ran three predicted frames, withheld admission at the limit, accepted a correction, replayed three frames plus one current frame (seven total update calls), and stopped without another update on an unreserved extra entry. Test-NativeClockAccess.ps1 also passed after exposing the clock bridge stop method.
+
+This connects scheduler and reservation policy, but the adapter in the integration test still uses fixture snapshot storage. The live arbitrary-combat snapshot backend, boundary reader, confirmed-input delivery into the continuous scheduler, and coordinated route publication remain outstanding. No game install or live rollback activation occurred.
+
+### 2026-10-11: confirmations during scheduler stalls
+
+Added SchedulerConfirmationQueue, a bounded single-producer/single-consumer queue for authenticated transport submissions. Binding pins both nonces, round/event, slot, owner thread and native frame origin. Consumer maps native frames to scheduler frame numbers and projects only the remote player's two words. Invalid identity is rejected at publication; scheduler conflict/expiry/invalid arrival is terminal. Full queue returns false so the producer must retry rather than mark delivery complete.
+
+CombatClockBridge can attach this service before binding and drains it before admission, including when the scheduler previously exhausted its prediction budget. This removes reliance on another battle update to receive the confirmation needed to unblock that update. Native SC6 wait still preserves stock servicing semantics.
+
+CombatUpdateAdapter and NativeClockAccess tests passed: queue delivery unblocked a three-frame prediction stall and triggered correction; callback failure stopped clock advancement; valid callback ran before advance. No production producer or routes were published and no install occurred. Real native snapshot support remains restricted; continuous scheduler storage integration is not complete.
+
+### 2026-10-11: authenticated producer to scheduler sink
+
+Added SchedulerInputSink with accepted/full/rejected outcomes and idempotent delivery tracking. SteamHandshake now optionally forwards staged authenticated/composed records into this sink using separate delivery bits from the observer handoff. It processes at most eight submissions per poll; a full queue leaves the record pending for retry, while rejection stops the diagnostic session. Observer queue saturation does not skip this independent submission loop. No sink is published by default.
+
+SchedulerConfirmationQueue exposes the typed submission result plus a sink callback. Focused CombatUpdateAdapter tests passed for successful submission, duplicate delivery suppression, full-queue retry after draining, and wrong-peer rejection. Initial namespace compilation error was corrected before the successful run. Full build log: build-native/scheduler-input-sink-build.log.
+
+This remains an optional integration inside the finite diagnostic transport. Continuous local capture during exclusive hook ownership, native scheduler snapshot storage, route publication and lifecycle remain unfinished. No game installation or live rollback activation occurred.
+
+Full native build completed successfully (exit 0); DLL staged locally, not installed.
+
+### 2026-10-11: input publication under exclusive ownership
+
+Added OwnedInputPublication for the existing bounded diagnostic shared mapping. It validates mapping/session/thread/round/frame continuity, records the original local envelope and QPC, and publishes count only after record/round data. ReservedBattleDriver now supports an attached publisher after a successful admitted live tick. Internal correction replay does not invoke it, preventing duplicate or rewound network records. Publication failure stops the clock; recording capacity marks completion and cannot silently wrap.
+
+CombatUpdateAdapter tests passed with the real publication writer: three predicted ticks followed by three replay updates and one new tick produced seven update calls but exactly four ordered network records. An unreserved entry produced no additional records. No DLL was installed. This is a bounded diagnostic bridge, not an unlimited match stream. Native scheduler snapshot storage and production route/reader publication remain outstanding.
+
+### 2026-10-11: native scheduler snapshot storage
+
+Added NativeSchedulerStorage adapting NativeRollingHistory and NativeHistoryRestore to scheduler snapshot handles. The scheduler now supplies local plus selected remote inputs to save; CombatUpdateAdapter composes and validates the exact envelope before native capture. ReservedBattleDriver supplies the live boundary envelope before reconciliation. Native storage adds the current endpoint needed by adjacent reverse loading, restores with existing guards, retires the predicted suffix only on successful load, and invalidates old serial-numbered handles before recapture.
+
+Test-NativeRollbackWindow, Test-CombatUpdateAdapter, and Test-BoundedRollback passed. Storage fixture verifies endpoint capture, reverse-load bridge invocation, suffix retirement/recapture and stale handle rejection. Production templates compile with invalid-context rejection. These do not exercise native loading in SC6. Unsupported combat modes still reject, and each restore currently allocates its restore workspaces; this is not yet a performance-qualified continuous backend. No route publication, DLL install or live rollback activation occurred.
+
+### 2026-10-11: production battle boundary reader
+
+Added NativeBattleBoundaryReader with production access to round identity, native battle counter and the input argument. Binding pins verified module, caller and full rollback identity. Each read checks owner thread and caller, samples round/frame around the envelope copy, validates input representation, rejects pre-origin or overflow counters and clears output on failure. Its callback fits ReservedBattleDriver's reader contract.
+
+NativeRollbackWindow tests passed for successful envelope/identity extraction, wrong caller with terminal rejection, stale generation, torn frame reads and unbound production-reader rejection. NativeSchedulerStorage remains restricted to supported restore modes. No live route was published, no game capture was armed, and no DLL was installed. Process-lifetime assembly of these components, coordinated activation and live runtime validation remain outstanding.
+
+### 2026-10-11: assembled native combat session
+
+Added NativeCombatSession owning the rolling history, native storage adapter, bounded scheduler, update adapter, clock bridge, confirmation queue, boundary reader, publication writer and exclusive driver. Preparation validates required context, binds input and clock services, and connects reader/publication callbacks. Hook/sink publication remains separate and is not performed by construction or preparation. Dependency-source lifetime and owner-thread teardown remain explicit.
+
+NativeRollbackWindow test compiles the assembled production path and verifies invalid preparation remains unarmed and one-shot. This is not successful native preparation or execution evidence. Moved exclusive battle routing after the persistent resource-lifetime/frame observation service so owning battle dispatch does not bypass that service. Full native build log: build-native/native-combat-session-build.log.
+
+No installation or live activation performed. Coordinated publication, clean startup handshake, bounded-recording termination and runtime validation are still required, and arbitrary combat restore remains restricted by the native loader guards.
+
+Full native build completed with exit 0; test suite passed and DLL staged locally only.
+
+### 2026-10-11: coordinated route publication and bounded stop
+
+Added CombatRouteBundle, exposing prepared clock/battle/input routes with one atomic publication. All three production consumers consult this bundle before legacy routes. NativeCombatSession::activate requires a prepared owner-thread session, matching installed clock hook, no legacy routes and explicit clean-start agreement; no production code calls activate yet. Bundle lifetime must span the hooked process. Publication is one-way, and clock stop retains hook ownership.
+
+NativeCombatSession now stops its clock when its admitted-input publication reaches the diagnostic record limit, marking completion separately. It does not silently return to stock simulation. Tests cover invalid activation, bounded writer completion/no overflow, successful bundle publication, duplicate publication rejection and retaining ownership after stop. NativeRollbackWindow and NativeClockAccess tests passed. Full build log: build-native/combat-route-bundle-build.log.
+
+No DLL installation or actual activation occurred. A real clean-start agreement/arming flow, live preparation validation and supported-state restrictions still prevent claiming a general combat rollback test is ready. Completion currently means simulation is stopped pending explicit restart, not automatic continuation.
+
+Full native build completed successfully (exit 0); DLL staged locally, not installed.
+
+### 2026-10-11: explicit start agreement gate
+
+Replaced NativeCombatSession's Boolean activation agreement with CombatStartAgreement. Offers bind reciprocal session nonces, independent tickets, build identity, round/event, common first frame, complementary player slots, delay, rollback depth and record limit. Both ticket echoes are required before one-shot consumption. Changed duplicate offers and stale acknowledgements reject the agreement. Native activation additionally matches the offer to its local configuration and currently accepts only zero configured delay, three-frame depth and the full diagnostic capacity.
+
+NativeRollbackWindow tests passed for agreement, identical duplicate offers, missing acknowledgement, one-shot consumption, mismatched build/frame/delay/slot/round and stale ticket rejection. This is a local protocol-state implementation only: wire encoding, authenticated offer/ack delivery and start-boundary scheduling are NOT connected. No arming command, install or live activation occurred. Agreement alone is not proof of simultaneous startup or native combat support.
+
+### 2026-10-11: start-agreement wire exchange
+
+Added an explicit 80-byte little-endian CombatStartPacket encoding (magic/version/kind, all offer fields and echoed ticket), plus CombatStartExchange. Receive requires mutual transport authentication, expected Steam sender and matching session nonce pair. Offers and ticket acknowledgements are idempotent before consumption; malformed size/version/kind/settings and mismatched senders reject. No padded native struct is transmitted.
+
+SteamHandshake optionally handles these packets and retransmits the prepared exchange every 250 ms. The exchange pointer defaults null and is network-worker-owned once published; no arming flow publishes it yet. Packet size is distinct from existing 32-byte handshake and 96-byte input packets. NativeRollbackWindow tests passed for roundtrip encoding, two-peer acknowledgement exchange, wrong sender/no mutual proof, truncation/corruption and one-shot completion.
+
+Full build log: build-native/combat-start-packets-build.log. No install or game activation. Completion transfer to the owner thread, actual start-boundary scheduling and missing native runtime evidence remain outstanding.
+
+Full native build passed (exit 0); DLL staged locally, not installed.
+
+### 2026-10-11: game-thread agreement transfer and boundary recheck
+
+Added CombatStartMailbox: one network producer publishes an immutable completed agreement with release/acquire synchronization; only the bound owner thread can take it once. CombatStartExchange can attach the mailbox before beginning and publishes after acknowledgement. NativeCombatSession activation now requires the actual input argument/caller and resamples battle identity/frame plus native clock identity/frame before consuming agreement and publishing routes.
+
+NativeRollbackWindow and NativeClockAccess tests passed, including real producer-thread acknowledgement/mailbox publication, wrong-thread take rejection, owner take/one-shot behavior and current clock-boundary checks. No full build, install or live activation was run this turn. The mailbox is attachable but the production arming controller is still absent; peer agreement does not establish that both clocks can reach/hold the negotiated start together. Startup scheduling and restricted restore coverage remain unresolved.
+
+### 2026-10-11: bounded native start hold
+
+Added NativeStartHold, bound to a verified clock identity/frame with a maximum ten-second deadline. It continues native service/wait checks but always withholds advancement. Timeout, changed frontier or native failure latches failure; no stock fallback. NativeClockHook can route a matching object through this optional hold before normal routing; pointer defaults null. An activated combat bundle takes precedence, and NativeCombatSession rejects activation through an expired/failed hold.
+
+NativeClockAccess tests passed for alternating native-wait/ready servicing with zero advances, deadline stop and moved-frontier rejection. NativeRollbackWindow tests passed after integration. No hold has been published or installed in-game. This adds the clock-hold primitive, not the complete arming controller: selecting/reaching the agreed frontier, peer-held proof and game-thread activation dispatch remain outstanding. No live rollback activation occurred.
+
+### 2026-10-11: bilateral held-start proof
+
+Added held packet kind 3, echoing the current peer ticket and complete agreed offer. CombatStartExchange receives an atomic one-time local-held ticket from the game thread and retransmits held status when applicable. Agreement tracks local/peer held evidence separately from basic acknowledgement; mailbox publication and native activation now require both. NativeStartHold::announce validates its live frontier/deadline before reporting local hold.
+
+NativeRollbackWindow tests passed: ordinary acknowledgement and one-sided hold do not publish activation; both held tickets permit one owner-thread transfer. NativeClockAccess tests passed for valid held reporting and refusing to report after timeout. No full build/install/live activation occurred. Production arming still must select and reach the frontier, publish the hold/exchange, construct the session and dispatch activation; held evidence does not eliminate timeout or disconnect handling requirements.
+
+### 2026-10-11: native arming controller
+
+Added NativeCombatArming owning the start mailbox, exchange, hold and native session with explicit idle/preparing/holding/active/complete/restart-required phases. Owner-thread preparation requires a verified quiescent boundary, checks existing route conflicts and the actual battle input/caller/frame, prepares session/clock hold, then publishes hold and network exchange. Owner-thread polling checks hold expiry, takes bilateral-held agreement and invokes session activation; failed published startup retains process-lifetime ownership and requires restart.
+
+NativeRollbackWindow tests passed for unverified-boundary rejection, unavailable-hook rejection, terminal polling and no publication on failed preparation. The complete production template path compiles, but successful native preparation/activation has not been exercised. No launcher command, hook polling call, full build, installation or live test was added. The controller needs a verified quiescent game-thread integration point; network-thread or arbitrary battle-entry invocation is not equivalent.
+
+### 2026-10-11: activation polling at clock entry
+
+Call-order review confirmed battle entry is too late for startup polling: outer consumed-frame state is committed before battle dispatch, while a held clock may produce no battle entry. NativeClockHook now has an optional process-lifetime startup callback invoked before selecting/servicing its clock route. NativeCombatArming publishes its owner-thread poll callback after establishing the hold and exchange. Activation resamples round/battle frontier and native clock state without requiring a battle-input argument; normal admitted battle ticks still validate caller and input through the reader.
+
+NativeRollbackWindow tests passed, including startup-before-original ordering, frontier match/mismatch, and existing arming rejection tests. Successful runtime preparation is still untested. No launcher, installation or live activation was performed. An initial owner-thread preparation dispatch and validated runtime configuration still need connecting; this fixes polling placement, not proof that the full arming path works in-game.
+
+### 2026-10-11: one-shot preparation dispatch
+
+Added NativeArmingDispatch, an immutable process-lifetime request consumed at the selected object's clock-hook entry. Queueing requires installed matching hook and explicit verified context; owner-thread polling waits for the configured clock frame, rejects missed frame/identity/thread/deadline, and calls NativeCombatArming preparation before native servicing. NativeClockHook invokes this preparation callback before startup polling and route selection. No request is queued by default.
+
+NativeRollbackWindow tests passed for invalid-context rejection, one-shot queue publication, waiting before the target, missed-frontier rejection and no hold/route activation on rejection. Successful native preparation remains untested. No full build/install/live test performed. Runtime configuration gathering and a user-facing arm command are still absent; callers must retain the request, shared mapping and dependency source for process lifetime.
+
+### 2026-10-11: reject inconsistent arming configuration before clock hold
+
+Added pure NativeCombatSession::valid_config validation, used by request queueing,
+owner-thread preparation, and session preparation. The offered session/peer,
+round/event, starting frame and player slot must match the local identity. The
+current integration requires zero delay, three-frame depth and 7200 records;
+arming also rejects a short-mode observation mapping. Invalid configuration no
+longer waits until activation after publishing the clock hold to be rejected.
+
+Validation: Test-NativeRollbackWindow.ps1 passed, including mismatched frame,
+slot, peer, delay and recording length. These are fixture checks, not native
+activation evidence. Runtime discovery/configuration and the user-facing arming
+command remain unconnected. No installation or live test was performed.
+
+### 2026-10-11: read-only clock discovery from the installed dispatcher
+
+NativeClockAccess::inspect validates the pinned clock layout and active phase
+without binding ownership or calling service/advance. NativeClockHook now feeds
+NativeClockDiscovery before dispatch: module/object, owner thread, clock identity,
+frame and native player masks. The record is copied under a nonblocking SRW lock,
+with no heap allocation in the hook. Invalid observations replace the previous
+record; reads reject records older than 250 ms or timestamps in the future.
+Discovery is a configuration hint, not proof of exclusive ownership, bilateral
+admission, battle alignment or object uniqueness. Preparation must revalidate.
+
+Focused clock and rollback-window tests passed, including both local masks,
+stale records, inactive phase, unreadable objects and zero native calls during
+inspection. Runtime arming command/configuration assembly remains unfinished.
+No installation or live activation was performed.
+Full Build-Native.ps1 completed successfully (clock-discovery-build.log), including its test suite. The built DLL was staged by the build script only, not installed in SC6.
+
+### 2026-10-11: configuration assembly from observed clock
+
+NativeCombatConfiguration assembles a session configuration on the observed
+owner thread. It rereads the clock, brackets the battle-counter read with round
+identity snapshots, and requires the observed clock frame, battle frame, round,
+generation and native local mask to match the requested admission context. It
+does not invent ownership/private-session validation or silently change the
+agreed player slot. Failure clears the output and returns a categorized reason.
+NativeArmingDispatch::from_observation uses this assembler to construct an
+unpublished request; callers still must queue and retain it correctly.
+
+Test-NativeRollbackWindow.ps1 passed: both local masks, stale observation,
+wrong thread, advanced clock, changed round generation, battle mismatch,
+slot mismatch and missing bilateral admission. This is fixture coverage only.
+The live command and validated match/resource context producer remain absent;
+no DLL installation or live activation was performed this turn.
+
+### 2026-10-11: owned resource readiness in arming assembly
+
+ReplayOwnedResources now supplies an owner-thread/cancellation readiness callback
+through ReplayDependencySource. Source availability therefore requires both the
+generated reference and a ready resource owner; an active generated lease alone
+no longer passes for a cancelled owner. NativeArmingDispatch::from_owned_resources
+reads clock discovery and assembles an unpublished request with that source.
+Assembly rejects unavailable resources before request construction; preparation
+and capture continue to recheck source availability. Ownership is borrowed from
+the process-lifetime resource owner, not reacquired from cached raw pointers.
+
+Test-NativeRollbackWindow.ps1 passed, including cancellation rejection before
+capture or counter mutation. The actual match-admission producer and command
+publication remain unconnected. No installation, activation or live test occurred.
+
+### 2026-10-11: authenticated peer context for arming
+
+SteamHandshake now publishes a bounded-lifetime transport snapshot containing
+the expected Steam peer, mutually confirmed nonces and configured local slot.
+The worker clears the snapshot each poll and only publishes during an active
+input exchange. Game-thread reads are nonblocking and reject timestamps older
+than 250 ms. This is transport evidence, not private-mode detection, match
+alignment, or consent to gameplay mutation.
+
+NativeArmingDispatch::from_live_context uses that snapshot, checks the shared
+mapping nonce and requested slot, and supplies the verified nonces to the owned
+resource/configuration path. A live command publisher still needs to establish
+the remaining boundary/admission evidence; this helper does not queue itself.
+Handshake and rollback-window focused tests passed, including pending handshake,
+non-live peer, invalid slot, stale/future timestamp and explicit clearing.
+No installation or live activation performed.
+Full Build-Native.ps1 passed (combat-peer-context-build.log); DLL staged locally only.
+
+### 2026-10-11: separate owned-recording attachment from observer arming
+
+Found a startup conflict: Capture::arm creates network-observe.arm and begins
+observer publication, whereas OwnedInputPublication requires count zero at bind.
+Added Capture::attach_owned to read an already prepared, empty scheduler-owned
+mapping without writing an observer arm file. reserved=2 identifies this mode;
+NativeCombatSession, NativeCombatArming and NativeArmingDispatch require it.
+Existing observer modes retain their existing reserved values. Capture rejects
+double attachment/arming before opening another mapping or creating a file.
+
+Tests use a real process-local Windows mapping: observer-mode and wrong-nonce
+rejection, nonempty-buffer rejection, successful owned attachment, duplicate
+attachment/arming rejection, and import of a subsequently published record.
+Steam input exchange and native rollback-window focused tests passed.
+The live command must still prepare this mapping, attach transport before
+publication starts, and coordinate bilateral activation. Nothing installed or
+activated; adding the attachment API does not enable that command by itself.
+
+### 2026-10-11: owned transport attachment acknowledgement
+
+Capture::attach_owned now publishes a process-local session-nonce acknowledgement
+only after validating and mapping the empty owned buffer. Duplicate attachment
+is rejected; destruction detaches only its own nonce. Steam worker stopped or
+completed state clears its owned attachment on polling. NativeCombatSession
+requires the matching acknowledgement during preparation, activation and ready
+checks, so a detached transport cannot remain a ready session.
+
+Focused shared-mapping and rollback-window tests passed. Coverage includes wrong
+nonce, duplicate readers, failed-reader destruction, matching detach and cleanup.
+This is local attachment evidence only. The live startup command still needs to
+initialize the owned mapping and coordinate transport attachment, resource
+collection, validated boundary selection and bilateral startup. No installation
+or live activation occurred.

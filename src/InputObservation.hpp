@@ -7,6 +7,7 @@ namespace sc6::observation {
 constexpr unsigned limit=120,words=14,parts=7;
 constexpr unsigned capacity=7200;
 constexpr unsigned magic=0x5343364f,version=4;
+constexpr unsigned owned_mode=2; // exclusive scheduler writer, never observer-armed
 // Wire words: outer counter, ten raw input words, QPC low/high, reserved zero.
 // No pointers or mutable game state are exposed to the network process.
 struct Record {std::array<std::uint32_t,words> data{};};

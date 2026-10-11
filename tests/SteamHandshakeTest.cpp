@@ -1,4 +1,5 @@
 #include "../src/SteamHandshakeProtocol.hpp"
+#include "../src/CombatPeerContext.hpp"
 #include <cassert>
 #include <iostream>
 using namespace sc6::steam_handshake;
@@ -13,6 +14,17 @@ int main(){
     assert(b.receive(11,a.outgoing(),32));assert(b.proof && !b.mutual);
     assert(a.receive(22,b.outgoing(),32));assert(a.proof && a.mutual);
     assert(b.receive(11,a.outgoing(),32));assert(b.mutual);
+    sc6::research::CombatPeerContext context;
+    sc6::research::CombatPeerContext::Snapshot snapshot;
+    assert(context.publish(a,1,1000,true));
+    assert(context.read(1000,snapshot) && snapshot.peer==22 && snapshot.local_nonce==101 && snapshot.remote_nonce==202);
+    assert(!context.read(1251,snapshot) && !snapshot.valid);
+    assert(!context.read(999,snapshot));
+    assert(!context.publish(a,1,1001,false) && !context.read(1001,snapshot));
+    assert(!context.publish(a,3,1002,true));
+    auto pending=a;pending.mutual=false;assert(!context.publish(pending,1,1002,true));
+    assert(context.publish(b,2,1003,true) && context.read(1003,snapshot) && snapshot.local_slot==2);
+    context.clear();assert(!context.read(1003,snapshot));
     assert(a.receive(22,b.outgoing(),32)); // duplicate is harmless
     bad=b.outgoing();bad.nonce=303;assert(!a.receive(22,bad,32));
     Protocol restarted{22,404};assert(!restarted.receive(22,b.outgoing(),32));assert(!restarted.mutual);

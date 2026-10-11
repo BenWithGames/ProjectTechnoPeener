@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include "CombatBoundaryReservation.hpp"
 namespace sc6::research {
 // Policy for a future exclusive SC6 update hook. Not used by EntryBridge:
 // returning from one battle update does not prove the outer game clock stalls.
@@ -38,6 +39,16 @@ public:
     // No automatic fallback after prediction or mutation. A separately
     // verified clean match restart is required to replace this driver.
     bool active()const{return active_;}
+    template<class Adapter,class Input> Disposition tick_reserved(CombatBoundaryReservation& reservation,
+        uint64_t session,uint64_t round,unsigned thread,unsigned frame,Adapter& adapter,const Input& local){
+        if(!active_)return Disposition::pass_through;
+        if(failed_ || !reservation.consume(session,round,thread,frame)){failed_=true;return Disposition::restart_required;}
+        const auto result=tick(session,round,thread,adapter,local);
+        // The outer clock already advanced. A late request to wait cannot be
+        // treated as a successful stall; admission must decide before advance.
+        if(result!=Disposition::consumed){failed_=true;return Disposition::restart_required;}
+        return result;
+    }
     bool restart_required()const{return failed_;}
 };
 }

@@ -3,14 +3,29 @@
 #include <atomic>
 #include <cstring>
 #include "NativeClockDispatch.hpp"
+#include "CombatRouteBundle.hpp"
+#include "NativeStartHold.hpp"
+#include "NativeClockDiscovery.hpp"
 namespace sc6::research::native_clock_hook {
 using Dispatch=NativeClockDispatch<>;
 inline Dispatch::Original original{};
 inline std::atomic<Dispatch*> route{};
+inline std::atomic<NativeStartHold<>*> start_hold{};
+struct StartupPoll {void* context{};void (*poll)(void*,uintptr_t)noexcept{};};
+inline std::atomic<const StartupPoll*> startup_poll{};
+inline std::atomic<const StartupPoll*> preparation_poll{};
 inline bool installed{};
 inline uintptr_t installed_base{};
+inline NativeClockDiscovery discovery;
 inline void bridge(uintptr_t object) {
-    if(auto* dispatch=route.load(std::memory_order_acquire))dispatch->run(object,original);
+    if(installed_base)discovery.observe(installed_base,object,GetTickCount64());
+    if(const auto* preparation=preparation_poll.load(std::memory_order_acquire))preparation->poll(preparation->context,object);
+    // Owner-thread startup polling must precede servicing/advancement. A held
+    // clock may produce no battle entry, so battle-only polling deadlocks.
+    if(const auto* startup=startup_poll.load(std::memory_order_acquire))startup->poll(startup->context,object);
+    if(const auto* routes=combat_routes.load(std::memory_order_acquire))routes->clock->run(object,original);
+    else if(auto* hold=start_hold.load(std::memory_order_acquire);hold && hold->matches(object))hold->run(object,GetTickCount64());
+    else if(auto* dispatch=route.load(std::memory_order_acquire))dispatch->run(object,original);
     else original(object);
 }
 // The route must have process lifetime, with an already-bound game-thread

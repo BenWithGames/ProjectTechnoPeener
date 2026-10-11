@@ -1,5 +1,6 @@
 #pragma once
 #include "InputObservation.hpp"
+#include "OwnedTransportAttachment.hpp"
 #include "LiveShadowPrediction.hpp"
 #include "LiveInputComposition.hpp"
 #include <filesystem>
@@ -46,6 +47,7 @@ struct Exchange {
 struct Capture {
     HANDLE mapping=nullptr;const observation::Shared* shared=nullptr;
     bool armed=false;uint64_t armed_at=0;
+    uint64_t owned_nonce{};
     Exchange exchange;
     LiveShadowPrediction shadow;
     LiveInputComposition composition;
@@ -63,8 +65,24 @@ struct Capture {
         if(accepted && first){LARGE_INTEGER stamp{};QueryPerformanceCounter(&stamp);arrival_qpc[packet.index]=stamp.QuadPart;}
         return accepted;
     }
-    ~Capture(){if(shared)UnmapViewOfFile(shared);if(mapping)CloseHandle(mapping);}
+    ~Capture(){research::owned_transport_attachment.detach(owned_nonce);if(shared)UnmapViewOfFile(shared);if(mapping)CloseHandle(mapping);}
+    // Attach to a mapping initialized by the game-thread combat controller.
+    // Unlike arm(), this never creates network-observe.arm or starts a writer.
+    bool attach_owned(uint64_t nonce){
+        if(armed || mapping || shared || !nonce)return false;
+        const auto handle=OpenFileMappingW(FILE_MAP_READ,FALSE,observation::mapping_name(GetCurrentProcessId()).c_str());
+        if(!handle)return false;
+        const auto view=static_cast<const observation::Shared*>(MapViewOfFile(handle,FILE_MAP_READ,0,0,sizeof(observation::Shared)));
+        const bool valid=view && view->signature==observation::magic && view->schema==observation::version &&
+            view->pid==GetCurrentProcessId() && view->reserved==observation::owned_mode && view->nonce==nonce &&
+            view->frequency && view->status==1 && view->count==0;
+        if(!valid){if(view)UnmapViewOfFile(view);CloseHandle(handle);return false;}
+        if(!research::owned_transport_attachment.attach(nonce)){UnmapViewOfFile(view);CloseHandle(handle);return false;}
+        owned_nonce=nonce;
+        mapping=handle;shared=view;armed=true;armed_at=GetTickCount64();return true;
+    }
     void arm(const std::filesystem::path& directory,uint64_t nonce,bool checkpoints=false,bool replay=false,bool late=false,bool reuse=false) {
+        if(armed || mapping || shared)throw std::runtime_error("capture_already_attached");
         mapping=OpenFileMappingW(FILE_MAP_READ,FALSE,observation::mapping_name(GetCurrentProcessId()).c_str());
         if(!mapping)throw std::runtime_error("recorder_mapping_missing");
         shared=static_cast<const observation::Shared*>(MapViewOfFile(mapping,FILE_MAP_READ,0,0,sizeof(observation::Shared)));

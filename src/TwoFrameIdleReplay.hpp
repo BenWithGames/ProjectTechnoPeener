@@ -85,7 +85,7 @@ struct TwoFrameIdleReplay {
     }
     struct NativeDifference {
         unsigned reason{},record{UINT32_MAX};
-        uint64_t offset{},length{},writer{},source{},expected{},actual{};
+        uint64_t offset{},length{},writer{},source{},expected{},actual{},word_offset{},expected_word{},actual_word{},changed_bytes{};
     };
     static bool native_equal(const FullStateProbe& q,uintptr_t base,NativeDifference* diagnostic=nullptr){
         if(diagnostic)*diagnostic={};
@@ -124,7 +124,20 @@ struct TwoFrameIdleReplay {
                 for(uint64_t j=skip;j<length;++j){
                     if(pointer_record_padding && j>=4 && j<8)continue;
                     const auto expected=a.stream.payload[offset+j],actual=b.stream.payload[offset+j];
-                    if(expected!=actual)return reject(4,i,j,length,std::to_integer<unsigned>(expected),std::to_integer<unsigned>(actual));
+                    if(expected!=actual){
+                        reject(4,i,j,length,std::to_integer<unsigned>(expected),std::to_integer<unsigned>(actual));
+                        if(diagnostic){
+                            diagnostic->word_offset=j & ~uint64_t{7};
+                            const auto bytes=static_cast<size_t>((std::min)(uint64_t{8},length-diagnostic->word_offset));
+                            std::memcpy(&diagnostic->expected_word,a.stream.payload.data()+offset+diagnostic->word_offset,bytes);
+                            std::memcpy(&diagnostic->actual_word,b.stream.payload.data()+offset+diagnostic->word_offset,bytes);
+                            for(uint64_t k=skip;k<length;++k){
+                                if(pointer_record_padding && k>=4 && k<8)continue;
+                                if(a.stream.payload[offset+k]!=b.stream.payload[offset+k])++diagnostic->changed_bytes;
+                            }
+                        }
+                        return false;
+                    }
                 }
                 return reject(4,i,0,length,0,0);
             }

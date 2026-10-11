@@ -3,7 +3,18 @@
 #include "NativeAdjacentRestore.hpp"
 #include "SingleUpdateCall.hpp"
 #include "ResourceDependencyCapture.hpp"
+#include "GeneratedSnapshotDependency.hpp"
+#include "GeneratedBufferFingerprint.hpp"
 namespace sc6::research {
+// Seed must synchronously publish already-owned descriptor references into the
+// active collector. No cached borrowed pointers may be used for acquisition.
+struct ReplayDependencySource {
+ void* context{};
+ bool (*seed)(void*,uint32_t){};
+ GeneratedSnapshotDependency* generated{};
+ bool (*ready)(void*){};
+ bool available()const{return context && seed && generated && generated->active() && (!ready || ready(context));}
+};
 struct RollbackBoundaryKey {
     uint64_t session{},peer{},generation{};
     unsigned round{},event{},frame{},slot{},thread{};
@@ -37,6 +48,24 @@ class NativeRollbackWindow {
     std::array<RollbackBoundaryKey,4> keys_{};
     std::array<std::unique_ptr<NativeAdjacentRestore>,3> hops_;
     RecordedInput guard_;
+    struct DependencyGuard {bool enabled{};uintptr_t root{},control{},module{};std::array<uintptr_t,2> descriptors{};GeneratedBufferFingerprint fingerprint;};
+    std::array<DependencyGuard,4> dependency_guards_{};
+    static bool dependency_valid(const DependencyGuard& guard){
+        if(!guard.enabled)return true;
+        __try {
+            if(*reinterpret_cast<uintptr_t*>(guard.module+0x470D0D0)!=guard.descriptors[0] || *reinterpret_cast<uintptr_t*>(guard.module+0x470D0F8)!=guard.descriptors[1])return false;
+            const auto descriptor=*reinterpret_cast<uintptr_t*>(guard.root);
+            if(descriptor!=guard.descriptors[0] && descriptor!=guard.descriptors[1])return false;
+            if(*reinterpret_cast<uintptr_t*>(guard.root+8)!=guard.fingerprint.buffer)return false;
+            if(*reinterpret_cast<uintptr_t*>(guard.root+0x430)!=guard.fingerprint.buffer ||
+               *reinterpret_cast<uintptr_t*>(guard.root+0x438)!=guard.control)return false;
+        }__except(EXCEPTION_EXECUTE_HANDLER){return false;}
+        return guard.fingerprint.matches(GeneratedBufferFingerprint::read(guard.fingerprint.buffer,guard.fingerprint.size));
+    }
+    bool dependencies_valid()const{
+        for(unsigned i=0;i<count_;++i)if(!dependency_valid(dependency_guards_[i]))return false;
+        return true;
+    }
     unsigned count_{};uintptr_t base_{};
     bool fault_{},rewind_attempted_{},rewound_{},replayed_{};
     static bool descriptor_identity(uintptr_t base,std::array<uintptr_t,2>& values){
@@ -50,6 +79,11 @@ public:
     unsigned plan_result{},prepare_stage{},source_frame{},next_frame{},workspace_flags{};
     NativeAdjacentRestore& diagnostic(){return *hops_[last_hop];}
     NativeRollbackWindow(){for(auto& hop:hops_)hop=std::make_unique<NativeAdjacentRestore>();}
+    bool release_owned_dependencies(){
+        if(count_ && keys_[0].thread!=GetCurrentThreadId())return false;
+        for(unsigned i=0;i<count_;++i)if(dependency_guards_[i].enabled){if(!pool_.release_dependencies(handles_[i]))return false;dependency_guards_[i]={};}
+        return true;
+    }
     bool fault()const{return fault_;}
     bool rewind_started()const{return rewind_attempted_;}
     bool rewound()const{return rewound_;}
@@ -58,7 +92,25 @@ public:
         if(fault_ || rewind_attempted_ || rewound_ || replayed_ || !count_ || keys_[0].thread!=GetCurrentThreadId())return false;
         for(const auto& hop:hops_)if(hop->attempted || hop->fault || hop->probe->restore_invoked)return false;
         for(unsigned i=0;i<count_;++i)if(!pool_.retire(handles_[i])){fault_=true;return false;}
-        handles_={};keys_={};count_=0;base_=0;return true;
+        handles_={};keys_={};dependency_guards_={};count_=0;base_=0;return true;
+    }
+    // Read-only classification before any workspace preparation or native loading.
+    // 0 invalid, 1 stable, 2 changing topology. Never authorizes restoration.
+    unsigned topology_readiness(){
+        if(fault_ || rewind_attempted_ || rewound_ || replayed_ || count_!=4 || keys_[0].thread!=GetCurrentThreadId())return 0;
+        for(unsigned i=0;i<3;++i){
+            bool same=false;
+            const bool visited=pool_.visit(handles_[i],[&](NativeBoundarySnapshot& a){
+                return pool_.visit(handles_[i+1],[&](NativeBoundarySnapshot& b){
+                    same=a.data->transforms[0].same_topology(b.data->transforms[0]);
+                    if(!same){topology=a.data->transforms[0].topology_difference(b.data->transforms[0]);last_hop=i;source_frame=keys_[i].frame;next_frame=keys_[i+1].frame;}
+                    return true;
+                });
+            });
+            if(!visited)return 0;
+            if(!same)return 2;
+        }
+        return 1;
     }
     bool any_restore_invoked()const{for(const auto& hop:hops_)if(hop->probe->restore_invoked)return true;return false;}
     // Reference replay only: no new authoritative input or prediction is
@@ -67,8 +119,10 @@ public:
         if(fault_ || !rewound_ || replayed_ || !original ||
            reinterpret_cast<uintptr_t>(original)==base_+0x2DBC60 ||
            keys_[0].thread!=GetCurrentThreadId())return false;
+        if(!dependencies_valid()){fault_=true;return false;}
         for(unsigned i=0;i<count_-1;++i){
             last_hop=i;
+            if(!dependencies_valid()){fault_=true;return false;}
             const bool ok=pool_.visit(handles_[i],[&](NativeBoundarySnapshot& source){
                 return pool_.visit(handles_[i+1],[&](NativeBoundarySnapshot& reference){
                     auto& hop=*hops_[i];auto& q=*hop.probe;const auto& b=*reference.data;
@@ -91,11 +145,11 @@ public:
         if(fault_ || !replayed_ || keys_[0].thread!=GetCurrentThreadId())return false;
         for(unsigned i=0;i<count_-1;++i)if(!hops_[i]->recycle_after_replay()){fault_=true;return false;}
         for(unsigned i=0;i<count_;++i)if(!pool_.retire(handles_[i])){fault_=true;return false;}
-        handles_={};keys_={};count_=0;base_=0;rewind_attempted_=rewound_=replayed_=false;
+        handles_={};keys_={};dependency_guards_={};count_=0;base_=0;rewind_attempted_=rewound_=replayed_=false;
         return true;
     }
     bool capture(const RollbackBoundaryKey& key,uintptr_t base,uintptr_t argument,
-        NativeBoundarySnapshot::Mode mode=NativeBoundarySnapshot::Mode::idle,bool retain_descriptors=false){
+        NativeBoundarySnapshot::Mode mode=NativeBoundarySnapshot::Mode::idle,bool retain_descriptors=false,ReplayDependencySource* ownership=nullptr){
         if(fault_ || rewind_attempted_ || count_==4 || !key.same_round(key) ||
            key.thread!=GetCurrentThreadId() || !base)return false;
         if(count_ && (base!=base_ || !keys_[count_-1].same_round(key) ||
@@ -104,10 +158,19 @@ public:
         auto handle=pool_.acquire(key.session,key.round,key.frame,mode,3-key.slot);
         if(!handle){fault_=true;return false;}
         std::optional<ResourceDependencyCapture> dependencies;
+        DependencyGuard owned_guard;
+        retain_descriptors=retain_descriptors || ownership;
         std::array<uintptr_t,2> descriptor_before{},descriptor_after{};
         if(retain_descriptors){
             if(!descriptor_identity(base,descriptor_before)){pool_.retire(*handle);fault_=true;return false;}
             dependencies.emplace(ResourceDependencyCapture::native_object_dispose,ResourceDependencyCapture::native_control_dispose);
+            if(ownership){
+                if(!ownership->available() || !ownership->seed(ownership->context,key.frame)){pool_.retire(*handle);fault_=true;return false;}
+                const auto& generated=*ownership->generated;
+                owned_guard.enabled=true;owned_guard.module=base;owned_guard.descriptors=descriptor_before;owned_guard.root=generated.root;owned_guard.control=generated.control;
+                owned_guard.fingerprint=GeneratedBufferFingerprint::read(generated.buffer,generated.size);
+                if(!owned_guard.fingerprint.valid || !dependency_valid(owned_guard)){pool_.retire(*handle);fault_=true;return false;}
+            }
         }
         const bool ok=pool_.visit(*handle,[&](NativeBoundarySnapshot& snapshot){
             const bool captured=snapshot.capture(base,argument);
@@ -120,10 +183,12 @@ public:
             !dependencies->covers(descriptor_before[0],descriptor_before[1]) || !dependencies->bind(pool_,*handle))){
             pool_.retire(*handle);fault_=true;return false;
         }
+        if(ownership && (!dependency_valid(owned_guard) || !ownership->generated->bind(pool_,*handle))){pool_.retire(*handle);fault_=true;return false;}
+        dependency_guards_[count_]=owned_guard;
         base_=base;handles_[count_]=*handle;keys_[count_++]=key;return true;
     }
     bool rewind(const RollbackBoundaryKey& live){
-        if(fault_ || rewind_attempted_ || live.thread!=GetCurrentThreadId())return false;
+        if(fault_ || rewind_attempted_ || live.thread!=GetCurrentThreadId() || !dependencies_valid())return false;
         auto result=RollbackWindowPlan::execute(keys_,count_,live,*this);
         plan_result=static_cast<unsigned>(result)+1;
         if(result==RollbackWindowPlan::Result::invalid)return false;

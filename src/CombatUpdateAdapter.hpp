@@ -27,7 +27,7 @@ template<class Backend> class CombatUpdateAdapter {
     bool failed_{};
 public:
     using Snapshot=typename Backend::Snapshot;
-    enum Failure : unsigned {none,identity,capture,restore,counter,update};
+    enum Failure : unsigned {none,identity,capture,restore,counter,update,input};
     Failure failure{};
     unsigned exception{};uint64_t calls{};
     CombatUpdateAdapter(Backend& backend,SingleUpdateCall::Routine original,
@@ -47,6 +47,23 @@ public:
         if(!backend_.capture(out,expected_))return fail(capture);
         return check_counter();
     }
+    bool save(Snapshot& out,const CombatFrameInput& local,const CombatFrameInput& remote){
+        if(!ready() || !check_counter())return false;
+        const auto composed=NetworkInputComposer::compose(local.envelope,remote.envelope,remote_slot_,expected_,expected_);
+        if(!composed)return fail(identity);
+        std::array<std::byte,40> bytes{};std::memcpy(bytes.data(),composed->data(),40);
+        if(!RecordedInput::valid_envelope(bytes))return fail(input);
+        if constexpr(requires {backend_.capture(out,expected_,bytes);}){
+            if(!backend_.capture(out,expected_,bytes))return fail(capture);
+            return check_counter();
+        }else return save(out);
+    }
+    bool begin_boundary(const CombatFrameInput& local){
+        if(!ready() || !check_counter())return false;
+        if constexpr(requires {backend_.begin_boundary(expected_,local.envelope);})
+            if(!backend_.begin_boundary(expected_,local.envelope))return fail(capture);
+        return true;
+    }
     bool load(const Snapshot& saved){
         if(!ready())return false;
         if(!backend_.restore(saved))return fail(restore);
@@ -58,6 +75,7 @@ public:
         const auto composed=NetworkInputComposer::compose(local.envelope,remote.envelope,remote_slot_,expected_,expected_);
         if(!composed)return fail(identity);
         std::array<std::byte,40> bytes{};std::memcpy(bytes.data(),composed->data(),bytes.size());
+        if(!RecordedInput::valid_envelope(bytes))return fail(input);
         SingleUpdateCall call;
         const bool ok=call.run(original_,delivery_.assign(bytes),counter_,expected_,owner_);
         if(call.invoked)++calls;

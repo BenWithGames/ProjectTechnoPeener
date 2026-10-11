@@ -85,9 +85,13 @@ int main(){
             assert(stream.receive(4,5,p.frame,p.input)==Session::Arrival::accepted);
             p.active=false;++delivered;
         }
+        const auto forecast=stream.admission(4,5);
         assert(stream.reconcile(actual));
+        assert(forecast==stream.admission(4,5));
         if(stream.head()<7200){const auto frame=stream.head();
-            if(stream.advance(actual,{1,0})){
+            const bool advanced=stream.advance(actual,{1,0});
+            assert(advanced==(forecast==Session::Admission::ready));
+            if(advanced){
                 baseline.step({1,0},{int(frame%3),int(frame%2)});
                 auto& p=pending[frame%8];assert(!p.active);
                 p={frame,tick+1+(frame*7)%6,{int(frame%3),int(frame%2)},true};

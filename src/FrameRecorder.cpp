@@ -27,6 +27,7 @@
 #include "InputObservation.hpp"
 #include "RoundEventObserver.hpp"
 #include "NativeClockHook.hpp"
+#include "ExclusiveBattleRoute.hpp"
 #include "EffectUpdateObserver.hpp"
 #include "NativeRangeObserver.hpp"
 #include "ResourceDescriptorObserver.hpp"
@@ -161,7 +162,7 @@ struct Recorder {
     std::unique_ptr<sc6::research::NativeAdjacentRestore> native_restore;
     bool native_replay{};
     std::unique_ptr<sc6::research::NativePredictionProbe> native_prediction;
-    std::unique_ptr<sc6::research::NetworkDepthCorrection> network_checkpoints;std::unique_ptr<sc6::research::NativeWindowReuseProbe> network_reuse;
+    bool reuse_waiting{};uint64_t reuse_wait_deadline{};std::unique_ptr<sc6::research::NetworkDepthCorrection> network_checkpoints;std::unique_ptr<sc6::research::NativeWindowReuseProbe> network_reuse;
     std::unique_ptr<sc6::research::NativeTwoMovement> native_movement;
     std::unique_ptr<sc6::research::RepeatedMovement> repeated_movement;
     std::unique_ptr<sc6::research::NativeTwoFrameReplay> native_two;
@@ -809,12 +810,18 @@ void write_capture(Recorder& r) {
     }
 }
 }
-extern "C" void SC6RecordEntry(uintptr_t argument,uintptr_t* replacement=nullptr,uintptr_t return_address=0) noexcept {
+extern "C" void SC6RecordEntry(uintptr_t argument,uintptr_t* replacement=nullptr,uintptr_t return_address=0,uintptr_t* continuation=nullptr) noexcept {
     struct LastErrorGuard { DWORD value=GetLastError(); ~LastErrorGuard(){SetLastError(value);} } guard;
     auto& r=state();
     // Persistent boundary service runs before the recording gate and outside r.lock.
-    if(r.verified){uint32_t frame{};if(copy(&frame,r.base+0x470D0C4,4))sc6::research::lease_service::dispatch(frame);}
+    if(r.verified){uint32_t frame{};if(copy(&frame,r.base+0x470D0C4,4))sc6::research::lease_service::dispatch(frame);sc6::research::generated_observer::observe_frame();}
+    const auto* combat=sc6::research::combat_routes.load(std::memory_order_acquire);
+    if(auto* route=combat?combat->battle:sc6::research::exclusive_battle_route.load(std::memory_order_acquire)){
+        if(continuation){*continuation=0;route->run(argument,return_address);}
+        return;
+    }
     if(!r.active.load(std::memory_order_acquire)){
+        if(TryAcquireSRWLockExclusive(&r.lock)){if(!r.active.load() && r.network_reuse && (!r.reuse_waiting || GetTickCount64()>=r.reuse_wait_deadline))r.network_reuse->stop_ownership();ReleaseSRWLockExclusive(&r.lock);}
         if(r.verified)sc6::research::dependency_probe::frame(r.base,argument);
         return;
     }
@@ -1047,7 +1054,16 @@ void recorder_init() {
         }
     }
 }
+bool prepare_owned_replay_impl(){
+ auto& r=state();AcquireSRWLockExclusive(&r.lock);
+ if(!r.verified || r.active.load() || r.observation_used || r.network_reuse){ReleaseSRWLockExclusive(&r.lock);return false;}
+ r.network_reuse=std::make_unique<sc6::research::NativeWindowReuseProbe>();
+ if(!r.network_reuse->start_ownership(r.base)){r.network_reuse.reset();ReleaseSRWLockExclusive(&r.lock);return false;}
+ r.reuse_waiting=true;r.reuse_wait_deadline=GetTickCount64()+600000;
+ ReleaseSRWLockExclusive(&r.lock);return true;
+}
 void recorder_poll() {
+    prepare_owned_replay=prepare_owned_replay_impl;
     auto& r=state();auto now=GetTickCount64();if(now-r.lastPoll<250)return;r.lastPoll=now;
     if(r.verified)sc6::research::effect_observer::poll(r.base,r.directory);
     if(r.verified)sc6::research::range_observer::poll(r.base,r.directory);
@@ -1099,7 +1115,8 @@ void recorder_poll() {
         AcquireSRWLockExclusive(&r.lock);
         r.observing=true;r.observation_used=true;r.count=0;r.owner=0;r.skipped=0;r.ready=false;
         r.network_checkpoints=(label=="NETWORK_CHECKPOINT_LONG" || label=="NETWORK_REPLAY_LONG")?std::make_unique<sc6::research::NetworkDepthCorrection>(label=="NETWORK_REPLAY_LONG"):nullptr;
-        r.network_reuse=label=="NETWORK_REUSE_LONG"?std::make_unique<sc6::research::NativeWindowReuseProbe>():nullptr;
+        if(label!="NETWORK_REUSE_LONG" && r.network_reuse){r.observing=false;ReleaseSRWLockExclusive(&r.lock);status("owned replay already prepared; restart before changing experiment");return;}
+        if(label=="NETWORK_REUSE_LONG" && (!r.network_reuse || !r.reuse_waiting || r.network_reuse->ownership_stopped)){r.observing=false;ReleaseSRWLockExclusive(&r.lock);status("replay ownership not prepared in lobby; not armed");return;}r.reuse_waiting=false;
         sc6::network_game_handoff.late_enabled=label=="NETWORK_LATE_LONG";
         sc6::network_checkpoint_status.replay_enabled=label=="NETWORK_REPLAY_LONG" || label=="NETWORK_REUSE_LONG";
         sc6::network_checkpoint_status.enabled=(r.network_checkpoints || r.network_reuse)?1u:0u;

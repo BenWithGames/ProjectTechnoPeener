@@ -24,6 +24,9 @@ struct NetworkGameHandoff {
     std::atomic<unsigned> submitted{0},full{0},validated{0},rejected{0};
     std::array<std::atomic<unsigned>,6> rejection_reasons{}; // failed, session, round, age, history, input
     std::array<Boundary,16> history{}; // accessed only by the game thread
+    struct Confirmation {Boundary boundary{};NetworkInputComposer::Envelope input{};bool valid{};};
+    std::array<Confirmation,16> confirmations{}; // owner-thread only; permits remote prediction differences
+    bool confirmation_conflict{};
     uint32_t owner{},last_frame{};bool started{},failed{};
     bool bind(uint64_t local,uint64_t peer,unsigned side){
         if(!local || !peer || side<1 || side>2)return false;
@@ -37,6 +40,13 @@ struct NetworkGameHandoff {
         queue[w%queue.size()]=request;write.store(w+1,std::memory_order_release);++submitted;return true;
     }
     using Validated=void(*)(void*,const Request&,const Boundary&);
+    bool confirmed(uint64_t session,uint64_t peer,uint32_t thread,const Boundary& key,Confirmation& out)const{
+        if(failed || confirmation_conflict || !started || thread!=owner || session!=local_nonce.load(std::memory_order_acquire) || peer!=peer_nonce.load())return false;
+        const auto& c=confirmations[key.frame%confirmations.size()];
+        if(!c.valid || c.boundary.frame!=key.frame || c.boundary.generation!=key.generation ||
+            c.boundary.round!=key.round || c.boundary.event!=key.event)return false;
+        out=c;return true;
+    }
     void boundary(uint64_t session,uint32_t thread,const Boundary& now,Validated callback=nullptr,void* context=nullptr){
         if(!thread || !session || session!=local_nonce.load(std::memory_order_acquire))return;
         if(started && (owner!=thread || last_frame==UINT32_MAX || now.frame!=last_frame+1u))failed=true;
@@ -56,6 +66,20 @@ struct NetworkGameHandoff {
             else if(request.frame>=now.frame || now.frame-request.frame>3)reason=3;
             else if(saved.frame!=request.frame || !saved.generation || saved.generation!=now.generation || saved.round!=request.round || saved.event!=request.boundary)reason=4;
             else if(saved.input!=request.input)reason=5;
+            // Request envelopes are already composed by the authenticated
+            // transport. Only the remote pair may differ from this PC's history.
+            // Do not weaken the legacy exact-input callback below.
+            if(reason==5 || reason==6){
+                auto local=request.input;const unsigned remote=(2-request.slot)*2;
+                local[remote]=saved.input[remote];local[remote+1]=saved.input[remote+1];
+                if(local==saved.input){
+                    auto& c=confirmations[request.frame%confirmations.size()];
+                    const bool same=c.valid && c.boundary.frame==saved.frame && c.boundary.generation==saved.generation &&
+                        c.boundary.round==saved.round && c.boundary.event==saved.event;
+                    if(same && c.input!=request.input)confirmation_conflict=true;
+                    else c={saved,request.input,true};
+                }
+            }
             if(scheduling && request.local_nonce==session && request.peer_nonce==peer_nonce && request.slot==slot &&
                request.round==now.round && request.boundary==now.event && request.frame<now.frame &&
                now.frame-request.frame<history.size() && saved.frame==request.frame && saved.generation==now.generation &&

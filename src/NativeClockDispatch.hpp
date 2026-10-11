@@ -24,7 +24,9 @@ public:
         object_=object;context_=context;admit_=admit;notify_=notify;active_=true;return true;
     }
     bool active()const{return active_;}
+    bool at_boundary(unsigned identity,unsigned frame){return active_ && !entered_ && !failed_ && clock_.at_boundary(identity,frame);}
     bool restart_required()const{return failed_ || clock_.restart_required();}
+    void stop()noexcept{failed_=true;}
     void run(uintptr_t object,Original original) {
         if(!active_ || object!=object_){original(object);return;}
         using R=typename Clock::Result;

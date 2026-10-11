@@ -885,6 +885,16 @@ int main(){
                 *reinterpret_cast<unsigned*>(base+0x600000+0x2A0)=1;
                 *reinterpret_cast<unsigned*>(auxiliary)=0x3B800100u;
                 require(current->capture(base,argument,trajectory_save,check));
+                require(source->structural_readiness(*current)==Boundary::Rejection::none && loads==0);
+                source->mode=current->mode=Boundary::Mode::combat_capture_only;
+                require(source->structural_readiness(*current)==Boundary::Rejection::none);
+                auto capture_only_restore=std::make_unique<P>();Boundary::Rejection capture_only_reason{};
+                require(!source->prepare_adjacent(*current,*capture_only_restore,&capture_only_reason) && capture_only_reason==Boundary::Rejection::mode && !capture_only_restore->saved.sealed && loads==0);
+                source->mode=current->mode=Boundary::Mode::idle;
+                const auto original_frame=source->data->before_keys[0],next_frame=current->data->before_keys[0];
+                source->data->before_keys[0]=UINT32_MAX;current->data->before_keys[0]=0;
+                require(source->structural_readiness(*current)==Boundary::Rejection::frame);
+                source->data->before_keys[0]=original_frame;current->data->before_keys[0]=next_frame;
                 auto restore=std::make_unique<P>();
                 require(source->prepare_adjacent(*current,*restore) && !restore->fault && loads==0);
                 require(source->data->saved.reads==0 && restore->saved.reads==0);

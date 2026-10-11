@@ -251,8 +251,8 @@ struct NativeNetworkCheckpointProbe {
     void publish_restore_diagnostics() noexcept {publish_restore_diagnostics(*readiness);}
     static void publish_restore_diagnostics(NativeAdjacentRestore& restore) noexcept {
         const auto& nd=restore.replay_native_difference;
-        const uint64_t nativeValues[]={nd.reason,nd.record,nd.offset,nd.length,nd.writer,nd.source,nd.expected,nd.actual};
-        for(unsigned i=0;i<8;++i)network_checkpoint_status.comparison_native[i]=nativeValues[i];
+        const uint64_t nativeValues[]={nd.reason,nd.record,nd.offset,nd.length,nd.writer,nd.source,nd.expected,nd.actual,nd.word_offset,nd.expected_word,nd.actual_word,nd.changed_bytes};
+        for(unsigned i=0;i<12;++i)network_checkpoint_status.comparison_native[i]=nativeValues[i];
         network_checkpoint_status.comparison_pass_mask=restore.replay_comparison_mask;
         network_checkpoint_status.comparison_stage=restore.replay_stage;
         const auto& rp=*restore.probe;

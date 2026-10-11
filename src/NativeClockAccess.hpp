@@ -24,6 +24,7 @@ struct NativeClockCalls {
 // pinned native routines established by disassembly and runtime inspection.
 template<class Calls=NativeClockCalls> class NativeClockAccess {
 public:
+    bool at_boundary(unsigned identity,unsigned frame){State state{};return validate(state) && state.identity==identity && state.frame==frame;}
     struct State {
         uint32_t identity{},frame{},local_cursor{},all_cursor{},lead{};
         unsigned slots{},local_mask{},all_mask{},remote_mask{},mode{},phase{};
@@ -75,6 +76,13 @@ private:
         __except(EXCEPTION_EXECUTE_HANDLER){exception_=GetExceptionCode();return fail(Failure::exception);}
     }
 public:
+    // Read-only discovery; no ownership claim and no native calls.
+    static bool inspect(uintptr_t base,uintptr_t object,State& out){
+        out={};if(!base || !object)return false;
+        NativeClockAccess probe;probe.base_=base;probe.object_=object;
+        State value{};if(!probe.read(value) || value.phase!=2)return false;
+        out=value;return true;
+    }
     // Only after executable validation, bilateral private-session admission,
     // and exclusive ownership of this dispatcher and the battle boundary.
     // No installed code calls bind yet: combat snapshot support remains needed.

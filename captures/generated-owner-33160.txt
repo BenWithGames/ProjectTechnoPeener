@@ -1,0 +1,13 @@
+schema=1
+scope=generated_owner_observation
+restore=0
+injection=0
+references_acquired=0
+rollback_active=0
+records=1
+dropped=0
+thread_correlation_schema=1
+observed_frame_thread=35552
+frame_samples=5773
+frame_thread_changes=0
+csv_written=1
