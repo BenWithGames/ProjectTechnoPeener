@@ -18,15 +18,6 @@ struct ImmediateIdleCorrection {
     static bool finite(const std::byte* p,unsigned n){
         for(unsigned i=0;i<n;i+=4){unsigned v{};std::memcpy(&v,p+i,4);if((v&0x7F800000u)==0x7F800000u)return false;}return true;
     }
-    static bool camera_pair(const CameraSnapshot::Record& a,const CameraSnapshot::Record& b,bool movement){
-        for(unsigned off=0;off<a.bytes.size();off+=4){
-            const bool field=off==0x24 || off==0x64 || off==0x114 ||
-                (movement && (off==0x60 || off==0x110 || off==0x20 || off==0x28 || off==0x50 || off==0x130 || off==0x154));
-            if(field){if(!finite(a.bytes.data()+off,4) || !finite(b.bytes.data()+off,4))return false;}
-            else if(std::memcmp(a.bytes.data()+off,b.bytes.data()+off,4))return false;
-        }
-        return true;
-    }
     unsigned failure_line{},section{},record{},kind{},difference_offset{UINT32_MAX},saved_word{},live_word{};
     bool reject(unsigned line) noexcept {failure_line=line;return false;}
     void difference(const std::byte* a,const std::byte* b,unsigned size) noexcept {
@@ -43,7 +34,7 @@ struct ImmediateIdleCorrection {
                 if(r.size<=512)difference(r.bytes.data(),live.bytes.data(),r.size);
                 if(r.size>512 || std::memcmp(reinterpret_cast<void*>(r.address),live.bytes.data(),r.size))return reject(__LINE__);
                 if(!std::memcmp(r.bytes.data(),live.bytes.data(),r.size))continue;
-                if(r.side>1 || std::memcmp(next.bytes.data(),live.bytes.data(),r.size))return reject(__LINE__);
+                if(r.side>1)return reject(__LINE__);
                 unsigned offset=0,length=0;
                 if(r.kind==0 && r.size==512){offset=0x1F0;length=16;}
                 else if(r.kind==1 && r.size==88 && r.parent<x.count && x.records[r.parent].kind==0 && x.records[r.parent].side==r.side){length=64;}
@@ -59,8 +50,14 @@ struct ImmediateIdleCorrection {
                 }else return reject(__LINE__);
                 if(std::memcmp(r.bytes.data(),live.bytes.data(),offset) ||
                    std::memcmp(r.bytes.data()+offset+length,live.bytes.data()+offset+length,r.size-offset-length) ||
-                   !finite(r.bytes.data()+offset,length) || !finite(live.bytes.data()+offset,length) ||
-                   !add(r.address+offset,r.bytes.data()+offset,length))return reject(__LINE__);
+                   !finite(r.bytes.data()+offset,length) || !finite(live.bytes.data()+offset,length))return reject(__LINE__);
+                // Native loading may already restore some float words while
+                // leaving others at the later captured values. Accept only
+                // those two exact provenances, never a third unexplained value.
+                for(unsigned k=offset;k<offset+length;k+=4)
+                    if(std::memcmp(live.bytes.data()+k,r.bytes.data()+k,4) &&
+                       std::memcmp(live.bytes.data()+k,next.bytes.data()+k,4))return reject(__LINE__);
+                if(!add(r.address+offset,r.bytes.data()+offset,length))return reject(__LINE__);
             }
             section=3;
             if(!a.rings[0].same(c.restored_rings) || !b.rings[0].rotated_from(a.rings[0]))return reject(__LINE__);
@@ -90,8 +87,10 @@ struct ImmediateIdleCorrection {
                 if(r.bytes==live.bytes)continue;
                 // Separate observed base-camera object; smoothing camera has
                 // already been corrected by its existing dedicated restorer.
+                // Later-frame motion is irrelevant: copy only the saved finite
+                // reset scalar after all other saved/loaded bytes match exactly.
                 if(r.smoothing_valid || next.smoothing_valid || TransformSnapshot::pointer(r.bytes.data())!=base+0x3E881C8 ||
-                   !camera_pair(r,next,c.direction_restore_requested || c.a_restore_requested) || CameraSnapshot::word(live.bytes.data()+0x154)!=0 ||
+                   TransformSnapshot::pointer(next.bytes.data())!=base+0x3E881C8 || CameraSnapshot::word(live.bytes.data()+0x154)!=0 ||
                    !finite(r.bytes.data()+0x154,4) || std::memcmp(r.bytes.data(),live.bytes.data(),0x154) ||
                    std::memcmp(r.bytes.data()+0x158,live.bytes.data()+0x158,r.bytes.size()-0x158) ||
                    !add(r.owner+0x154,r.bytes.data()+0x154,4))return reject(__LINE__);

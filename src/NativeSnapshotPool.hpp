@@ -4,6 +4,8 @@
 #undef interface
 #endif
 #include <memory>
+#include "ResourceReferenceLease.hpp"
+#include <exception>
 #include <algorithm>
 #include "NativeBoundarySnapshot.hpp"
 #include <optional>
@@ -19,6 +21,8 @@ private:
     struct Slot {
         NativeBoundarySnapshot snapshot{NativeBoundarySnapshot::Mode::idle};
         Handle key{};bool occupied{},borrowed{},poisoned{};
+        std::array<ResourceReferenceLease,8> dependencies;
+        std::array<uintptr_t,8> dependency_controls{};
     };
     std::array<std::unique_ptr<Slot>,Capacity> slots_;
     DWORD owner_=GetCurrentThreadId();uint64_t serial_{};
@@ -27,8 +31,44 @@ private:
         auto& s=*slots_[h.index];const auto& k=s.key;
         return s.occupied && k.serial==h.serial && k.session==h.session && k.round==h.round && k.frame==h.frame?&s:nullptr;
     }
+    void drain(Slot& s){
+        s.borrowed=true;
+        for(unsigned i=0;i<s.dependencies.size();++i){
+            if(s.dependencies[i].active())s.dependencies[i].release(0,true);
+            s.dependency_controls[i]=0;
+        }
+        s.borrowed=false;
+    }
 public:
     NativeSnapshotPool(){for(auto& s:slots_)s=std::make_unique<Slot>();}
+    ~NativeSnapshotPool(){
+        // Native disposal must never migrate to an arbitrary destructor thread.
+        // Production users must drain on the simulation thread before teardown.
+        for(auto& s:slots_)for(auto& dependency:s->dependencies)if(dependency.active()){
+            if(GetCurrentThreadId()!=owner_ || s->borrowed)std::terminate();
+            s->borrowed=true;dependency.release(0,true);s->borrowed=false;
+        }
+    }
+    // Caller must already own this validated native pair for the duration of
+    // acquisition. Never pass cached borrowed pointers. No live caller yet.
+    bool retain_dependency(const Handle& h,uintptr_t control,
+        ResourceReferenceLease::Dispose dispose_object,ResourceReferenceLease::Dispose dispose_control){
+        auto* s=find(h);if(!s || s->borrowed || s->poisoned || !control)return false;
+        for(const auto existing:s->dependency_controls)if(existing==control)return false;
+        for(unsigned i=0;i<s->dependencies.size();++i)if(!s->dependencies[i].active()){
+            if(!s->dependencies[i].acquire(control,owner_,0,dispose_object,dispose_control))return false;
+            s->dependency_controls[i]=control;return true;
+        }
+        return false;
+    }
+    bool release_dependencies(const Handle& h){
+        auto* s=find(h);if(!s || s->borrowed)return false;
+        // Explicit teardown makes further visits impossible, even if a caller
+        // keeps the handle. Normal retirement uses drain then reconstructs.
+        s->poisoned=true;s->snapshot.valid=false;drain(*s);return true;
+    }
+    // One-time transfer of pristine storage from setup to simulation thread.
+    bool bind_current_thread(){if(!serial_)owner_=GetCurrentThreadId();return owner_==GetCurrentThreadId();}
     std::optional<Handle> acquire(uint64_t session,uint64_t round,uint64_t frame,
         NativeBoundarySnapshot::Mode mode=NativeBoundarySnapshot::Mode::idle,unsigned side=1){
         if(GetCurrentThreadId()!=owner_ || !session || !round || side<1 || side>2 || serial_==UINT64_MAX)return {};
@@ -55,17 +95,20 @@ public:
     }
     bool retire(const Handle& h){
         auto* s=find(h);if(!s || s->borrowed)return false;
-        auto& b=s->snapshot;auto& q=*b.data;
+        // Even poisoned snapshots relinquish their resource ownership. Their
+        // capture storage remains quarantined under the existing policy.
+        drain(*s);
+        auto& snapshot=s->snapshot;auto& q=*snapshot.data;
         // A failed or loaded snapshot is not a clean reusable capture slot.
-        if(b.fault || b.exception || q.fault || q.restore_invoked || q.saved.stream.failures || q.after_save.stream.failures){
+        if(snapshot.fault || snapshot.exception || q.fault || q.restore_invoked || q.saved.stream.failures || q.after_save.stream.failures){
             s->poisoned=true;return false;
         }
         // Reconstruct in the original allocation, avoiding a huge stack
         // temporary and restoring stream function tables/copier defaults.
-        std::destroy_at(b.data.get());std::construct_at(b.data.get());
-        b.direction_bits=0x400;b.direction_slot=1;b.capture_stage=0;b.mode_values_valid=false;b.mode_values={};
-        b.mode=NativeBoundarySnapshot::Mode::idle;b.module=0;b.thread=0;
-        b.attempted=b.valid=b.fault=false;b.exception=0;
+        std::destroy_at(snapshot.data.get());std::construct_at(snapshot.data.get());
+        snapshot.direction_bits=0x400;snapshot.direction_slot=1;snapshot.capture_stage=0;snapshot.mode_values_valid=false;snapshot.mode_values={};
+        snapshot.mode=NativeBoundarySnapshot::Mode::idle;snapshot.module=0;snapshot.thread=0;
+        snapshot.attempted=snapshot.valid=snapshot.fault=false;snapshot.exception=0;
         s->occupied=false;return true;
     }
 };

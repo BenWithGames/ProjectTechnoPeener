@@ -129,6 +129,27 @@ struct TransformSnapshot {
         }
         return true;
     }
+    struct TopologyDifference {
+        unsigned mask{},index{UINT32_MAX},before_count{},after_count{};
+        // address, side, kind, list, parent index, size; no live dereference.
+        std::array<uint64_t,6> before{},after{};
+    };
+    TopologyDifference topology_difference(const TransformSnapshot& other)const{
+        TopologyDifference d;d.before_count=count;d.after_count=other.count;
+        if(!valid || !other.valid)d.mask|=1;
+        if(count!=other.count)d.mask|=2;
+        if(count>records.size() || other.count>other.records.size()){d.mask|=256;return d;}
+        const auto common=count<other.count?count:other.count;
+        for(unsigned i=0;i<common;++i){const auto& a=records[i];const auto& b=other.records[i];
+            const unsigned fields=(a.address!=b.address?4u:0u)|(a.side!=b.side?8u:0u)|
+                (a.kind!=b.kind?16u:0u)|(a.list!=b.list?32u:0u)|(a.parent!=b.parent?64u:0u)|(a.size!=b.size?128u:0u);
+            if(fields){d.mask|=fields;d.index=i;break;}
+        }
+        if(d.index==UINT32_MAX && count!=other.count)d.index=common;
+        if(d.index<count){const auto& a=records[d.index];d.before={a.address,a.side,a.kind,a.list,a.parent,a.size};}
+        if(d.index<other.count){const auto& b=other.records[d.index];d.after={b.address,b.side,b.kind,b.list,b.parent,b.size};}
+        return d;
+    }
     // Combat group matrices retain the previous update. Validate every group
     // before touching any matrix; linked-list pointers are never restored here.
     bool combat_groups_ready(const TransformSnapshot& next,const TransformSnapshot& current)const noexcept {

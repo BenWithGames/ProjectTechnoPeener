@@ -83,19 +83,31 @@ struct TwoFrameIdleReplay {
         }
         return true;
     }
-    static bool native_equal(const FullStateProbe& q,uintptr_t base){
+    struct NativeDifference {
+        unsigned reason{},record{UINT32_MAX};
+        uint64_t offset{},length{},writer{},source{},expected{},actual{};
+    };
+    static bool native_equal(const FullStateProbe& q,uintptr_t base,NativeDifference* diagnostic=nullptr){
+        if(diagnostic)*diagnostic={};
+        auto reject=[&](unsigned reason,unsigned record,uint64_t offset,uint64_t length,uint64_t expected,uint64_t actual){
+            if(diagnostic){diagnostic->reason=reason;diagnostic->record=record;diagnostic->offset=offset;
+                diagnostic->length=length;diagnostic->expected=expected;diagnostic->actual=actual;
+                if(record<q.after_save.writes){diagnostic->writer=q.after_save.traces[record].writer-base;
+                    diagnostic->source=q.after_save.traces[record].source;}}
+            return false;
+        };
         const auto& a=q.after_save;const auto& b=q.replay;
-        if(!IdleTrajectoryAudit::same_shape(a,b) || a.stream.write_position!=b.stream.write_position)return false;
+        if(!IdleTrajectoryAudit::same_shape(a,b) || a.stream.write_position!=b.stream.write_position)return reject(1,UINT32_MAX,0,0,a.stream.write_position,b.stream.write_position);
         std::uint64_t offset=0;
         for(unsigned i=0;i<a.writes;++i){auto length=a.lengths[i];
-            if(offset>a.stream.write_position || length>a.stream.write_position-offset)return false;
+            if(offset>a.stream.write_position || length>a.stream.write_position-offset)return reject(2,i,offset,length,0,0);
             unsigned skip=0;
             for(unsigned side=0;side<2;++side){
                 const auto player=q.after_players[side];
                 if(length==48 && a.traces[i].writer==base+0x30AA54 &&
                    a.traces[i].source==player+0x43DF0 && b.traces[i].source==player+0x43DF0){
                     uintptr_t rebuilt{};std::memcpy(&rebuilt,b.stream.payload.data()+offset,8);
-                    if(rebuilt!=player)return false;
+                    if(rebuilt!=player)return reject(3,i,0,length,player,rebuilt);
                     skip=8;
                 }
             }
@@ -104,13 +116,36 @@ struct TwoFrameIdleReplay {
             const bool pointer_record_padding=length==16 && a.traces[i].writer==base+0x32AC76 &&
                 q.restore_completed && q.saved.sealed && i<q.saved.writes && q.saved.lengths[i]==16 &&
                 q.saved.traces[i].writer==base+0x32AC76 && q.saved.traces[i].reader==base+0x32AD1B;
-            if(pointer_record_padding){
-                if(std::memcmp(a.stream.payload.data()+offset,b.stream.payload.data()+offset,4) ||
-                   std::memcmp(a.stream.payload.data()+offset+8,b.stream.payload.data()+offset+8,8))return false;
-            }else if(std::memcmp(a.stream.payload.data()+offset+skip,b.stream.payload.data()+offset+skip,static_cast<size_t>(length-skip)))return false;
+            const bool differs=pointer_record_padding?
+                (std::memcmp(a.stream.payload.data()+offset,b.stream.payload.data()+offset,4) ||
+                 std::memcmp(a.stream.payload.data()+offset+8,b.stream.payload.data()+offset+8,8)):
+                std::memcmp(a.stream.payload.data()+offset+skip,b.stream.payload.data()+offset+skip,static_cast<size_t>(length-skip))!=0;
+            if(differs){
+                for(uint64_t j=skip;j<length;++j){
+                    if(pointer_record_padding && j>=4 && j<8)continue;
+                    const auto expected=a.stream.payload[offset+j],actual=b.stream.payload[offset+j];
+                    if(expected!=actual)return reject(4,i,j,length,std::to_integer<unsigned>(expected),std::to_integer<unsigned>(actual));
+                }
+                return reject(4,i,0,length,0,0);
+            }
             offset+=length;
         }
-        return offset==a.stream.write_position;
+        return offset==a.stream.write_position || reject(5,UINT32_MAX,offset,0,a.stream.write_position,offset);
+    }
+    // Diagnostic pass bits, evaluated independently so one failure cannot hide another.
+    static unsigned comparison_mask(const FullStateProbe& q,uintptr_t base){
+        unsigned mask=0;
+        if(!q.fault)mask|=1;
+        if(q.replay_done)mask|=2;
+        if(q.replay_keys_equal)mask|=4;
+        if(q.replay_ring_equal)mask|=8;
+        if(q.blends[1].valid && q.blends[4].valid)mask|=16;
+        if(q.blends[1].bytes==q.blends[4].bytes)mask|=32;
+        if(!std::memcmp(q.blends[1].owners,q.blends[4].owners,sizeof(q.blends[1].owners)))mask|=64;
+        if(transforms_equal(q.transforms[1],q.transforms[4]))mask|=128;
+        if(cameras_equal(q.cameras[1],q.cameras[3]))mask|=256;
+        if(native_equal(q,base))mask|=512;
+        return mask;
     }
     static bool comparison_ok(const FullStateProbe& q,uintptr_t base){
         return !q.fault && q.replay_done && q.replay_keys_equal && q.replay_ring_equal &&

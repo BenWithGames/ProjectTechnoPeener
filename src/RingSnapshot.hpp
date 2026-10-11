@@ -10,6 +10,39 @@ struct RingSnapshot {
     std::array<Header,4> headers{};
     std::array<std::byte,byte_count> bytes{};
     bool valid{};
+    // Diagnostic only. Status: 0 unavailable, 1 equal, 2 payload, 3 header.
+    struct Difference {
+        unsigned status{},validity{},group{UINT32_MAX},slot{UINT32_MAX},offset{UINT32_MAX},field{UINT32_MAX};
+        uint64_t expected{},actual{};
+        unsigned expected_word{},actual_word{};
+    };
+    Difference first_difference(const RingSnapshot& actual) const {
+        Difference d;d.validity=unsigned(valid)|(unsigned(actual.valid)<<1);
+        if(d.validity!=3)return d;
+        unsigned start=0;
+        for(unsigned group=0;group<4;++group){
+            const unsigned stride=group%2?0x800:0xC000;
+            for(unsigned slot=0;slot<3;++slot)for(unsigned offset=0;offset<stride;++offset){
+                const auto at=start+slot*stride+offset;
+                if(bytes[at]!=actual.bytes[at]){
+                    d.status=2;d.group=group;d.slot=slot;d.offset=offset;
+                    d.expected=std::to_integer<unsigned>(bytes[at]);d.actual=std::to_integer<unsigned>(actual.bytes[at]);
+                    const auto aligned=at&~3u;
+                    std::memcpy(&d.expected_word,bytes.data()+aligned,4);std::memcpy(&d.actual_word,actual.bytes.data()+aligned,4);return d;
+                }
+            }
+            start+=3*stride;
+        }
+        for(unsigned group=0;group<4;++group){
+            const auto& a=headers[group];const auto& b=actual.headers[group];
+            const uint64_t expected[]={a.player,a.object,a.vtable,a.slots[0],a.slots[1],a.slots[2],a.current,a.previous,a.index};
+            const uint64_t live[]={b.player,b.object,b.vtable,b.slots[0],b.slots[1],b.slots[2],b.current,b.previous,b.index};
+            for(unsigned field=0;field<9;++field)if(expected[field]!=live[field]){
+                d.status=3;d.group=group;d.field=field;d.expected=expected[field];d.actual=live[field];return d;
+            }
+        }
+        d.status=1;return d;
+    }
     bool capture(uintptr_t base) noexcept {
         valid=false;
         __try {

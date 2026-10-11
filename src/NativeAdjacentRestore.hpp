@@ -6,6 +6,11 @@ namespace sc6::research {
 // Experimental one-frame idle restoration. No update invocation or input injection.
 // Failure after restore_invoked requires ending the live experimental session.
 struct NativeAdjacentRestore {
+    NativeAdjacentRestore()=default;
+private:
+    NativeAdjacentRestore(std::unique_ptr<FullStateProbe> snapshot,std::unique_ptr<FullStateProbe> scratch) noexcept
+        :current(NativeBoundarySnapshot::Mode::idle,std::move(snapshot)),probe(std::move(scratch)){}
+public:
     NativeBoundarySnapshot current{NativeBoundarySnapshot::Mode::idle};
     std::unique_ptr<FullStateProbe> probe=std::make_unique<FullStateProbe>();
     bool attempted{},prepared{},verified{},fault{},restore_input_used{};
@@ -14,6 +19,25 @@ struct NativeAdjacentRestore {
     bool native_payload_verified{};
     unsigned diagnostic_stage{}; // Last restoration check entered; no guard behavior changes.
     NativeBoundarySnapshot::Rejection rejection=NativeBoundarySnapshot::Rejection::none;
+    // Call only after replay comparison completes and no caller retains views
+    // into this workspace. A successful load alone does NOT authorize reuse.
+    bool recycle_after_replay() noexcept {
+        if(!attempted || !prepared || !verified || fault || !replay_delivered ||
+           !replay_checked || !replay_verified || !replay_scalars_verified ||
+           !native_payload_verified || !completion.verified || !probe || !current.data ||
+           current.fault || current.exception || probe->fault || probe->exception ||
+           !probe->restore_invoked || !probe->restore_completed || !probe->delayed_loaded ||
+           !probe->camera_restore_verified || probe->saved.stream.failures ||
+           probe->after_save.stream.failures || probe->restored.stream.failures)return false;
+        auto snapshot=std::move(current.data),scratch=std::move(probe);
+        std::destroy_at(snapshot.get());std::construct_at(snapshot.get());
+        std::destroy_at(scratch.get());std::construct_at(scratch.get());
+        // Rebuild flags, patch-list pointers and owned input headers in place.
+        // Constructor overrides both allocating member initializers.
+        std::destroy_at(this);
+        ::new (this) NativeAdjacentRestore(std::move(snapshot),std::move(scratch));
+        return true;
+    }
     bool run(const NativeBoundarySnapshot& source,uintptr_t base,uintptr_t argument,
              FullStateProbe::Routine writer=nullptr,FullStateProbe::Routine reader=nullptr,
              FullStateProbe::Preflight check=nullptr) noexcept {
@@ -44,6 +68,8 @@ struct NativeAdjacentRestore {
     unsigned replay_stage{};
     std::array<unsigned,2> replay_first_offset{UINT32_MAX,UINT32_MAX},replay_expected_byte{},replay_live_byte{};
     bool replay_measurement_read{},replay_rng_equal{},replay_players_equal{};
+    unsigned replay_rng_expected{},replay_rng_actual{},replay_comparison_mask{};
+    TwoFrameIdleReplay::NativeDifference replay_native_difference;
     std::array<unsigned,2> replay_scalar_differences{};
     // One natural update through the hook, never a recursive/synchronous step.
     bool replay_step(NativeBoundarySnapshot& source,uintptr_t base,uintptr_t argument,
@@ -68,6 +94,8 @@ struct NativeAdjacentRestore {
         replay_stage=3;
         probe->delayed_step(base,replay_delivery.assign(source.data->delayed_inputs),writer,reader,check);
         replay_stage=4;
+        replay_comparison_mask=TwoFrameIdleReplay::comparison_mask(*probe,base);
+        TwoFrameIdleReplay::native_equal(*probe,base,&replay_native_difference);
         replay_verified=TwoFrameIdleReplay::comparison_ok(*probe,base);
         if(!replay_verified)return fail();
         replay_stage=5;return true;
@@ -140,6 +168,7 @@ private:
         __try {
             FullStateProbe::Measurement live{};IdleTrajectoryAudit::measure(base,live);
             const auto& expected=probe->original_next;
+            replay_rng_expected=expected.rng;replay_rng_actual=live.rng;
             replay_measurement_read=true;
             replay_rng_equal=live.rng==expected.rng;
             replay_players_equal=!std::memcmp(live.players,expected.players,sizeof(live.players));

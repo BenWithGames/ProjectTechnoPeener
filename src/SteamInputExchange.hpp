@@ -64,7 +64,7 @@ struct Capture {
         return accepted;
     }
     ~Capture(){if(shared)UnmapViewOfFile(shared);if(mapping)CloseHandle(mapping);}
-    void arm(const std::filesystem::path& directory,uint64_t nonce,bool checkpoints=false,bool replay=false,bool late=false) {
+    void arm(const std::filesystem::path& directory,uint64_t nonce,bool checkpoints=false,bool replay=false,bool late=false,bool reuse=false) {
         mapping=OpenFileMappingW(FILE_MAP_READ,FALSE,observation::mapping_name(GetCurrentProcessId()).c_str());
         if(!mapping)throw std::runtime_error("recorder_mapping_missing");
         shared=static_cast<const observation::Shared*>(MapViewOfFile(mapping,FILE_MAP_READ,0,0,sizeof(observation::Shared)));
@@ -73,7 +73,7 @@ struct Capture {
         auto path=directory/L"network-observe.arm";
         HANDLE file=CreateFileW(path.c_str(),GENERIC_WRITE,0,nullptr,CREATE_NEW,FILE_ATTRIBUTE_NORMAL,nullptr);
         if(file==INVALID_HANDLE_VALUE)throw std::runtime_error("cannot_arm_recorder");
-        const auto text=std::string(late?"NETWORK_LATE_LONG ":replay?"NETWORK_REPLAY_LONG ":checkpoints?"NETWORK_CHECKPOINT_LONG ":"NETWORK_OBSERVE_LONG ")+std::to_string(GetCurrentProcessId())+" "+std::to_string(nonce)+"\n";
+        const auto text=std::string(reuse?"NETWORK_REUSE_LONG ":late?"NETWORK_LATE_LONG ":replay?"NETWORK_REPLAY_LONG ":checkpoints?"NETWORK_CHECKPOINT_LONG ":"NETWORK_OBSERVE_LONG ")+std::to_string(GetCurrentProcessId())+" "+std::to_string(nonce)+"\n";
         DWORD written=0;bool ok=WriteFile(file,text.data(),static_cast<DWORD>(text.size()),&written,nullptr)!=FALSE;CloseHandle(file);
         if(!ok||written!=text.size())throw std::runtime_error("arm_write_failed");
         armed=true;armed_at=GetTickCount64();
@@ -121,3 +121,4 @@ struct Capture {
     }
 };
 }
+

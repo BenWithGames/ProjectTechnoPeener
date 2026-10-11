@@ -1,4 +1,4 @@
-param([switch]$CheckpointCapture,[switch]$NativeReplay,[switch]$LateInputs)
+param([switch]$CheckpointCapture,[switch]$NativeReplay,[switch]$LateInputs,[switch]$WindowReuse)
 $ErrorActionPreference='Stop'
 function Read-ReportSnapshot([string]$Path) {
     # A writer may briefly deny reads. Let the caller retry on its next poll.
@@ -31,7 +31,7 @@ try {
     Write-Host 'Both players: install this build, launch SC6, and join the same private lobby.'
     Write-Host 'Both PCs need this build and opposite assigned player slots.'
     if($LateInputs){Write-Host 'LIVE LATE-INPUT SCHEDULER: play normally. Predictions and correction requests are recorded only; no inputs are replaced and no state is restored.'}
-    if($NativeReplay){Write-Host 'THREE-FRAME REMOTE-PLAYER RIGHTWARD MOVEMENT PREDICTION/CORRECTION EXPERIMENT: both players idle for 10 seconds after round start. If restoration fails, close both games before retrying.'}else{Write-Host 'No restoration or replay occurs in this mode.'}
+    if($WindowReuse){Write-Host 'NATIVE WINDOW REUSE TEST: both players idle for 10 seconds after FIGHT, then play normally. Two three-frame reference replays; no prediction.'}elseif($NativeReplay){Write-Host 'THREE-FRAME REMOTE-PLAYER RIGHTWARD MOVEMENT PREDICTION/CORRECTION EXPERIMENT: both players idle for 10 seconds after round start. If restoration fails, close both games before retrying.'}else{Write-Host 'No restoration or replay occurs in this mode.'}
     Write-Host 'You can start these scripts in the lobby. Then ready up, select characters and stage, and start your PRIVATE match within 10 minutes.'
     if($CheckpointCapture){Write-Host 'Native checkpoint READINESS test: leave BOTH players idle for 5 seconds after the round starts. No restoration or replay.'}
     $peerText=(Read-Host "Enter your FRIEND'S numeric Steam friend code or 17-digit SteamID64").Trim()
@@ -48,7 +48,7 @@ try {
     if(@(Get-ChildItem -LiteralPath $captureDir -Filter '*.arm').Count){throw 'Another diagnostic is pending.'}
     $arm=Join-Path $captureDir 'steam-inputs.arm'
     $stream=[IO.File]::Open($arm,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
-    $armMode=if($LateInputs){'PRIVATE_STEAM_LATE'}elseif($NativeReplay){'PRIVATE_STEAM_REPLAY'}elseif($CheckpointCapture){'PRIVATE_STEAM_CHECKPOINTS'}else{'PRIVATE_STEAM_INPUTS'}
+    $armMode=if($WindowReuse){'PRIVATE_STEAM_REUSE'}elseif($LateInputs){'PRIVATE_STEAM_LATE'}elseif($NativeReplay){'PRIVATE_STEAM_REPLAY'}elseif($CheckpointCapture){'PRIVATE_STEAM_CHECKPOINTS'}else{'PRIVATE_STEAM_INPUTS'}
     try{$bytes=[Text.Encoding]::ASCII.GetBytes("$armMode $($gameProcess.Id) $peer $localSlot`n");$stream.Write($bytes,0,$bytes.Length)}finally{$stream.Dispose()}
     Write-Host 'Return to SC6. You have 10 minutes to start the match. Recording waits for a NEW round-start event, then captures 7,200 frames (about 2 minutes). Allow up to 4 more minutes for capture and delivery. If already in a match, finish the current round.'
     $deadline=(Get-Date).AddSeconds(855)
@@ -63,7 +63,7 @@ try {
             if($text -match '(?m)^status=([^\r\n]+)'){
                 $currentStatus=$Matches[1]
                 if($currentStatus -ne $lastStatus){Write-Host "Status: $currentStatus";$lastStatus=$currentStatus}
-                if($NativeReplay -and $text -match '(?m)^native_restart_required=1\r?$'){$finalText=$text;break}
+                if(($NativeReplay -or $WindowReuse) -and $text -match '(?m)^native_restart_required=1\r?$'){$finalText=$text;break}
                 if($currentStatus -notin @('running','waiting_for_local_round_marker')){$finalText=$text;break}
             }
         }
@@ -71,12 +71,14 @@ try {
     if($null -ne $finalText){
         Write-Host $finalText;Write-Host "Report: $report"
         Write-Host 'PASS refers to transport. Inspect checkpoint and handoff results separately; rollback remains disabled.'
-        if($NativeReplay -and $finalText -match '(?m)^native_restart_required=1\r?$'){throw 'Restoration was attempted but replay did not verify. Close both games; send this report.'}
+        if(($NativeReplay -or $WindowReuse) -and $finalText -match '(?m)^native_restart_required=1\r?$'){throw 'Restoration was attempted but replay did not verify. Close both games; send this report.'}
         if($NativeReplay -and ($finalText -notmatch '(?m)^native_depth_compared=3\r?$' -or $finalText -notmatch '(?m)^native_depth_rewound=3\r?$')){throw 'Three-frame remote correction did not pass. Send the report.'}
         if($NativeReplay -and $finalText -notmatch '(?m)^native_replay_verified=1\r?$'){throw 'Three-frame replay did not pass. Send this report; do not treat transport PASS as replay success.'}
+        if($WindowReuse -and ($finalText -notmatch '(?m)^native_window_reuse_completed=2\r?$' -or $finalText -notmatch '(?m)^native_replay_verified=1\r?$' -or $finalText -notmatch '(?m)^native_checkpoint_failure=0\r?$')){throw 'Native window reuse did not pass; send report and restart both games.'}
         if($finalText -notmatch '(?m)^status=PASS\r?$'){throw 'Input exchange did not finish with PASS. Share the report; restart both games before retrying.'}
     }else{throw "No complete final report before the deadline. The report may still be updating: $report"}
 
 }catch{Write-Host ('ERROR: '+$_.Exception.Message) -ForegroundColor Red;exit 1}
+
 
 

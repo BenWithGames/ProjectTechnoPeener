@@ -32,7 +32,7 @@ inline void poll() {
     static void* net=nullptr;
     static unsigned sent=0,received=0,rejected=0,send_failed=0;
     static Session session{};
-    static bool input_mode=false,checkpoint_mode=false,replay_mode=false,late_mode=false;
+    static bool input_mode=false,checkpoint_mode=false,replay_mode=false,late_mode=false,reuse_mode=false;
     static steam_inputs::Capture capture;
     static ULONGLONG completed=0;
     static bool data_done=false;
@@ -52,6 +52,15 @@ inline void poll() {
             constexpr const char* names[]={"copied_p1_0","copied_p1_1","copied_p2_0","copied_p2_1","p1_selector","p1_mode","p1_route","p1_source","p1_input","p2_selector","p2_mode","p2_route","p2_source","p2_input","state_vtable_rva","state_handler_rva","state_counter","state_previous"};
             for(unsigned i=0;i<18;++i)out<<"native_routing_"<<phase<<"_"<<names[i]<<"="<<network_checkpoint_status.routing_values[phase][i].load()<<"\n";
         }
+        out<<"native_comparison_diagnostic_schema=4\nnative_comparison_rng_expected="<<network_checkpoint_status.comparison_rng_expected.load()
+           <<"\nnative_comparison_rng_actual="<<network_checkpoint_status.comparison_rng_actual.load()<<"\n";
+        {constexpr const char* fields[]={"status","validity","group","slot","offset","field","expected","actual","expected_word","actual_word"};
+            for(unsigned i=0;i<10;++i)out<<"native_comparison_ring_"<<fields[i]<<"="<<network_checkpoint_status.comparison_ring[i].load()<<"\n";}
+        {constexpr const char* fields[]={"reason","record","offset","length","writer_rva","source","expected","actual"};
+            for(unsigned i=0;i<8;++i)out<<"native_comparison_serialized_"<<fields[i]<<"="<<network_checkpoint_status.comparison_native[i].load()<<"\n";}
+        {constexpr const char* fields[]={"stage","side","block","offset","expected","actual","index","loaded_index","mask","loaded_mask"};
+            for(unsigned i=0;i<10;++i)out<<"native_blend_block_"<<fields[i]<<"="<<network_checkpoint_status.blend_block_diagnostic[i].load()<<"\n";}
+        out<<"native_comparison_pass_mask="<<network_checkpoint_status.comparison_pass_mask.load()<<"\n";
         out<<"native_comparison_stage="<<network_checkpoint_status.comparison_stage.load()
            <<"\nnative_comparison_flags="<<network_checkpoint_status.comparison_flags.load()
            <<"\nnative_comparison_bytes="<<network_checkpoint_status.comparison_bytes.load()<<"\n";
@@ -67,7 +76,7 @@ inline void poll() {
            <<"\nnative_completion_offset="<<network_checkpoint_status.completion_offset.load()
            <<"\nnative_completion_saved="<<network_checkpoint_status.completion_saved.load()
            <<"\nnative_completion_live="<<network_checkpoint_status.completion_live.load()<<"\n";
-        out<<"schema=1\nscope="<<(input_mode?(late_mode?"steam_live_late_input_scheduler":replay_mode?"steam_native_three_frame_remote_correction":checkpoint_mode?"steam_native_checkpoint_save":"steam_recorded_inputs"):"steam_handshake_only")<<"\nrollback_active=0\ninjection="<<network_checkpoint_status.prediction_invoked.load()<<"\nrestore="<<network_checkpoint_status.restore_invoked.load()<<"\ngame_alignment_verified=0\nstatus="<<status
+        out<<"schema=1\nscope="<<(input_mode?(reuse_mode?"steam_native_window_reuse":late_mode?"steam_live_late_input_scheduler":replay_mode?"steam_native_three_frame_remote_correction":checkpoint_mode?"steam_native_checkpoint_save":"steam_recorded_inputs"):"steam_handshake_only")<<"\nrollback_active=0\ninjection="<<network_checkpoint_status.prediction_invoked.load()<<"\nrestore="<<network_checkpoint_status.restore_invoked.load()<<"\ngame_alignment_verified=0\nstatus="<<status
             <<"\nchannel="<<channel<<"\npeer="<<protocol.expected_peer<<"\nsent="<<sent<<"\nreceived="<<received
             <<"\nrejected="<<rejected<<"\nsend_failed="<<send_failed<<"\nroundtrip_proof="<<protocol.proof
             <<"\nmutual_confirmation="<<protocol.mutual<<"\nsteam_using_relay="<<unsigned(session.relay)<<'\n';
@@ -77,6 +86,7 @@ inline void poll() {
         if(input_mode)out<<"target_records="<<steam_inputs::limit<<"\nslot_mapping_assumed=1\nlocal_records="<<capture.exchange.published<<"\nremote_records="<<capture.exchange.received
             <<"\npeer_checksum_match="<<capture.exchange.peer_match<<"\nlocal_checksum="<<observation::checksum(capture.exchange.local)
             <<"\nremote_checksum="<<observation::checksum(capture.exchange.remote)<<"\nqpc_frequency="<<(capture.shared?capture.shared->frequency:0)<<'\n';
+        if(reuse_mode){out<<"native_topology_mask="<<network_checkpoint_status.topology_mask.load()<<"\nnative_topology_index="<<network_checkpoint_status.topology_index.load()<<"\nnative_topology_before_count="<<network_checkpoint_status.topology_before_count.load()<<"\nnative_topology_after_count="<<network_checkpoint_status.topology_after_count.load()<<"\n";const char* fields[]={"address","side","kind","list","parent","size"};for(unsigned i=0;i<6;++i)out<<"native_topology_before_"<<fields[i]<<"="<<network_checkpoint_status.topology_before[i].load()<<"\nnative_topology_after_"<<fields[i]<<"="<<network_checkpoint_status.topology_after[i].load()<<"\n";for(unsigned cycle=0;cycle<2;++cycle){for(unsigned frame=0;frame<4;++frame)out<<"native_window_rng_"<<cycle<<"_"<<frame<<"="<<network_checkpoint_status.window_rng[cycle][frame].load()<<"\nnative_window_rng_after_save_"<<cycle<<"_"<<frame<<"="<<network_checkpoint_status.window_rng_after_save[cycle][frame].load()<<"\n";for(unsigned hop=0;hop<3;++hop)out<<"native_window_rng_steps_"<<cycle<<"_"<<hop<<"="<<network_checkpoint_status.window_rng_steps[cycle][hop].load()<<"\n";}}
         if(late_mode){const auto& l=network_game_handoff.late;
             out<<"late_scheduler_schema=1\nlate_prediction_applied=0\nlate_correction_executed=0\nlate_decision_delay_frames=0\nlate_snapshot_available=0\nlate_observed_horizon_frames=15\nlate_correction_limit_frames=3\n";
             out<<"late_decisions="<<l.decisions.load()<<"\n";
@@ -121,7 +131,7 @@ inline void poll() {
             <<"\nnative_readiness_prepared="<<network_checkpoint_status.readiness_prepared.load()
             <<"\nnative_readiness_rejection="<<network_checkpoint_status.readiness_rejection.load()
             <<"\nnative_readiness_restore_invoked="<<network_checkpoint_status.restore_invoked.load()
-            <<"\nnative_replay_enabled="<<replay_mode
+            <<"\nnative_window_missing_mask="<<network_checkpoint_status.window_missing_mask.load()<<"\nnative_window_retry_frame="<<network_checkpoint_status.window_retry_frame.load()<<"\nnative_window_plan_result="<<network_checkpoint_status.window_plan_result.load()<<"\nnative_window_prepare_stage="<<network_checkpoint_status.window_prepare_stage.load()<<"\nnative_window_hop="<<network_checkpoint_status.window_hop.load()<<"\nnative_window_source_frame="<<network_checkpoint_status.window_source_frame.load()<<"\nnative_window_next_frame="<<network_checkpoint_status.window_next_frame.load()<<"\nnative_window_workspace_flags="<<network_checkpoint_status.window_workspace_flags.load()<<"\nnative_window_reuse_completed="<<network_checkpoint_status.window_reuse_completed.load()<<"\nnative_replay_enabled="<<(replay_mode || reuse_mode)
             <<"\nnative_replay_attempted="<<network_checkpoint_status.replay_attempted.load()
             <<"\nnative_restore_diagnostic_schema=5"
             <<"\nnative_wind_verified="<<network_checkpoint_status.wind_verified.load()
@@ -235,12 +245,12 @@ inline void poll() {
         unsigned local_slot=0;
         bool valid=bool(config>>mode>>pid>>peer);
         if(input_mode)valid=valid && bool(config>>local_slot) && (local_slot==1||local_slot==2);
-        late_mode=input_mode && mode=="PRIVATE_STEAM_LATE";
+        reuse_mode=input_mode && mode=="PRIVATE_STEAM_REUSE";late_mode=input_mode && mode=="PRIVATE_STEAM_LATE";
         replay_mode=input_mode && mode=="PRIVATE_STEAM_REPLAY";
-        checkpoint_mode=input_mode && (mode=="PRIVATE_STEAM_CHECKPOINTS" || replay_mode);
+        checkpoint_mode=input_mode && (mode=="PRIVATE_STEAM_CHECKPOINTS" || replay_mode || reuse_mode);
         bool trailing=bool(config>>extra);config.close();std::filesystem::remove(arm);
-        if(!valid||trailing||mode!=(input_mode?(late_mode?"PRIVATE_STEAM_LATE":replay_mode?"PRIVATE_STEAM_REPLAY":checkpoint_mode?"PRIVATE_STEAM_CHECKPOINTS":"PRIVATE_STEAM_INPUTS"):"PRIVATE_STEAM_HANDSHAKE")||pid!=GetCurrentProcessId()||peer<=76561197960265728ULL||peer>76561202255233023ULL){report("invalid_arm");return;}
-        if(input_mode){initial_round_generation=round_event::snapshot().generation;protocol.expected_signature=late_mode?0x001F53433648534bULL:replay_mode?0x001E53433648534bULL:checkpoint_mode?0x000C53433648534bULL:0x000B53433648534bULL;capture.shadow.remote_slot=3-local_slot;capture.composition.configure(local_slot);}
+        if(!valid||trailing||mode!=(input_mode?(reuse_mode?"PRIVATE_STEAM_REUSE":late_mode?"PRIVATE_STEAM_LATE":replay_mode?"PRIVATE_STEAM_REPLAY":checkpoint_mode?"PRIVATE_STEAM_CHECKPOINTS":"PRIVATE_STEAM_INPUTS"):"PRIVATE_STEAM_HANDSHAKE")||pid!=GetCurrentProcessId()||peer<=76561197960265728ULL||peer>76561202255233023ULL){report("invalid_arm");return;}
+        if(input_mode){initial_round_generation=round_event::snapshot().generation;protocol.expected_signature=reuse_mode?0x002853433648534bULL:late_mode?0x001F53433648534bULL:replay_mode?0x001E53433648534bULL:checkpoint_mode?0x000C53433648534bULL:0x000B53433648534bULL;capture.shadow.remote_slot=3-local_slot;capture.composition.configure(local_slot);}
         protocol.expected_peer=peer;
         HMODULE api=GetModuleHandleW(L"steam_api64.dll");if(!api){report("steam_missing");return;}
         using Handle=int(*)();using Factory=void*(*)(const char*);using Network=void*(*)(void*,int,int,const char*);
@@ -331,7 +341,7 @@ inline void poll() {
                     if(now-last_report>=1000){last_report=now;report("waiting_for_local_round_marker");}
                     return;
                 }
-                capture.arm(report_path.parent_path(),protocol.local_nonce,checkpoint_mode,replay_mode,late_mode);
+                capture.arm(report_path.parent_path(),protocol.local_nonce,checkpoint_mode,replay_mode,late_mode,reuse_mode);
             }
             if(!capture.composition.bind_replay_session(protocol.local_nonce,protocol.remote_nonce)){
                 running=false;stopped=true;report(capture.composition.failure);return;
@@ -385,4 +395,9 @@ inline void poll() {
     if(!data_done && now-last_report>=1000){last_report=now;report("running");}
 }
 }
+
+
+
+
+
 

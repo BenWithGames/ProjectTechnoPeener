@@ -388,7 +388,7 @@ int main(){
             *reinterpret_cast<unsigned*>(object+0x3D0)=0;
         }
         auto p=std::make_unique<P>();p->throw_requested=mode>=13 && mode<=16;p->charge_requested=mode>=17 && mode<=25;p->attack_requested=mode>=26 && mode<=31;p->edge_requested=mode>=32 && mode<=37;p->reversal_requested=mode>=38;p->preserve_requested=true;saves=loads=checks=0;p->run(base,save,load,check);
-        if(mode==9 || mode==13 || mode==17 || mode==26 || mode==32 || mode==38){
+        if(mode==9 || mode==13 || mode==17 || mode==26 || mode==32 || mode==38 || mode==41){
             require(!p->fault && p->preserve_applied && p->preserve_verified && saves==2);
             require(p->measurements[2].rng==P::advance_rng(123) && p->measurements[4].rng==123 && p->measurements[3].rng==123);
             for(unsigned side=0;side<2;++side){auto player=P::ptr(base+0x470DE90+side*8);
@@ -397,9 +397,9 @@ int main(){
                     require(*reinterpret_cast<unsigned*>(player+0x97220)==(side==0?0u:1u));
                     require(*reinterpret_cast<unsigned*>(player+0x97204)==1);
                 }
-                if(mode==38){
+                if(mode==38 || mode==41){
                     require(*reinterpret_cast<unsigned*>(player+0x97204)==(side==0?1u:0u));
-                    require(*reinterpret_cast<unsigned*>(player+0x97220)==0);
+                    require(*reinterpret_cast<unsigned*>(player+0x97220)==(mode==41?1u:0u));
                 }
                 if(mode==13){
                     require(*reinterpret_cast<unsigned*>(player+0x97204)==(side==0?1u:0u));
@@ -889,9 +889,14 @@ int main(){
                 require(source->prepare_adjacent(*current,*restore) && !restore->fault && loads==0);
                 require(source->data->saved.reads==0 && restore->saved.reads==0);
                 require(!source->prepare_adjacent(*current,*restore));
+                const auto valid_current_rng=current->data->measurements[0].rng;
+                ++current->data->measurements[0].rng;
+                auto changed_rng=std::make_unique<P>();
+                require(source->prepare_adjacent(*current,*changed_rng) && !changed_rng->restore_invoked);
+                current->data->measurements[0].rng=valid_current_rng;
                 for(unsigned reject=0;reject<5;++reject){
                     auto rejected=std::make_unique<P>();
-                    if(reject==0)++current->data->measurements[0].rng;
+                    if(reject==0)current->data->measurements[0].rng=0;
                     if(reject==1)++current->data->before_keys[0];
                     if(reject==2)current->data->delayed_inputs[0]=std::byte{1};
                     if(reject==3)current->module+=8;
@@ -900,7 +905,7 @@ int main(){
                     require(!source->prepare_adjacent(*current,*rejected,&reason) && !rejected->restore_invoked && loads==0);
                     constexpr Boundary::Rejection expected[]={Boundary::Rejection::rng,Boundary::Rejection::frame,Boundary::Rejection::inputs,Boundary::Rejection::module,Boundary::Rejection::mode};
                     require(reason==expected[reject]);
-                    if(reject==0)--current->data->measurements[0].rng;
+                    if(reject==0)current->data->measurements[0].rng=valid_current_rng;
                     if(reject==1)--current->data->before_keys[0];
                     if(reject==2)current->data->delayed_inputs[0]=std::byte{0};
                     if(reject==3)current->module-=8;
@@ -1574,12 +1579,16 @@ int main(){
             *reinterpret_cast<uintptr_t*>(h.object+0x30)=h.current;
         }
         *reinterpret_cast<unsigned*>(base+0x470D0C4)=101;
+        if(test==0)*reinterpret_cast<unsigned*>(base+0x485EB28)=456;
         if(test==1)*reinterpret_cast<unsigned*>(argument+0x100)=1;
         q->delayed_step(base,argument,delayed_save,delayed_load,check);
         if(test==1){require(q->fault && loads==0);require(q->input_check_phase==1 && q->input_checkpoints[1].valid && q->input_checkpoints[1].changed_mask==1 && q->input_checkpoints[1].bytes[0]==std::byte{1} && q->input_checkpoints[1].sources[0]==argument+0x100);*reinterpret_cast<unsigned*>(argument+0x100)=0;continue;}
         if(test>=3){require(q->fault && !q->outer_correction_applied && !q->preserve_applied && loads==1);continue;}
         require(q->outer_correction_verified && q->outer_correction_applied==(test==2));
         require(q->delayed_loaded && !q->fault && loads==1 && q->preserve_verified);
+        if(test==0){require(q->load_entry_rng_valid && q->load_entry_rng==456);
+            require(q->measurements[2].rng==P::advance_rng(456));
+            require(*reinterpret_cast<unsigned*>(base+0x485EB28)==123);}
         require(q->restored_valid && q->restored_save_unchanged && q->restored_ring_equal && q->restored_byte_differences==0 && q->restored.writes==q->saved.writes);
         require(q->delayed_keys_captured && q->delayed_loaded_keys[0]==(test==2?101u:100u) && q->delayed_loaded_players[0]==P::ptr(base+0x470DE90));
         require(*reinterpret_cast<unsigned*>(base+0x470D0C4)==100);
@@ -1609,6 +1618,30 @@ int main(){
         require(q->capture_blend(base,2) && !q->preserve_blend_weights(base));
         require(*reinterpret_cast<unsigned*>(owner+0x4BC)==0);
         *reinterpret_cast<unsigned*>(q->blends[0].owners[1]+0x4BC)=0;
+        // Arbitrary captured finite weights survive the native zero reset.
+        // Include signed zero, negative, subnormal and >1 values: preservation
+        // copies bits rather than imposing an unproven normalization rule.
+        const unsigned weights[]={0x3E800000u,0x80000000u,0xBE000000u,1u,0x40000000u};
+        for(auto o:q->blends[0].owners)
+            for(unsigned i=0;i<35;++i)*reinterpret_cast<unsigned*>(o+0x4BC+i*4)=weights[i%5];
+        require(q->capture_blend(base,0));
+        for(auto o:q->blends[0].owners)
+            for(unsigned i=0;i<35;++i)*reinterpret_cast<unsigned*>(o+0x4BC+i*4)=0x3F000000u;
+        require(q->capture_blend(base,1));
+        require(q->blends[0].bytes!=q->blends[1].bytes);
+        for(auto o:q->blends[0].owners)std::memset(reinterpret_cast<void*>(o+0x4BC),0,140);
+        require(q->capture_blend(base,2) && q->preserve_blend_weights(base) && q->blend_weights_verified);
+        for(auto o:q->blends[0].owners)
+            for(unsigned i=0;i<35;++i)require(*reinterpret_cast<unsigned*>(o+0x4BC+i*4)==weights[i%5]);
+        for(unsigned invalid:{0x7F800000u,0xFF800000u,0x7FC00001u}){
+            auto o=q->blends[0].owners[1];
+            *reinterpret_cast<unsigned*>(o+0x4BC+34*4)=invalid;
+            require(q->capture_blend(base,0) && q->capture_blend(base,1));
+            for(auto p:q->blends[0].owners)std::memset(reinterpret_cast<void*>(p+0x4BC),0,140);
+            require(q->capture_blend(base,2) && !q->preserve_blend_weights(base));
+            for(auto p:q->blends[0].owners)
+                for(unsigned i=0;i<35;++i)require(*reinterpret_cast<unsigned*>(p+0x4BC+i*4)==0);
+        }
         auto table=base+0x600000;*reinterpret_cast<int*>(table)=20;
         for(auto o:q->blends[0].owners){
             *reinterpret_cast<uintptr_t*>(o+0x1DD8+8)=table;
@@ -1647,6 +1680,41 @@ int main(){
         require(!q->preserve_blend_blocks(base) && *reinterpret_cast<unsigned*>(special+16)==3);
         *reinterpret_cast<int*>(table)=20;
         require(q->preserve_blend_blocks(base) && *reinterpret_cast<unsigned*>(special+16)==12);
+        // Resource-derived block2 selection works without a move-specific flag.
+        q->combat_load_diagnostic=false;q->throw_requested=false;
+        auto player=P::ptr(base+0x470DE90+8),resource=base+0x600100;
+        const auto old_table=P::ptr(player+0x971E8),old_resource=P::ptr(player+0x971F0);
+        *reinterpret_cast<uintptr_t*>(player+0x971E8)=table;
+        *reinterpret_cast<uintptr_t*>(player+0x971F0)=resource;
+        *reinterpret_cast<unsigned char*>(resource+3)=0x85; // masked selection5
+        q->measure(base,0);
+        *reinterpret_cast<unsigned*>(special+16)=6;
+        require(q->capture_blend(base,5) && !q->preserve_blend_blocks(base));
+        require(*reinterpret_cast<unsigned*>(special+16)==6);
+        *reinterpret_cast<unsigned*>(special+16)=5;
+        *reinterpret_cast<uintptr_t*>(player+0x971F0)=resource+16;
+        require(q->capture_blend(base,5) && !q->preserve_blend_blocks(base));
+        *reinterpret_cast<uintptr_t*>(player+0x971F0)=resource;
+        require(q->preserve_blend_blocks(base) && *reinterpret_cast<unsigned*>(special+16)==12);
+        *reinterpret_cast<uintptr_t*>(player+0x971E8)=old_table;
+        *reinterpret_cast<uintptr_t*>(player+0x971F0)=old_resource;
+        // Animation advances within one resource: selection/mask/weights change.
+        *reinterpret_cast<unsigned*>(special+32)=0x3E800000u;
+        require(q->capture_blend(base,0));
+        *reinterpret_cast<unsigned*>(special+16)=14;
+        *reinterpret_cast<std::uint64_t*>(special+24)=2;
+        *reinterpret_cast<unsigned*>(special+32)=0x3F000000u;
+        require(q->capture_blend(base,1));
+        *reinterpret_cast<unsigned*>(special+16)=0;
+        *reinterpret_cast<std::uint64_t*>(special+24)=0;
+        // A value belonging to neither captured frame must reject before writes.
+        *reinterpret_cast<unsigned*>(special+32)=0x3F400000u;
+        require(q->capture_blend(base,5) && !q->preserve_blend_blocks(base));
+        require(*reinterpret_cast<unsigned*>(special+16)==0);
+        *reinterpret_cast<unsigned*>(special+32)=0x3F000000u;
+        require(q->capture_blend(base,5) && q->preserve_blend_blocks(base));
+        require(*reinterpret_cast<unsigned*>(special+16)==12 &&
+                *reinterpret_cast<unsigned*>(special+32)==0x3E800000u);
         for(auto o:q->blends[0].owners)std::memset(reinterpret_cast<void*>(o+0x1DD8),0,1232);
         auto count=saves;q->delayed_step(base,argument,delayed_save,delayed_load,check);require(saves==count);
     }
@@ -1946,16 +2014,23 @@ int main(){
             put(before,0x38,side==0?0u:1u);
             require(P::combat_transition(before,after,side,false));
             put(before,0x38,1);
-            require(P::combat_transition(before,after,side,false)==(side==1));
+            require(P::combat_transition(before,after,side,false));
             require(P::combat_transition(before,after,side,false,false,true));
-            require(!P::combat_transition(before,after,side,true,false,true));
-            require(!P::combat_transition(before,after,side,false,true,true));
+            require(P::combat_transition(before,after,side,true,false,true));
+            require(P::combat_transition(before,after,side,false,true,true));
             put(before,0x38,2);
             require(!P::combat_transition(before,after,side,false,false,true));
             put(before,0x38,1);put(after,0x38,1);
             require(!P::combat_transition(before,after,side,false,false,true));
-            put(after,0x38,0);put(before,0x1C,2);
+            put(after,0x38,0);put(before,0x1C,7);
             require(!P::combat_transition(before,after,side,false,false,true));
+            for(unsigned saved_mode=0;saved_mode<7;++saved_mode){
+                put(before,0x1C,saved_mode);
+                require(P::combat_transition(before,after,side,false));
+            }
+            put(after,0x1C,2);
+            require(!P::combat_transition(before,after,side,false));
+            put(after,0x1C,1);
         }
         auto trigger_probe=std::make_unique<P>();
         require(trigger_probe->accept_replay_trigger(true,100));
@@ -1969,7 +2044,7 @@ int main(){
     }
     // Immediate completion: retained roots/groups/matrices, ring aliases and
     // the separate camera reset. Late validation failure must write nothing.
-    for(unsigned failure=0;failure<17;++failure){
+    for(unsigned failure=0;failure<23;++failure){
         auto a=std::make_unique<P>(),b=std::make_unique<P>(),c=std::make_unique<P>();
         auto& x=a->transforms[0];x.valid=true;x.count=4;
         auto root=base+0x700000,group=base+0x701000,link=base+0x702000,target=base+0x703000;
@@ -2018,7 +2093,7 @@ int main(){
             if(failure==8)b->cameras[0].records[0].bytes[0x30]^=std::byte{1};
             if(failure==9){unsigned nan=0x7FC00000;std::memcpy(b->cameras[0].records[0].bytes.data()+0x24,&nan,4);}
         }
-        if(failure>=10){ // Idle drift admits only the three captured float fields.
+        if(failure>=10){ // Later-frame values are not copied by this correction.
             for(unsigned off:{0x24u,0x64u,0x114u})
                 std::memcpy(b->cameras[0].records[0].bytes.data()+off,&newer,4);
             if(failure==11)b->cameras[0].records[0].bytes[0x154]^=std::byte{1};
@@ -2028,9 +2103,25 @@ int main(){
             if(failure==14)b->cameras[0].records[0].bytes[0x20]^=std::byte{1};
             if(failure==13){unsigned nan=0x7FC00000;std::memcpy(b->cameras[0].records[0].bytes.data()+0x64,&nan,4);}
         }
+        if(failure==17)b->cameras[0].records[0].bytes[0]^=std::byte{1};
+        if(failure==18){ // Unrelated loaded change still rejects before any patch.
+            c->cameras[4].records[0].bytes[0x30]^=std::byte{1};
+            std::memcpy(reinterpret_cast<void*>(camera),c->cameras[4].records[0].bytes.data(),456);
+        }
+        if(failure==19){unsigned nan=0x7FC00000;std::memcpy(ca.records[0].bytes.data()+0x154,&nan,4);}
+        if(failure>=20){
+            // First matrix word retained, second already restored by the loader.
+            std::memcpy(y.records[3].bytes.data()+4,&newer,4);
+            if(failure==21){float unknown=3.0f;
+                std::memcpy(c->transforms[3].records[3].bytes.data()+4,&unknown,4);
+                std::memcpy(reinterpret_cast<void*>(target+0x84),&unknown,4);}
+            if(failure==22){ // A changed non-float header must still fail.
+                c->transforms[3].records[1].bytes[64]^=std::byte{1};
+                *reinterpret_cast<unsigned char*>(group+64)^=1;}
+        }
         auto correction=std::make_unique<sc6::research::ImmediateIdleCorrection>();
         bool ok=correction->apply(*a,*b,*c,base);
-        require(ok==(failure==0 || failure==6 || failure==10) && correction->verified==ok);
+        require(ok==(failure==0 || (failure>=6 && failure<=16) || failure==20) && correction->verified==ok);
         require(ok ? correction->failure_line==0 : correction->failure_line!=0);
         require(*reinterpret_cast<float*>(root+0x1F0)==(ok?0.0f:newer));
         require(*reinterpret_cast<float*>(group)==(ok?0.0f:newer));
@@ -2077,6 +2168,7 @@ int main(){
     VirtualFree(reinterpret_cast<void*>(base),0,MEM_RELEASE);
     std::puts("PASS: full probe mock round-trip, no load on preflight/idle rejection, read bounds/shape, forbidden operations, incomplete read, state mismatch, postflight rejection, bookkeeping, once-only, invalid base; preservation restores scalars/RNG, retains rebuilt pointers, rejects unexpected fields/RNG before writes.");
 }
+
 
 
 

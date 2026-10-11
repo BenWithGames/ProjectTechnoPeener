@@ -1,12 +1,23 @@
 #pragma once
 #include <atomic>
 #include <array>
+#include <cstdint>
 namespace sc6 {
 struct NetworkCheckpointStatus {
+    std::atomic<unsigned> window_reuse_completed{};
+    std::atomic<unsigned> window_missing_mask{},window_retry_frame{};
+    std::atomic<unsigned> topology_mask{},topology_index{UINT32_MAX},topology_before_count{},topology_after_count{};
+    std::array<std::atomic<uint64_t>,6> topology_before{},topology_after{};
+    std::array<std::array<std::atomic<unsigned>,4>,2> window_rng{},window_rng_after_save{};
+    std::array<std::array<std::atomic<unsigned>,3>,2> window_rng_steps{};
+    std::atomic<unsigned> window_plan_result{},window_prepare_stage{},window_hop{},window_source_frame{},window_next_frame{},window_workspace_flags{};
     std::array<std::atomic<unsigned>,2> routing_valid{},dispatch_stage{};
     std::array<std::array<std::atomic<unsigned>,18>,2> routing_values{};
     std::array<std::array<std::atomic<unsigned>,4>,3> confirmation_attempts{};
-    std::atomic<unsigned> comparison_stage{},comparison_flags{};
+    std::atomic<unsigned> comparison_stage{},comparison_flags{},comparison_rng_expected{},comparison_rng_actual{},comparison_pass_mask{};
+    std::array<std::atomic<uint64_t>,10> comparison_ring{};
+    std::array<std::atomic<uint64_t>,8> comparison_native{};
+    std::array<std::atomic<uint64_t>,10> blend_block_diagnostic{};
     std::array<std::atomic<unsigned>,8> comparison_scalars{};
     std::atomic<unsigned long long> comparison_bytes{};
     std::atomic<unsigned> battle_gate{},battle_vtable{},battle_handler{};
@@ -38,6 +49,8 @@ struct NetworkCheckpointStatus {
         clear(dispatch_stage);
         clear(routing_values);
         clear(confirmation_attempts);
+        clear(comparison_rng_expected);clear(comparison_rng_actual);clear(comparison_ring);
+        clear(blend_block_diagnostic);clear(comparison_native);clear(comparison_pass_mask);
         clear(comparison_stage);
         clear(comparison_flags);
         clear(comparison_scalars);

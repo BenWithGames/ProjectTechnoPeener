@@ -1,0 +1,13 @@
+schema=1
+scope=resource_descriptor_observation
+restore=0
+injection=0
+rollback_active=0
+ownership_verified=0
+control_pointer_source=factory_output
+status=captured
+owner_records=231
+owner_csv_written=1
+records=78
+dropped=0
+csv_written=1

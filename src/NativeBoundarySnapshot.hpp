@@ -4,12 +4,19 @@ namespace sc6::research {
 // A single boundary, independent of a pre-recorded reference trajectory.
 // Capture only on the offline update thread. Does not invoke native loading.
 struct NativeBoundarySnapshot {
-    enum class Mode {idle,throw_move,charge,attack,edge,reversal,direction_observation,a_observation};
+    enum class Mode {idle,throw_move,charge,attack,edge,reversal,direction_observation,a_observation,combat_capture_only};
     std::unique_ptr<FullStateProbe> data=std::make_unique<FullStateProbe>();
     unsigned direction_bits{0x400},direction_slot{1};
     unsigned capture_stage{};bool mode_values_valid{};std::array<unsigned,6> mode_values{};
     Mode mode;uintptr_t module{};DWORD thread{};bool attempted{},valid{},fault{};unsigned exception{};
     explicit NativeBoundarySnapshot(Mode value):mode(value){
+        data->throw_requested=value==Mode::throw_move;data->charge_requested=value==Mode::charge;
+        data->attack_requested=value==Mode::attack;data->edge_requested=value==Mode::edge;
+        data->reversal_requested=value==Mode::reversal;
+    }
+    // Internal storage reuse: allocation is retained by the owning workspace.
+    NativeBoundarySnapshot(Mode value,std::unique_ptr<FullStateProbe> storage) noexcept
+        :data(std::move(storage)),mode(value){
         data->throw_requested=value==Mode::throw_move;data->charge_requested=value==Mode::charge;
         data->attack_requested=value==Mode::attack;data->edge_requested=value==Mode::edge;
         data->reversal_requested=value==Mode::reversal;
@@ -34,15 +41,20 @@ struct NativeBoundarySnapshot {
             auto& q=*data;
             capture_stage=1;if(!check(base)){fault=true;__leave;}
             capture_stage=2;
-            if(!(mode==Mode::a_observation?a_state(base):mode==Mode::direction_observation?direction_state(base,direction_bits,direction_slot):mode==Mode::idle?FullStateProbe::idle(base):q.combat_state(base))){
-                fault=true;
+            // General combat capture retains all serializer, identity and
+            // before/after integrity checks. It does not claim that the old
+            // move-specific loader can restore the resulting snapshot.
+            const bool state_ready=mode==Mode::combat_capture_only ||
+                (mode==Mode::a_observation?a_state(base):mode==Mode::direction_observation?direction_state(base,direction_bits,direction_slot):mode==Mode::idle?FullStateProbe::idle(base):q.combat_state(base));
+            if(!state_ready || mode==Mode::combat_capture_only){
                 mode_values[0]=*reinterpret_cast<std::uint16_t*>(base+0x4717840);
                 mode_values[1]=*reinterpret_cast<std::uint16_t*>(base+0x47AEC30);
                 mode_values[2]=*reinterpret_cast<std::uint16_t*>(base+0x475A04A);
                 mode_values[3]=*reinterpret_cast<std::uint16_t*>(base+0x47F143A);
                 std::memcpy(&mode_values[4],reinterpret_cast<void*>(base+0x48462F4),4);
                 mode_values[5]=*reinterpret_cast<unsigned char*>(base+0x48462D0);
-                mode_values_valid=true;__leave;
+                mode_values_valid=true;
+                if(!state_ready){fault=true;__leave;}
             }
             capture_stage=3;if(!FullStateProbe::input_bytes(argument,q.delayed_inputs)){fault=true;__leave;}
             capture_stage=4;if(!q.rings[0].capture(base)){fault=true;__leave;}
@@ -75,6 +87,9 @@ struct NativeBoundarySnapshot {
     bool prepare_adjacent(const NativeBoundarySnapshot& current,FullStateProbe& q,Rejection* reason=nullptr,bool direction_restore=false,bool a_restore=false)const {
         auto reject=[&](Rejection r){if(reason)*reason=r;return false;};
         if(reason)*reason=Rejection::none;
+        // Capture support must never implicitly authorize restoration. Reject
+        // either side before copying streams or preparing native reader state.
+        if(mode==Mode::combat_capture_only || current.mode==Mode::combat_capture_only)return reject(Rejection::mode);
         if(!valid || fault || !current.valid || current.fault)return reject(Rejection::invalid_capture);
         if(module!=current.module)return reject(Rejection::module);
         const bool a_pair=a_restore && !direction_restore && mode==Mode::idle && current.mode==Mode::a_observation;
@@ -89,7 +104,8 @@ struct NativeBoundarySnapshot {
         if(std::memcmp(a.before_players,b.before_players,sizeof(a.before_players)))return reject(Rejection::players);
         if(!IdleTrajectoryAudit::same_shape(a.saved,b.saved))return reject(Rejection::shape);
         if(!b.rings[0].rotated_from(a.rings[0]))return reject(Rejection::rings);
-        if(a.measurements[0].rng!=b.measurements[0].rng)return reject(Rejection::rng);
+        if(!a.measurements[0].rng || a.measurements[0].rng>=2147483647 ||
+           !b.measurements[0].rng || b.measurements[0].rng>=2147483647)return reject(Rejection::rng);
         if(!a.transforms[0].same_topology(b.transforms[0]))return reject(Rejection::transforms);
         if(!IdleTrajectoryAudit::camera_identity(a.cameras[0],b.cameras[0]))return reject(Rejection::camera);
         // Idle permits only finite normalized auxiliary variation. Buttons and

@@ -32,8 +32,8 @@ struct FullStateProbe {
     static constexpr unsigned scalar_offsets[]={0x20,0x24,0x30,0x34,0x40,0x50};
     static constexpr unsigned throw_scalar_offsets[]={0x1C,0x38};
     static bool combat_transition(const std::array<std::byte,224>& before,
-                                 const std::array<std::byte,224>& after,unsigned side,bool charge,bool reversal=false,bool later_throw=false){
-        if(side>1 || (later_throw && (charge || reversal)))return false;
+                                 const std::array<std::byte,224>& after,unsigned side,bool,bool=false,bool=false){
+        if(side>1)return false;
         uintptr_t object{},data{};
         std::memcpy(&object,before.data()+128,8);
         std::memcpy(&data,before.data()+136,8);
@@ -42,19 +42,24 @@ struct FullStateProbe {
         std::memcpy(&new_mode,after.data()+128+0x1C,4);
         std::memcpy(&old_flag,before.data()+128+0x38,4);
         std::memcpy(&new_flag,after.data()+128+0x38,4);
-        // Exact captured A+G/Soul Charge/Soul Attack/Critical Edge/Reversal Edge transition; non-null pointers enable mode 1.
+        // Reader30B080 and initializer2F8FA0/2FA080: non-null resources
+        // rebuild flag0 and mode1, independent of the saved move or side.
+        // Seven entries in pinned mode tables admit saved modes0..6.
         // Pointer identity is additionally checked by the unknown-byte guard.
-        return object && data && old_mode==((charge || side==0)?1u:0u) &&
-            old_flag==(later_throw?1u:((reversal || side==0)?0u:1u)) && new_mode==1 && new_flag==0;
+        return object && data && old_mode<=6 && old_flag<=1 && new_mode==1 && new_flag==0;
     }
     static std::uint32_t advance_rng(std::uint32_t seed){
         for(unsigned i=0;i<4;++i)seed=static_cast<std::uint32_t>(static_cast<std::uint64_t>(seed)*16807%2147483647);
         return seed;
     }
+    std::uint32_t load_entry_rng{};
+    bool load_entry_rng_valid{};
     bool preserve(uintptr_t b){
         auto& source=measurements[0];auto& written=measurements[1];auto& loaded=measurements[2];
+        const auto entry_rng=load_entry_rng_valid?load_entry_rng:source.rng;
         if(!source.valid || !written.valid || !loaded.valid || source.rng==0 || source.rng>=2147483647 ||
-           source.rng!=written.rng || loaded.rng!=advance_rng(source.rng) || source.fields!=written.fields)return false;
+           entry_rng==0 || entry_rng>=2147483647 || source.rng!=written.rng ||
+           loaded.rng!=advance_rng(entry_rng) || source.fields!=written.fields)return false;
         for(unsigned side=0;side<2;++side){
             auto player=ptr(b+0x470DE90+side*8);
             if(player!=source.players[side] || player!=written.players[side] || player!=loaded.players[side])return false;
@@ -66,9 +71,7 @@ struct FullStateProbe {
             for(unsigned k=8;k<224;++k){
                 bool allowed=k<128;
                 for(auto off:scalar_offsets)if(k>=128+off && k<132+off)allowed=true;
-                if(throw_requested)for(auto off:throw_scalar_offsets)if(k>=128+off && k<132+off)allowed=true;
-                if((charge_requested || attack_requested || edge_requested) && k>=128+0x38 && k<132+0x38)allowed=true;
-                if(reversal_requested && side==1 && k>=128+0x1C && k<132+0x1C)allowed=true;
+                if(combat_requested())for(auto off:throw_scalar_offsets)if(k>=128+off && k<132+off)allowed=true;
                 if(!allowed && source.fields[side][k]!=loaded.fields[side][k])return false;
             }
         }
@@ -78,12 +81,9 @@ struct FullStateProbe {
             std::memcpy(reinterpret_cast<void*>(player+0x97100),source.fields[side].data()+8,120);
             for(auto off:scalar_offsets)std::memcpy(reinterpret_cast<void*>(player+0x971E8+off),source.fields[side].data()+128+off,4);
         }
-        if(throw_requested)for(unsigned side=0;side<2;++side)
+        if(combat_requested())for(unsigned side=0;side<2;++side)
             for(auto off:throw_scalar_offsets)
                 std::memcpy(reinterpret_cast<void*>(source.players[side]+0x971E8+off),source.fields[side].data()+128+off,4);
-        if(charge_requested || attack_requested || edge_requested)for(unsigned side=0;side<2;++side)
-            std::memcpy(reinterpret_cast<void*>(source.players[side]+0x97220),source.fields[side].data()+128+0x38,4);
-        if(reversal_requested)std::memcpy(reinterpret_cast<void*>(source.players[1]+0x97204),source.fields[1].data()+128+0x1C,4);
         *reinterpret_cast<std::uint32_t*>(b+0x485EB28)=source.rng;
         measure(b,4);auto& result=measurements[4];
         preserve_verified=result.rng==source.rng;
@@ -341,46 +341,95 @@ struct FullStateProbe {
     TransformSnapshot::WindDiagnostic wind_diagnostic;
     CameraSnapshot::RestoreDiagnostic camera_diagnostic;
     bool blend_blocks_applied{},blend_blocks_verified{};
+    struct BlendBlockDiagnostic {
+        unsigned stage{},side{UINT32_MAX},block{UINT32_MAX},offset{UINT32_MAX};
+        uint64_t expected{},actual{},index{},loaded_index{},mask{},loaded_mask{};
+        bool compare(const std::byte* a,const std::byte* b,unsigned count){
+            for(unsigned i=0;i<count;++i)if(a[i]!=b[i]){offset=i;
+                expected=std::to_integer<unsigned>(a[i]);actual=std::to_integer<unsigned>(b[i]);return false;}
+            return true;
+        }
+    } blend_block_diagnostic;
     bool preserve_blend_blocks(uintptr_t b) noexcept {
+        auto& d=blend_block_diagnostic;d={};d.stage=1;
         __try {
             if(!blend_weights_verified || !blends[0].valid || !blends[1].valid || !blends[5].valid)return false;
             for(unsigned side=0;side<2;++side){
+                d.side=side;d.stage=2;
                 auto owner=blends[0].owners[side];auto player=ptr(b+0x470DE90+side*8);
                 if(player<0x10000 || ptr(player+0x971F8)!=owner || owner!=blends[1].owners[side] || owner!=blends[5].owners[side])return false;
                 auto source=blends[0].bytes[side].data()+140;
                 auto loaded=blends[5].bytes[side].data()+140;
-                if((a_restore_requested?!a_blend_pair(blends[0].bytes[side].data(),blends[1].bytes[side].data(),side):std::memcmp(source,blends[1].bytes[side].data()+140,1232)!=0) ||
-                   std::memcmp(loaded,reinterpret_cast<void*>(owner+0x1DD8),1232))return false;
+                d.stage=3;
+                auto next=blends[1].bytes[side].data()+140;
+                d.stage=4;
+                if(!d.compare(loaded,reinterpret_cast<const std::byte*>(owner+0x1DD8),1232))return false;
                 for(unsigned j=0;j<7;++j){
-                    auto s=source+j*176;auto l=loaded+j*176;
+                    d.block=j;d.stage=5;
+                    auto s=source+j*176;auto l=loaded+j*176;auto n=next+j*176;
+                    // Selection, mask and 35 float weights are mutable. Resource
+                    // pointers, unknown fields and padding must retain identity.
                     for(unsigned k=0;k<176;++k)
-                        if(!(k>=16 && k<20) && !(k>=24 && k<32) && s[k]!=l[k])return false;
+                        if(!(k>=16 && k<20) && !(k>=24 && k<172) && s[k]!=n[k]){d.stage=3;d.offset=k;d.expected=std::to_integer<unsigned>(s[k]);d.actual=std::to_integer<unsigned>(n[k]);return false;}
+                    for(unsigned k=0;k<176;++k)
+                        if(!(k>=16 && k<20) && !(k>=24 && k<172) && s[k]!=l[k]){d.offset=k;d.expected=std::to_integer<unsigned>(s[k]);d.actual=std::to_integer<unsigned>(l[k]);return false;}
+                    for(unsigned k=32;k<172;k+=4){
+                        std::uint32_t saved_weight{},next_weight{},loaded_weight{};
+                        std::memcpy(&saved_weight,s+k,4);std::memcpy(&next_weight,n+k,4);std::memcpy(&loaded_weight,l+k,4);
+                        if((saved_weight&0x7F800000u)==0x7F800000u || (next_weight&0x7F800000u)==0x7F800000u ||
+                           (loaded_weight!=saved_weight && loaded_weight!=next_weight)){d.offset=k;d.expected=saved_weight;d.actual=loaded_weight;return false;}
+                    }
                     uintptr_t table{};std::uint32_t index{},new_index{};std::uint64_t mask{},new_mask{};
+                    std::uint32_t next_index{};std::uint64_t next_mask{};
+                    std::memcpy(&next_index,n+16,4);std::memcpy(&next_mask,n+24,8);
+                    if(next_mask>>35)return false;
                     std::memcpy(&table,s+8,8);std::memcpy(&index,s+16,4);std::memcpy(&new_index,l+16,4);
                     std::memcpy(&mask,s+24,8);std::memcpy(&new_mask,l+24,8);
+                    d.stage=6;d.index=index;d.loaded_index=new_index;d.mask=mask;d.loaded_mask=new_mask;
                     // Loader2FA080 reconstructs block2 selection. Narrow observed A+G case only.
                     const bool throw_selection=combat_load_diagnostic && throw_requested && !delayed_requested &&
                         side==1 && j==2 && index==12 && new_index==3 && mask==0 && new_mask==0;
-                    if((new_index!=0 && new_index!=index && !(a_restore_requested && side==0 && j==0 && index==12 && new_index==14) && !throw_selection) || (new_mask!=0 && new_mask!=mask) || (mask>>35))return false;
+                    // RVA2F8FA0 invokes 2FA080(mode=1) when both resources
+                    // exist. Its selection lands at owner+1F48 (block2+16),
+                    // from resource[3]&127, clamped to zero by table bounds.
+                    // Verify captured/live identities before reading the resource.
+                    bool reset_selection=false;
+                    if(j==2 && new_index!=0 && new_index!=index && measurements[0].valid){
+                        uintptr_t resource{},saved_table{},saved_owner{};
+                        const auto* state=measurements[0].fields[side].data()+128;
+                        std::memcpy(&saved_table,state,8);std::memcpy(&resource,state+8,8);
+                        std::memcpy(&saved_owner,state+16,8);
+                        if(measurements[0].players[side]==player && saved_owner==owner &&
+                           saved_table==table && table>=0x10000 && resource>=0x10000 && resource<=UINTPTR_MAX-3 &&
+                           ptr(player+0x971E8)==table && ptr(player+0x971F0)==resource){
+                            const auto count=*reinterpret_cast<const std::int32_t*>(table);
+                            const auto selected=*reinterpret_cast<const unsigned char*>(resource+3)&127u;
+                            reset_selection=count>0 && selected<static_cast<unsigned>(count) && new_index==selected;
+                        }
+                    }
+                    if((new_index!=0 && new_index!=index && !(a_restore_requested && side==0 && j==0 && index==12 && new_index==14) && !throw_selection && !reset_selection) || (new_mask!=0 && new_mask!=mask) || (mask>>35))return false;
+                    d.stage=7;
                     if(table){
                         if(table<0x10000)return false;
                         auto count=*reinterpret_cast<const std::int32_t*>(table);
-                        if(count<=0 || index>=static_cast<unsigned>(count) || new_index>=static_cast<unsigned>(count))return false;
-                    }else if(index || mask)return false;
+                        if(count<=0 || index>=static_cast<unsigned>(count) || new_index>=static_cast<unsigned>(count) || next_index>=static_cast<unsigned>(count))return false;
+                    }else if(index || mask || next_index || next_mask)return false;
                 }
             }
-            blend_blocks_applied=true;
+            d.stage=8;blend_blocks_applied=true;
             for(unsigned side=0;side<2;++side)for(unsigned j=0;j<7;++j){
                 auto target=blends[0].owners[side]+0x1DD8+j*176;
                 auto source=blends[0].bytes[side].data()+140+j*176;
                 std::memcpy(reinterpret_cast<void*>(target+16),source+16,4);
                 std::memcpy(reinterpret_cast<void*>(target+24),source+24,8);
+                std::memcpy(reinterpret_cast<void*>(target+32),source+32,140);
             }
             if(!capture_blend(b,6))return false;
-            blend_blocks_verified=true;
+            d.stage=9;blend_blocks_verified=true;
             for(unsigned side=0;side<2;++side)
                 blend_blocks_verified=blend_blocks_verified && !std::memcmp(blends[0].bytes[side].data(),blends[6].bytes[side].data(),1372) &&
                     !std::memcmp(blends[5].bytes[side].data()+1372,blends[6].bytes[side].data()+1372,8);
+            if(blend_blocks_verified)d.stage=10;
             return blend_blocks_verified;
         }__except(EXCEPTION_EXECUTE_HANDLER){return false;}
     }
@@ -393,13 +442,18 @@ struct FullStateProbe {
                 auto owner=blends[0].owners[side];
                 auto player=ptr(b+0x470DE90+side*8);
                 if(player<0x10000 || ptr(player+0x971F8)!=owner || owner!=blends[1].owners[side] || owner!=blends[2].owners[side])return false;
-                if(std::memcmp(blends[0].bytes[side].data(),blends[1].bytes[side].data(),140) ||
-                   std::memcmp(reinterpret_cast<void*>(owner+0x4BC),blends[2].bytes[side].data(),140))return false;
+                // Current-frame weights may differ during animation. The native
+                // reader resets these words independently of either frame;
+                // identity and the captured/live zero result are the guards.
+                if(std::memcmp(reinterpret_cast<void*>(owner+0x4BC),blends[2].bytes[side].data(),140))return false;
                 for(unsigned i=0;i<35;++i){
                     std::uint32_t source{},loaded{};
                     std::memcpy(&source,blends[0].bytes[side].data()+i*4,4);
                     std::memcpy(&loaded,blends[2].bytes[side].data()+i*4,4);
-                    if(loaded || (source!=0 && source!=(i<24?0x3F59999Au:0x3F400000u)))return false;
+                    // Pinned initializer RVA2F9050 clears all 35 words,
+                    // independent of their saved values. Restore finite captured
+                    // weights, not only constants from the original idle test.
+                    if(loaded || (source&0x7F800000u)==0x7F800000u)return false;
                 }
             }
             blend_weights_applied=true;
@@ -535,7 +589,7 @@ struct FullStateProbe {
             bookkeeping=ptr(b+0x470E870);captured=true;
             if(!delayed_loaded){
                 original_next=measurements[2];
-                delayed_guard_ok=delayed_sources_ok() && original_next.rng==measurements[0].rng;
+                delayed_guard_ok=delayed_sources_ok() && original_next.rng>0 && original_next.rng<2147483647;
                 for(unsigned side=0;side<2;++side)
                     delayed_guard_ok=delayed_guard_ok && !std::memcmp(original_next.fields[side].data()+128,measurements[0].fields[side].data()+128,16);
                 if(combat_replay_requested){
@@ -544,6 +598,11 @@ struct FullStateProbe {
                         (combat_preflight_pass_mask | (recorded_input_replay && delayed_inputs_equal?2u:0u))==combat_preflight_required_mask;
                 }
                 if(!delayed_guard_ok){delayed_failure_line=__LINE__;fault=true;__leave;}
+                // Loader side effects start from the live seed, not the older
+                // snapshot's seed. Check drift before any restoration writes.
+                load_entry_rng=*reinterpret_cast<const std::uint32_t*>(b+0x485EB28);
+                if(load_entry_rng!=original_next.rng){delayed_failure_line=__LINE__;fault=true;__leave;}
+                load_entry_rng_valid=true;
                 // Restore physical slot selection before native fixups resolve aliases.
                 if(!rings[0].restore(b,delayed_scratch)){delayed_failure_line=__LINE__;fault=true;__leave;}
                 restore_invoked=true;reader(&saved.stream);restore_completed=saved.consumed();

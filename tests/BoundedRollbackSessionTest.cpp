@@ -11,6 +11,24 @@ struct Adapter {
 };
 using Session=sc6::research::BoundedRollbackSession<Input,long long>;
 int main(){
+    sc6::research::RollbackJournal<2> tiny;
+    tiny.push(1,2,0,0,1);tiny.push(1,2,1,1,1);tiny.push(1,2,2,2,1);
+    assert(tiny.dropped()==1);sc6::research::RollbackEvent e;
+    assert(tiny.pop(e) && e.sequence==0);assert(tiny.pop(e) && e.sequence==1);assert(!tiny.pop(e));
+    tiny.push(1,2,3,3,1);assert(tiny.pop(e) && e.sequence==3);
+    sc6::research::RollbackJournal<> journal;Session logged;Adapter engine;
+    assert(logged.attach_journal(journal) && logged.begin(4,5));
+    assert(!logged.attach_journal(journal));
+    assert(logged.advance(engine,{}));assert(logged.receive(4,5,0,{1,1})==Session::Arrival::accepted);
+    assert(logged.reconcile(engine));
+    unsigned beginCount=0,endCount=0;
+    while(journal.pop(e)){if(e.kind==sc6::research::RollbackEvent::correction_begin){++beginCount;assert(e.frame==0 && e.detail==1);}
+        if(e.kind==sc6::research::RollbackEvent::correction_end)++endCount;}
+    assert(beginCount==1 && endCount==1 && journal.dropped()==0);
+    assert(logged.advance(engine,{}));assert(logged.receive(4,5,1,{2,1})==Session::Arrival::accepted);
+    engine.failLoad=true;assert(!logged.reconcile(engine));bool failureLogged=false;
+    while(journal.pop(e))if(e.kind==sc6::research::RollbackEvent::failure){failureLogged=true;assert(e.detail==4 && e.frame==1);}
+    assert(failureLogged);
     // Late reordered truth must converge to an independently stepped reference.
     Session s;Adapter a,reference;assert(s.begin(1,2));
     Input truth[3]={{1,1},{2,2},{0,0}};

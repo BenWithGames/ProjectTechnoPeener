@@ -1,0 +1,9 @@
+schema=1
+scope=generated_owner_observation
+restore=0
+injection=0
+references_acquired=0
+rollback_active=0
+records=1
+dropped=0
+csv_written=1

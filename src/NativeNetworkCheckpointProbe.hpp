@@ -228,8 +228,9 @@ struct NativeNetworkCheckpointProbe {
         }
         return true;
     }
-    void publish_source_mismatch() noexcept {
-        const auto& q=*readiness->probe;
+    void publish_source_mismatch() noexcept {publish_source_mismatch(*readiness,snapshots[0]->module);}
+    static void publish_source_mismatch(const NativeAdjacentRestore& restore,uintptr_t base) noexcept {
+        const auto& q=*restore.probe;
         ULONG_PTR low{},high{};GetCurrentThreadStackLimits(&low,&high);
         for(unsigned i=0;i<q.saved.writes;++i){
             const auto a=q.saved.traces[i].source,b=q.after_save.traces[i].source;
@@ -241,7 +242,7 @@ struct NativeNetworkCheckpointProbe {
             network_checkpoint_status.source_record=i;
             network_checkpoint_status.source_size=q.saved.lengths[i];
             network_checkpoint_status.source_saved=a;network_checkpoint_status.source_next=b;
-            const auto writer=q.saved.traces[i].writer,base=snapshots[0]->module;
+            const auto writer=q.saved.traces[i].writer;
             network_checkpoint_status.source_writer_rva=writer>=base?writer-base:0;
             network_checkpoint_status.source_stack_mask=(a>=low && a<high?1u:0u)|(b>=low && b<high?2u:0u);
             network_checkpoint_status.source_mismatch_found=1;return;
@@ -249,8 +250,20 @@ struct NativeNetworkCheckpointProbe {
     }
     void publish_restore_diagnostics() noexcept {publish_restore_diagnostics(*readiness);}
     static void publish_restore_diagnostics(NativeAdjacentRestore& restore) noexcept {
+        const auto& nd=restore.replay_native_difference;
+        const uint64_t nativeValues[]={nd.reason,nd.record,nd.offset,nd.length,nd.writer,nd.source,nd.expected,nd.actual};
+        for(unsigned i=0;i<8;++i)network_checkpoint_status.comparison_native[i]=nativeValues[i];
+        network_checkpoint_status.comparison_pass_mask=restore.replay_comparison_mask;
         network_checkpoint_status.comparison_stage=restore.replay_stage;
         const auto& rp=*restore.probe;
+        const auto& bd=rp.blend_block_diagnostic;
+        const uint64_t blendValues[]={bd.stage,bd.side,bd.block,bd.offset,bd.expected,bd.actual,bd.index,bd.loaded_index,bd.mask,bd.loaded_mask};
+        for(unsigned i=0;i<10;++i)network_checkpoint_status.blend_block_diagnostic[i]=blendValues[i];
+        network_checkpoint_status.comparison_rng_expected=restore.replay_rng_expected;
+        network_checkpoint_status.comparison_rng_actual=restore.replay_rng_actual;
+        const auto ring=rp.rings[2].first_difference(rp.replay_rings);
+        const uint64_t values[]={ring.status,ring.validity,ring.group,ring.slot,ring.offset,ring.field,ring.expected,ring.actual,ring.expected_word,ring.actual_word};
+        for(unsigned i=0;i<10;++i)network_checkpoint_status.comparison_ring[i]=values[i];
         network_checkpoint_status.comparison_flags=unsigned(restore.replay_measurement_read) |
             (unsigned(restore.replay_rng_equal)<<1)|(unsigned(restore.replay_players_equal)<<2)|
             (unsigned(rp.replay_done)<<3)|(unsigned(rp.replay_keys_equal)<<4)|(unsigned(rp.replay_ring_equal)<<5)|(unsigned(rp.fault)<<6);
@@ -404,3 +417,4 @@ struct NativeNetworkCheckpointProbe {
     }
 };
 }
+

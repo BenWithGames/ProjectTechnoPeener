@@ -26,8 +26,16 @@
 #include "RepeatedMovement.hpp"
 #include "InputObservation.hpp"
 #include "RoundEventObserver.hpp"
+#include "NativeClockHook.hpp"
+#include "EffectUpdateObserver.hpp"
+#include "NativeRangeObserver.hpp"
+#include "ResourceDescriptorObserver.hpp"
+#include "ResourceLeaseService.hpp"
+#include "SnapshotDependencyProbe.hpp"
+#include "GeneratedOwnerObserver.hpp"
 #include "NetworkGameHandoff.hpp"
 #include "NetworkDepthCorrection.hpp"
+#include "NativeWindowReuseProbe.hpp"
 
 extern "C" { void* SC6Original=nullptr; void SC6EntryBridge(); }
 extern "C" { void* SC6FieldOriginal=nullptr; void SC6FieldBridge(); }
@@ -153,7 +161,7 @@ struct Recorder {
     std::unique_ptr<sc6::research::NativeAdjacentRestore> native_restore;
     bool native_replay{};
     std::unique_ptr<sc6::research::NativePredictionProbe> native_prediction;
-    std::unique_ptr<sc6::research::NetworkDepthCorrection> network_checkpoints;
+    std::unique_ptr<sc6::research::NetworkDepthCorrection> network_checkpoints;std::unique_ptr<sc6::research::NativeWindowReuseProbe> network_reuse;
     std::unique_ptr<sc6::research::NativeTwoMovement> native_movement;
     std::unique_ptr<sc6::research::RepeatedMovement> repeated_movement;
     std::unique_ptr<sc6::research::NativeTwoFrameReplay> native_two;
@@ -803,7 +811,13 @@ void write_capture(Recorder& r) {
 }
 extern "C" void SC6RecordEntry(uintptr_t argument,uintptr_t* replacement=nullptr,uintptr_t return_address=0) noexcept {
     struct LastErrorGuard { DWORD value=GetLastError(); ~LastErrorGuard(){SetLastError(value);} } guard;
-    auto& r=state();if(!r.active.load(std::memory_order_acquire))return;
+    auto& r=state();
+    // Persistent boundary service runs before the recording gate and outside r.lock.
+    if(r.verified){uint32_t frame{};if(copy(&frame,r.base+0x470D0C4,4))sc6::research::lease_service::dispatch(frame);}
+    if(!r.active.load(std::memory_order_acquire)){
+        if(r.verified)sc6::research::dependency_probe::frame(r.base,argument);
+        return;
+    }
     // Never wait behind disk I/O or a reentrant call at the game boundary.
     if(!TryAcquireSRWLockExclusive(&r.lock)){r.skipped.fetch_add(1);return;}
     if(!r.active.load()){ReleaseSRWLockExclusive(&r.lock);return;}
@@ -833,7 +847,8 @@ extern "C" void SC6RecordEntry(uintptr_t argument,uintptr_t* replacement=nullptr
             if(recording)r.observation->rounds[r.count]={round.round,round.counter};
             sc6::NetworkGameHandoff::Boundary boundary{round.generation,record.data[0],round.round,round.counter,{}};
             std::memcpy(boundary.input.data(),envelope.data(),40);
-            if(r.network_checkpoints)r.network_checkpoints->process(r.base,argument,return_address,tid,boundary,
+            if(r.network_reuse)r.network_reuse->process(r.base,argument,return_address,tid,boundary,reinterpret_cast<sc6::research::SingleUpdateCall::Routine>(SC6Original),r.observation->nonce);
+            else if(r.network_checkpoints)r.network_checkpoints->process(r.base,argument,return_address,tid,boundary,
                 reinterpret_cast<sc6::research::SingleUpdateCall::Routine>(SC6Original),r.observation->nonce);
             else sc6::network_game_handoff.boundary(r.observation->nonce,tid,boundary);
             if(recording){
@@ -1012,7 +1027,17 @@ void recorder_init() {
     std::filesystem::create_directories(r.directory);
     r.verified=hash_matches();status(r.verified?"ready; hook inactive until offline arm":"unsupported executable; recorder disabled");
     if(r.verified){
+        // Pinned pass-through entry hook supplies boundaries even without recording.
+        const unsigned char expected[]={0x4c,0x8b,0xdc,0x49,0x89,0x5b,0x10,0x49,0x89,0x6b,0x18};
+        auto target=reinterpret_cast<void*>(r.base+0x2DBC60);
+        const auto initialized=MH_Initialize();
+        if((initialized==MH_OK || initialized==MH_ERROR_ALREADY_INITIALIZED) && !std::memcmp(target,expected,sizeof(expected)) &&
+           MH_CreateHook(target,reinterpret_cast<void*>(&SC6EntryBridge),&SC6Original)==MH_OK){
+            if(MH_EnableHook(target)==MH_OK)r.hooked=true;else MH_RemoveHook(target);
+        }
+        status(r.hooked?"persistent boundary observer installed":"persistent boundary observer unavailable");
         status(sc6::round_event::install(r.base)?"round event observer installed":"round event unavailable; network round agreement remains unverified");
+        status(sc6::research::native_clock_hook::install(r.base)?"native clock dispatcher installed; stock pass-through":"native clock dispatcher unavailable; stock networking retained");
         r.observation_mapping=CreateFileMappingW(INVALID_HANDLE_VALUE,nullptr,PAGE_READWRITE,0,sizeof(sc6::observation::Shared),sc6::observation::mapping_name(GetCurrentProcessId()).c_str());
         if(r.observation_mapping && GetLastError()!=ERROR_ALREADY_EXISTS){
             r.observation=static_cast<sc6::observation::Shared*>(MapViewOfFile(r.observation_mapping,FILE_MAP_WRITE,0,0,sizeof(sc6::observation::Shared)));
@@ -1024,6 +1049,11 @@ void recorder_init() {
 }
 void recorder_poll() {
     auto& r=state();auto now=GetTickCount64();if(now-r.lastPoll<250)return;r.lastPoll=now;
+    if(r.verified)sc6::research::effect_observer::poll(r.base,r.directory);
+    if(r.verified)sc6::research::range_observer::poll(r.base,r.directory);
+    if(r.verified)sc6::research::resource_observer::poll(r.base,r.directory);
+    if(r.verified)sc6::research::generated_observer::poll(r.base,r.directory);
+    if(r.verified)sc6::research::dependency_probe::poll(r.base,r.directory);
     static ULONGLONG next_round_status=0;
     if(r.verified && now>=next_round_status){
         next_round_status=now+1000;
@@ -1054,7 +1084,7 @@ void recorder_poll() {
     if(observe_network){
         std::istringstream parser(token);std::string label,extra;unsigned pid{};std::uint64_t nonce{};
         parser>>label>>pid>>nonce;
-        if(!parser || (parser>>extra) || (label!="NETWORK_OBSERVE_ONLY" && label!="NETWORK_OBSERVE_LONG" && label!="NETWORK_CHECKPOINT_LONG" && label!="NETWORK_REPLAY_LONG" && label!="NETWORK_LATE_LONG") || pid!=GetCurrentProcessId() || !nonce || !r.observation || r.observation_used ||
+        if(!parser || (parser>>extra) || (label!="NETWORK_OBSERVE_ONLY" && label!="NETWORK_OBSERVE_LONG" && label!="NETWORK_CHECKPOINT_LONG" && label!="NETWORK_REPLAY_LONG" && label!="NETWORK_LATE_LONG" && label!="NETWORK_REUSE_LONG") || pid!=GetCurrentProcessId() || !nonce || !r.observation || r.observation_used ||
             full_request || shared_request || save_request || std::filesystem::exists(r.directory/"offline-training.arm")){
             status("network observation arm rejected; stale, conflicting, or unavailable");return;
         }
@@ -1069,13 +1099,14 @@ void recorder_poll() {
         AcquireSRWLockExclusive(&r.lock);
         r.observing=true;r.observation_used=true;r.count=0;r.owner=0;r.skipped=0;r.ready=false;
         r.network_checkpoints=(label=="NETWORK_CHECKPOINT_LONG" || label=="NETWORK_REPLAY_LONG")?std::make_unique<sc6::research::NetworkDepthCorrection>(label=="NETWORK_REPLAY_LONG"):nullptr;
+        r.network_reuse=label=="NETWORK_REUSE_LONG"?std::make_unique<sc6::research::NativeWindowReuseProbe>():nullptr;
         sc6::network_game_handoff.late_enabled=label=="NETWORK_LATE_LONG";
-        sc6::network_checkpoint_status.replay_enabled=label=="NETWORK_REPLAY_LONG";
-        sc6::network_checkpoint_status.enabled=r.network_checkpoints?1u:0u;
+        sc6::network_checkpoint_status.replay_enabled=label=="NETWORK_REPLAY_LONG" || label=="NETWORK_REUSE_LONG";
+        sc6::network_checkpoint_status.enabled=(r.network_checkpoints || r.network_reuse)?1u:0u;
         r.observation->reserved=label!="NETWORK_OBSERVE_ONLY"?1u:0u;
         r.observation->nonce=nonce;r.observation->count=0;InterlockedExchange(&r.observation->status,1);
         r.deadline=now+(r.observation->reserved?240000:20000);r.active.store(true,std::memory_order_release);ReleaseSRWLockExclusive(&r.lock);
-        status(label=="NETWORK_REPLAY_LONG"?"private one-frame replay experiment armed; restart required after failure":"network checkpoint/observation armed; no restore or replay");return;
+        status((label=="NETWORK_REPLAY_LONG" || label=="NETWORK_REUSE_LONG")?"private one-frame replay experiment armed; restart required after failure":"network checkpoint/observation armed; no restore or replay");return;
     }
     bool attack_observe_request=!full_request && !shared_request && !save_request && token=="OFFLINE_ATTACK_OBSERVE "+std::to_string(GetCurrentProcessId());
     bool observe_request=!full_request && !shared_request && !save_request && token=="OFFLINE_CHARGE_OBSERVE "+std::to_string(GetCurrentProcessId());
@@ -1249,8 +1280,9 @@ void recorder_poll() {
     r.active.store(true,std::memory_order_release);ReleaseSRWLockExclusive(&r.lock);
     status(field_only_request?"armed: 600-frame field trace only; no restoration or extra updates":three_immediate_request?"armed: three synchronous offline idle replay frames; leave controls untouched":immediate_request?"armed: one synchronous offline idle replay; leave controls untouched":native_idle_request?"armed: one-frame idle restore from live context; leave controls untouched":reversal_structure_request?"armed: Reversal Edge four-state observation; no restoration":three_reversal_request?"armed: guarded three-update Reversal Edge clash replay":three_edge_request?"armed: guarded three-update Critical Edge replay; land attack and release controls":attack_structure_request?"armed: Soul Attack four-state structural observation; no restoration":three_attack_request?"armed: guarded three-update Soul Attack replay after startup camera creation; land attack and release controls":three_charge_request?"armed: three-update Soul Charge replay with recorded release inputs":charge_inputs_request?"armed: two-update Soul Charge replay with recorded release inputs":two_charge_request?"armed: guarded two-update Soul Charge replay; release controls after activation":charge_replay_request?"armed: guarded one-update Soul Charge replay; release controls after activation":charge_trajectory_request?"armed: Soul Charge four reference states, no restoration":three_input_request?"armed: A+G three-update replay with recorded auxiliary inputs":recorded_input_request?"armed: A+G two-update replay with recorded auxiliary inputs":long_trajectory_request?"armed: waiting for A+G; four reference states, no restore":two_throw_request?"armed: waiting for A+G; guarded two-update combat replay":throw_trajectory_request?"armed: waiting for A+G; three reference states, no restore":two_frame_request?"armed: guarded two-update idle rewind/replay; leave controls untouched":trajectory_request?"armed: three idle reference boundaries; no restore; leave controls untouched":combat_replay_request?"armed: guarded one-frame A+G replay; waiting for throw":throw_audit_request?"armed: waiting for connected A+G; two adjacent saves, no restore":delayed_request?"armed: one-frame idle restore experiment; leave controls untouched":audit_request?"armed: two adjacent idle saves, then observation; no restore":reversal_request?"armed: waiting up to 45 seconds for Reversal Edge clash slowdown, then 600 entries":edge_request?"armed: waiting up to 45 seconds for Critical Edge startup, then 600 entries":attack_request?"armed: waiting up to 45 seconds for Soul Attack startup, then 600 entries":attack_observe_request?"armed: observation only, waiting for Soul Attack then 600 entries; no save/load":observe_request?"armed: observation only, waiting for Soul Charge then 600 entries; no save/load":charge_request?"armed: waiting up to 45 seconds for Soul Charge freeze with active auxiliary mode 3, then 600 entries":throw_request?"armed: waiting up to 45 seconds for connected A+G freeze, then 600 entries":"armed: 600 entries or 20 seconds; offline Training must remain active");
 }
-void recorder_stop(){auto& r=state();r.active.store(false);/* Pinned passive bridge stays valid until exit. */}
+void recorder_stop(){sc6::research::lease_service::request_cancel();auto& r=state();r.active.store(false);/* Pinned passive bridge stays valid until exit. */}
 }
+
 
 
 

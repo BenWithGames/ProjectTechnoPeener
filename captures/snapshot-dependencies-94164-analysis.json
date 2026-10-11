@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "input": "C:\\Users\\Ben\\Documents\\Codex\\2026-10-07\\rollback-mod-design-chatgpt-conversation-6ac67623\\outputs\\SC6Rollback\\captures\\snapshot-dependencies-94164-ranges.csv",
+  "entries": 143,
+  "sentinel_matches": true,
+  "sentinel_reconstructed_from_omitted_inventory_row": true,
+  "player_range_sizes_match": true,
+  "stage_repeated_range_pattern_matches": true,
+  "stage_repeated_entries": 128,
+  "stage_descriptor_range": {
+    "index": 3,
+    "base": 2098600411136,
+    "size": 920599040
+  },
+  "descriptor_size_verified": false,
+  "required_descriptor_evidence": "Signed counts at +0x28/+0x2a/+0x2c and per-record unsigned counts, captured with the range list",
+  "ownership_verified": false,
+  "interpretation": "Relocation search ranges, not independent allocations or payload-copy instructions",
+  "fixed_global_registration_matches": true,
+  "fixed_global_rvas": [
+    68161096,
+    68161056,
+    68160312,
+    68160904,
+    68160840,
+    68160800,
+    68160760,
+    68160960,
+    68161000,
+    68161120,
+    68160880
+  ],
+  "inferred_module_base": 140695155769344,
+  "module_base_source": "Agreement of eleven pinned registrations; not a live module query",
+  "distinct_nonzero_bases": 15,
+  "remaining_stage_pointer_source": "Selected query root +8 (RVA 0x4844DD0 or 0x4845E80); allocation ownership not established"
+}
