@@ -3,7 +3,7 @@
 #include "NetworkInputComposer.hpp"
 namespace sc6::research {
 // Native adapter storage. Requires a live boundary envelope before reconcile.
-// Restore still uses supported adjacent states; this grants no new combat modes.
+// Continuous captures use the explicit general-state restore contract.
 template<class History=NativeRollingHistory<4>,class Restore=NativeHistoryRestore<>> class NativeSchedulerStorage {
     History& history_;ReplayDependencySource& source_;uintptr_t base_;
     RollbackBoundaryKey identity_;
@@ -15,7 +15,13 @@ template<class History=NativeRollingHistory<4>,class Restore=NativeHistoryRestor
     std::array<Token,4> tokens_{};
     RollbackBoundaryKey key(unsigned frame)const{auto k=identity_;k.frame=frame;return k;}
     bool fail(){failed_=true;return false;}
+    bool capture_boundary(const RollbackBoundaryKey& boundary,unsigned oldest,uintptr_t argument){
+        if constexpr(requires {history_.capture_general_owned(boundary,oldest,base_,argument,source_);})
+            return history_.capture_general_owned(boundary,oldest,base_,argument,source_);
+        else return history_.capture_owned(boundary,oldest,base_,argument,source_,approved_);
+    }
 public:
+    NativeRestoreDiagnostic restore_diagnostic;
     struct Snapshot {RollbackBoundaryKey key{};uint64_t serial{};};
     NativeSchedulerStorage(History& history,ReplayDependencySource& source,uintptr_t base,const RollbackBoundaryKey& identity,bool approved=false)
         :history_(history),source_(source),base_(base),identity_(identity),approved_(approved){}
@@ -28,7 +34,7 @@ public:
     bool capture(Snapshot& out,unsigned frame,const std::array<std::byte,40>& bytes){
         if(failed_ || !boundary_ || frame>live_ || live_-frame>3 || !RecordedInput::valid_envelope(bytes) || serial_==UINT64_MAX)return fail();
         const auto boundary=key(frame);
-        if(!history_.capture_owned(boundary,frame>3?frame-3:0,base_,input_.assign(bytes),source_,approved_))return fail();
+        if(!capture_boundary(boundary,frame>3?frame-3:0,input_.assign(bytes)))return fail();
         out={boundary,++serial_};tokens_[frame%4]={frame,serial_};return true;
     }
     bool restore(const Snapshot& saved){
@@ -37,9 +43,11 @@ public:
             token.serial!=saved.serial || saved.key.frame>=live_ || live_-saved.key.frame>3)return fail();
         // The scheduler stores pre-frame states; add the current endpoint so
         // every adjacent reverse-load hop has its required reference state.
-        if(!history_.capture_owned(key(live_),saved.key.frame,base_,input_.assign(endpoint_),source_,approved_))return fail();
+        if(!capture_boundary(key(live_),saved.key.frame,input_.assign(endpoint_)))return fail();
         auto restore=std::make_unique<Restore>();
-        if(!restore->run(history_,saved.key,key(live_),base_))return fail();
+        const bool restored=restore->run(history_,saved.key,key(live_),base_);
+        if constexpr(requires {restore->details();})restore_diagnostic=restore->details();
+        if(!restored)return fail();
         if(!history_.rewind_for_replay(saved.key,[](auto&){return true;}))return fail();
         for(auto& t:tokens_)if(t.serial && t.frame>=saved.key.frame)t={};
         return true;

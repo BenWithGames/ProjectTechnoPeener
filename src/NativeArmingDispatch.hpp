@@ -13,6 +13,10 @@ public:
 private:
     NativeCombatSession::Config config_;
     ReplayDependencySource source_;
+    void* source_context_{};
+    ReplayDependencySource (*source_provider_)(void*){};
+    std::atomic<bool> cancelled_{};
+    bool queued_{};
     observation::Shared& shared_;
     uint64_t steam_peer_,deadline_;
     std::atomic<State> state_{State::waiting};
@@ -25,13 +29,21 @@ private:
         __except(EXCEPTION_EXECUTE_HANDLER){return false;}
     }
     void poll(uintptr_t object)noexcept{
-        if(state_.load()!=State::waiting || object!=config_.clock_object)return;
+        if(object!=config_.clock_object)return;
+        if(cancelled_.load(std::memory_order_acquire)){
+            if(auto* status=combat_runtime_status.load(std::memory_order_acquire);status && status->session==config_.identity.session)status->request_stop();
+            if(state_.load()==State::waiting)state_=State::rejected;
+            return;
+        }
+        if(state_.load()!=State::waiting)return;
         unsigned identity{},frame{};
         if(GetTickCount64()>=deadline_ || GetCurrentThreadId()!=config_.identity.thread ||
             !clock_frame(object,identity,frame) || identity!=config_.clock_identity || frame>config_.clock_frame){state_=State::rejected;return;}
         if(frame<config_.clock_frame)return;
         state_=State::preparing;
         try {
+            if(source_provider_)source_=source_provider_(source_context_);
+            if(!source_.available()){state_=State::rejected;return;}
             arming_=std::make_unique<NativeCombatArming>();
             state_=arming_->prepare(config_,source_,shared_,steam_peer_,true)?State::prepared:State::rejected;
         }catch(...){state_=State::rejected;}
@@ -71,14 +83,26 @@ public:
         observation::Shared& shared,uint64_t peer,uint64_t deadline)
         :config_(config),source_(source),shared_(shared),steam_peer_(peer),deadline_(deadline){}
     State state()const{return state_.load(std::memory_order_acquire);}
+    // Configure before queue; resolve owner-thread resources only when the
+    // selected native clock actually reaches the agreed boundary.
+    bool source_on_owner(void* context,ReplayDependencySource (*provider)(void*)){
+        if(queued_ || state()!=State::waiting || source_provider_ || !context || !provider)return false;
+        source_context_=context;source_provider_=provider;return true;
+    }
+    void cancel(){
+        cancelled_.store(true,std::memory_order_release);
+        if(auto* status=combat_runtime_status.load(std::memory_order_acquire);status && status->session==config_.identity.session)status->request_stop();
+    }
     bool queue(){
-        if(!NativeCombatSession::valid_config(config_) || shared_.reserved!=observation::owned_mode || !steam_peer_ || !config_.clock_object || !config_.identity.same_round(config_.identity) ||
+        if(queued_ || cancelled_.load() || !NativeCombatSession::valid_config(config_) || shared_.reserved!=observation::owned_mode || !steam_peer_ || !config_.clock_object || !config_.identity.same_round(config_.identity) ||
             !config_.image_verified || !config_.bilateral_private || !config_.boundaries_owned || !config_.verified_void_entry ||
             !native_clock_hook::installed || native_clock_hook::installed_base!=config_.base ||
             combat_routes.load() || native_clock_hook::start_hold.load() || native_clock_hook::startup_poll.load())return false;
         const auto now=GetTickCount64();if(deadline_<=now || deadline_-now>10000)return false;
         const native_clock_hook::StartupPoll* empty=nullptr;
-        return native_clock_hook::preparation_poll.compare_exchange_strong(empty,&callback_,std::memory_order_release);
+        queued_=true;
+        if(native_clock_hook::preparation_poll.compare_exchange_strong(empty,&callback_,std::memory_order_release))return true;
+        queued_=false;return false;
     }
 };
 }

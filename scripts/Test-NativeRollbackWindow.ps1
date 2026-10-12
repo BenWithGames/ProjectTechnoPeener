@@ -2,7 +2,8 @@ $ErrorActionPreference='Stop'
 $project=Split-Path $PSScriptRoot -Parent
 $vs=& "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
 if(!$vs){throw 'MSVC tools missing'}
-$build=Join-Path $project 'build-native'
+# Isolate outputs so a terminated assertion process cannot lock the next build.
+$build=Join-Path (Join-Path $project 'build-native') ('window-test-'+[Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Force $build | Out-Null
 $batch=Join-Path $build 'test-native-rollback-window.cmd'
 @('@echo off',('call "'+$vs+'\VC\Auxiliary\Build\vcvars64.bat" >nul'),'if errorlevel 1 exit /b 1',

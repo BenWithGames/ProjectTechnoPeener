@@ -32,7 +32,7 @@ template<unsigned Capacity=4> class NativeRollingHistory {
 public:
     unsigned count()const{return count_;}
     bool failed()const{return failed_;}
-    bool capture_owned(const RollbackBoundaryKey& key,unsigned oldest_required,uintptr_t base,uintptr_t argument,ReplayDependencySource& source,bool approved_profile=false){
+    bool capture_owned(const RollbackBoundaryKey& key,unsigned oldest_required,uintptr_t base,uintptr_t argument,ReplayDependencySource& source,bool approved_profile=false,bool general_restore=false){
         if(!base || !source.available())return false;
         return append(key,oldest_required,[&](auto& pool,const auto& handle,const auto& boundary){
             std::array<uintptr_t,2> before{},after{};
@@ -42,7 +42,7 @@ public:
             const auto fingerprint=GeneratedBufferFingerprint::read(source.generated->buffer,source.generated->size);
             if(!fingerprint.valid)return false;
             const bool captured=pool.visit(handle,[&](NativeBoundarySnapshot& snapshot){
-                return snapshot.capture_supported(base,argument,approved_profile) && snapshot.data->before_keys[0]==boundary.frame;
+                return (general_restore?snapshot.capture_general(base,argument):snapshot.capture_supported(base,argument,approved_profile)) && snapshot.data->before_keys[0]==boundary.frame;
             });
             if(!captured || !descriptors(base,after) || before!=after || !references.covers(before[0],before[1]) ||
                 !fingerprint.matches(GeneratedBufferFingerprint::read(source.generated->buffer,source.generated->size)))return false;
@@ -50,6 +50,9 @@ public:
             guards_[count_-1]={base,source.generated->root,source.generated->control,before,fingerprint};
             return valid_guard(guards_[count_-1]);
         });
+    }
+    bool capture_general_owned(const RollbackBoundaryKey& key,unsigned oldest,uintptr_t base,uintptr_t argument,ReplayDependencySource& source){
+        return capture_owned(key,oldest,base,argument,source,false,true);
     }
     template<class Capture> bool append(const RollbackBoundaryKey& key,unsigned oldest_required,Capture capture){
         if(failed_ || !key.same_round(key) || key.thread!=GetCurrentThreadId())return false;

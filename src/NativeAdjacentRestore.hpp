@@ -3,7 +3,7 @@
 #include "TwoFrameIdleReplay.hpp"
 #include "ImmediateIdleCorrection.hpp"
 namespace sc6::research {
-// Experimental one-frame idle restoration. No update invocation or input injection.
+// Experimental adjacent-state restoration. No update invocation or input injection.
 // Failure after restore_invoked requires ending the live experimental session.
 struct NativeAdjacentRestore {
     NativeAdjacentRestore()=default;
@@ -100,14 +100,42 @@ public:
         if(!replay_verified)return fail();
         replay_stage=5;return true;
     }
-    bool prepare_captured(const NativeBoundarySnapshot& source,const NativeBoundarySnapshot& next,bool direction_restore=false,bool a_restore=false){
+    static bool combat_mode(NativeBoundarySnapshot::Mode mode){
+        using M=NativeBoundarySnapshot::Mode;
+        return mode==M::general_combat || mode==M::throw_move || mode==M::charge || mode==M::attack || mode==M::edge || mode==M::reversal;
+    }
+    static bool supported_pair(NativeBoundarySnapshot::Mode source,NativeBoundarySnapshot::Mode next,
+        bool direction_restore,bool a_restore,bool combat_restore){
+        using M=NativeBoundarySnapshot::Mode;
+        if(unsigned(direction_restore)+unsigned(a_restore)+unsigned(combat_restore)>1)return false;
+        if(combat_restore)return combat_mode(source) && source==next;
+        if(direction_restore)return (source==M::idle || source==M::direction_observation) && next==M::direction_observation;
+        if(a_restore)return source==M::idle && next==M::a_observation;
+        return source==M::idle && next==M::idle;
+    }
+    // Pure all-hop general validation: no live transform reads. A historical
+    // intermediate state is not live until newer hops have been loaded.
+    bool preflight_general(const NativeBoundarySnapshot& a,const NativeBoundarySnapshot& b){
+        if(attempted || fault)return false;
+        if(a.mode!=NativeBoundarySnapshot::Mode::general_combat || b.mode!=a.mode){rejection=NativeBoundarySnapshot::Rejection::mode;return fail();}
+        rejection=a.structural_readiness(b);
+        if(rejection!=NativeBoundarySnapshot::Rejection::none)return fail();
+        if(!RecordedInput::valid_envelope(a.data->delayed_inputs) || !RecordedInput::valid_envelope(b.data->delayed_inputs)){
+            rejection=NativeBoundarySnapshot::Rejection::inputs;return fail();
+        }
+        return true;
+    }
+    // Combat routing explicitly distinguishes general states from fixtures.
+    // All structural, input, native preflight and post-load checks stay
+    // in prepare_adjacent()/finish(); general capture does not authorize load.
+    bool prepare_captured(const NativeBoundarySnapshot& source,const NativeBoundarySnapshot& next,bool direction_restore=false,bool a_restore=false,bool combat_restore=false){
         if(attempted || fault)return false;attempted=true;
-        if((source.mode!=NativeBoundarySnapshot::Mode::idle && !(direction_restore && source.mode==NativeBoundarySnapshot::Mode::direction_observation)) ||
-           next.mode!=(a_restore?NativeBoundarySnapshot::Mode::a_observation:direction_restore?NativeBoundarySnapshot::Mode::direction_observation:source.mode) ||
-           source.thread!=GetCurrentThreadId() || source.module!=next.module)return fail();
+        if(!supported_pair(source.mode,next.mode,direction_restore,a_restore,combat_restore)){rejection=NativeBoundarySnapshot::Rejection::mode;return fail();}
+        if(source.thread!=GetCurrentThreadId()){rejection=NativeBoundarySnapshot::Rejection::thread;return fail();}
+        if(source.module!=next.module){rejection=NativeBoundarySnapshot::Rejection::module;return fail();}
         current.direction_slot=next.direction_slot;current.direction_bits=next.direction_bits;current.mode=next.mode;current.module=next.module;current.thread=next.thread;current.attempted=next.attempted;
         current.valid=next.valid;current.fault=next.fault;*current.data=*next.data;
-        if(!source.prepare_adjacent(current,*probe,&rejection,direction_restore,a_restore))return fail();
+        if(!source.prepare_adjacent(current,*probe,&rejection,direction_restore,a_restore,source.mode==NativeBoundarySnapshot::Mode::general_combat && combat_restore))return fail();
         prepared=true;return true;
     }
     bool restore_captured(const NativeBoundarySnapshot& source,uintptr_t base,uintptr_t argument,

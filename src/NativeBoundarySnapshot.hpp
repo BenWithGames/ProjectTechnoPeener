@@ -2,9 +2,12 @@
 #include "IdleTrajectoryAudit.hpp"
 namespace sc6::research {
 // A single boundary, independent of a pre-recorded reference trajectory.
-// Capture only on the offline update thread. Does not invoke native loading.
+// Capture on the owning simulation thread. Capture itself never invokes native loading.
 struct NativeBoundarySnapshot {
-    enum class Mode {idle,throw_move,charge,attack,edge,reversal,direction_observation,a_observation,combat_capture_only};
+    // General-state loading is implemented, but individual windows must pass
+    // structural/ownership/preflight checks; this is not universal coverage.
+    static constexpr bool general_restore_implemented=true;
+    enum class Mode {idle,throw_move,charge,attack,edge,reversal,direction_observation,a_observation,combat_capture_only,general_combat};
     // This is fixture routing, not a generic move detector. The caller must
     // identify an approved character/profile before enabling non-idle routes.
     static Mode supported_mode(unsigned p1_input,unsigned p2_input,unsigned p1_move,unsigned p2_move,
@@ -31,6 +34,10 @@ struct NativeBoundarySnapshot {
                 *reinterpret_cast<unsigned char*>(base+0x48462D0),approved_profile && FullStateProbe::charge_aux_active(base),approved_profile));
         }__except(EXCEPTION_EXECUTE_HANDLER){fault=true;exception=GetExceptionCode();return false;}
         return capture(base,argument);
+    }
+    bool capture_general(uintptr_t base,uintptr_t argument,FullStateProbe::Routine writer=nullptr,FullStateProbe::Preflight check=nullptr) noexcept {
+        if(attempted)return false;
+        select_mode(Mode::general_combat);return capture(base,argument,writer,check);
     }
     std::unique_ptr<FullStateProbe> data=std::make_unique<FullStateProbe>();
     unsigned direction_bits{0x400},direction_slot{1};
@@ -71,9 +78,9 @@ struct NativeBoundarySnapshot {
             // General combat capture retains all serializer, identity and
             // before/after integrity checks. It does not claim that the old
             // move-specific loader can restore the resulting snapshot.
-            const bool state_ready=mode==Mode::combat_capture_only ||
+            const bool state_ready=mode==Mode::combat_capture_only || mode==Mode::general_combat ||
                 (mode==Mode::a_observation?a_state(base):mode==Mode::direction_observation?direction_state(base,direction_bits,direction_slot):mode==Mode::idle?FullStateProbe::idle(base):q.combat_state(base));
-            if(!state_ready || mode==Mode::combat_capture_only){
+            if(!state_ready || mode==Mode::combat_capture_only || mode==Mode::general_combat){
                 mode_values[0]=*reinterpret_cast<std::uint16_t*>(base+0x4717840);
                 mode_values[1]=*reinterpret_cast<std::uint16_t*>(base+0x47AEC30);
                 mode_values[2]=*reinterpret_cast<std::uint16_t*>(base+0x475A04A);
@@ -128,12 +135,14 @@ struct NativeBoundarySnapshot {
         if(!IdleTrajectoryAudit::camera_identity(a.cameras[0],b.cameras[0]))return Rejection::camera;
         return Rejection::none;
     }
-    bool prepare_adjacent(const NativeBoundarySnapshot& current,FullStateProbe& q,Rejection* reason=nullptr,bool direction_restore=false,bool a_restore=false)const {
+    bool prepare_adjacent(const NativeBoundarySnapshot& current,FullStateProbe& q,Rejection* reason=nullptr,bool direction_restore=false,bool a_restore=false,bool general_restore=false)const {
         auto reject=[&](Rejection r){if(reason)*reason=r;return false;};
         if(reason)*reason=Rejection::none;
         // Capture support must never implicitly authorize restoration. Reject
         // either side before copying streams or preparing native reader state.
         if(mode==Mode::combat_capture_only || current.mode==Mode::combat_capture_only)return reject(Rejection::mode);
+        const bool general_pair=general_restore && !direction_restore && !a_restore && mode==Mode::general_combat && current.mode==Mode::general_combat;
+        if(general_restore!=general_pair || ((mode==Mode::general_combat || current.mode==Mode::general_combat) && !general_pair))return reject(Rejection::mode);
         if(!valid || fault || !current.valid || current.fault)return reject(Rejection::invalid_capture);
         if(module!=current.module)return reject(Rejection::module);
         const bool a_pair=a_restore && !direction_restore && mode==Mode::idle && current.mode==Mode::a_observation;
@@ -148,7 +157,8 @@ struct NativeBoundarySnapshot {
         if(structural!=Rejection::none)return reject(structural);
         // Idle permits only finite normalized auxiliary variation. Buttons and
         // flags (first24bytes) remain exact, including when both inputs match.
-        if(!combat){if(!RecordedInput::compatible(a.delayed_inputs,b.delayed_inputs))return reject(Rejection::inputs);}
+        if(general_pair){if(!RecordedInput::valid_envelope(a.delayed_inputs) || !RecordedInput::valid_envelope(b.delayed_inputs))return reject(Rejection::inputs);}
+        else if(!combat){if(!RecordedInput::compatible(a.delayed_inputs,b.delayed_inputs))return reject(Rejection::inputs);}
         else if(a.delayed_inputs!=b.delayed_inputs && !(mode==Mode::charge?
            RecordedInput::charge_compatible(a.delayed_inputs,b.delayed_inputs):RecordedInput::compatible(a.delayed_inputs,b.delayed_inputs)))return reject(Rejection::inputs);
         if(direction_pair || a_pair){
@@ -168,6 +178,7 @@ struct NativeBoundarySnapshot {
         q.rings[0]=a.rings[0];q.rings[1]=a.rings[0];q.rings[2]=b.rings[0];q.rings[3]=b.rings[0];
         q.blends[0]=a.blends[0];q.blends[1]=b.blends[0];q.transforms[0]=a.transforms[0];q.transforms[1]=b.transforms[0];
         q.cameras[0]=a.cameras[0];q.cameras[1]=b.cameras[0];q.delayed_inputs=a.delayed_inputs;
+        q.general_combat_requested=general_pair;
         q.throw_requested=a.throw_requested;q.charge_requested=a.charge_requested;q.attack_requested=a.attack_requested;
         q.edge_requested=a.edge_requested;q.reversal_requested=a.reversal_requested;
         q.attempted=q.preflight_ok=q.save_valid=q.post_save_valid=q.audit_started=q.audit_done=true;

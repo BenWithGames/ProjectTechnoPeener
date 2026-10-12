@@ -1,4 +1,6 @@
 #include "../src/BoundedRollbackSession.hpp"
+#include "../src/ContinuousRollbackReport.hpp"
+#include <sstream>
 #include <cassert>
 #include <iostream>
 struct Input {int held{},edge{};bool operator==(const Input&)const=default;};
@@ -101,6 +103,25 @@ int main(){
     }
     assert(delivered==7200 && stream.head()==7200 && stream.stalls>0);
     assert(actual.value==baseline.value);
+    // Reports must distinguish a started correction from a completed one,
+    // retain the failing frame/reason, and expose dropped evidence.
+    sc6::research::RollbackJournal<4> evidence;
+    evidence.push(1,2,10,13,sc6::research::RollbackEvent::correction_begin,3);
+    evidence.push(1,2,10,13,sc6::research::RollbackEvent::failure,4);
+    sc6::research::ContinuousRollbackReport report;std::ostringstream rows,summary;
+    report.drain(evidence,rows);report.write(summary);
+    assert(summary.str().find("continuous_corrections_completed=0\n")!=std::string::npos);
+    assert(summary.str().find("continuous_correction_pending=1\n")!=std::string::npos);
+    assert(summary.str().find("continuous_failure_frame=10\n")!=std::string::npos);
+    assert(summary.str().find("continuous_failure_reason=4\n")!=std::string::npos);
+    sc6::research::RollbackJournal<2> overflow;
+    overflow.push(1,2,0,0,sc6::research::RollbackEvent::advance,1);
+    overflow.push(1,2,0,1,sc6::research::RollbackEvent::correction_end,1);
+    overflow.push(1,2,1,1,sc6::research::RollbackEvent::advance);
+    sc6::research::ContinuousRollbackReport dropped;summary.str("");
+    dropped.drain(overflow,rows);dropped.write(summary);
+    assert(summary.str().find("continuous_events_dropped=1\n")!=std::string::npos);
+    assert(summary.str().find("continuous_replayed_frames=1\n")!=std::string::npos);
     std::cout<<"PASS: bounded correction convergence, ring reuse, reordered input, edge prediction, stalls, identity and terminal failures\n";
 }
 

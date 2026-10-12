@@ -16,10 +16,19 @@ struct Round {uint32_t number{},event_counter{};};
 struct Shared {
     unsigned signature{},schema{},pid{},reserved{};
     alignas(8) std::uint64_t nonce{},frequency{};
-    volatile LONG count{},status{}; // 0 idle, 1 recording, 2 complete, 3 failed
+    volatile LONG count{},status{}; // 0 idle, 1 recording, 2 complete, 3 failed, 4 preparing
     std::array<Record,capacity> records{};
     std::array<Round,capacity> rounds{};
 };
+// Caller serializes recorder ownership before claiming this idle mapping.
+// Never erase a previous recording or reuse its nonce/buffer.
+inline bool prepare_owned(Shared& shared,uint64_t nonce){
+    if(!nonce || shared.signature!=magic || shared.schema!=version || shared.pid!=GetCurrentProcessId() ||
+        !shared.frequency || shared.count!=0 || shared.nonce || shared.reserved)return false;
+    if(InterlockedCompareExchange(&shared.status,4,0)!=0)return false;
+    shared.reserved=owned_mode;shared.nonce=nonce;
+    MemoryBarrier();InterlockedExchange(&shared.status,1);return true;
+}
 inline std::wstring mapping_name(unsigned pid){return L"Local\\SC6InputObservation-"+std::to_wstring(pid);}
 template<size_t N> inline unsigned checksum(const std::array<Record,N>& records){
     unsigned h=2166136261u;

@@ -27,6 +27,9 @@
 #include "InputObservation.hpp"
 #include "RoundEventObserver.hpp"
 #include "NativeClockHook.hpp"
+#include "CombatResourcePreparation.hpp"
+#include "CombatPeerContext.hpp"
+#include "NativeArmingDispatch.hpp"
 #include "ExclusiveBattleRoute.hpp"
 #include "EffectUpdateObserver.hpp"
 #include "NativeRangeObserver.hpp"
@@ -815,6 +818,25 @@ extern "C" void SC6RecordEntry(uintptr_t argument,uintptr_t* replacement=nullptr
     auto& r=state();
     // Persistent boundary service runs before the recording gate and outside r.lock.
     if(r.verified){uint32_t frame{};if(copy(&frame,r.base+0x470D0C4,4))sc6::research::lease_service::dispatch(frame);sc6::research::generated_observer::observe_frame();}
+    if(auto* preparation=sc6::research::combat_resource_preparation.load(std::memory_order_acquire)){
+        if(preparation->replay_restart()){if(continuation)*continuation=0;return;}
+        uint32_t frame{};sc6::research::NativeClockDiscovery::Observation clock;
+        const auto round=sc6::round_event::snapshot();
+        const bool valid=return_address==r.base+0x3FE816 && round.round && round.generation &&
+            copy(&frame,r.base+0x470D0C4,4) && sc6::research::native_clock_hook::discovery.read(GetTickCount64(),clock) &&
+            clock.base==r.base && clock.thread==GetCurrentThreadId();
+        preparation->frame(frame,valid);
+        if(valid && preparation->hold_test.state.load()==sc6::research::NativeHoldRehearsal<>::released){
+            sc6::research::CombatPeerContext::Snapshot peer;
+            if(sc6::research::combat_peer_context.read(GetTickCount64(),peer)){
+                sc6::research::RollbackBoundaryKey key{peer.local_nonce,peer.remote_nonce,round.generation,
+                    round.round,round.counter,frame,peer.local_slot,GetCurrentThreadId()};
+                preparation->capture_boundary(key,r.base,argument);
+                if(continuation)preparation->replay_boundary(key,r.base,argument,reinterpret_cast<sc6::research::SingleUpdateCall::Routine>(SC6Original));
+                if(preparation->replay_restart()){if(continuation)*continuation=0;return;}
+            }
+        }
+    }
     const auto* combat=sc6::research::combat_routes.load(std::memory_order_acquire);
     if(auto* route=combat?combat->battle:sc6::research::exclusive_battle_route.load(std::memory_order_acquire)){
         if(continuation){*continuation=0;route->run(argument,return_address);}
@@ -1062,8 +1084,73 @@ bool prepare_owned_replay_impl(){
  r.reuse_waiting=true;r.reuse_wait_deadline=GetTickCount64()+600000;
  ReleaseSRWLockExclusive(&r.lock);return true;
 }
+bool prepare_combat_recording_impl(std::uint64_t nonce,bool first_match){
+ auto& r=state();AcquireSRWLockExclusive(&r.lock);
+ const bool eligible=r.verified && r.hooked && !r.active.load() && !r.observation_used && !r.network_reuse &&
+     !r.observing && !r.restore_failed && r.observation && !sc6::research::combat_resource_preparation.load();
+ const bool prepared=eligible && sc6::observation::prepare_owned(*r.observation,nonce);
+ if(prepared){
+     r.observation_used=true;
+     auto resources=std::make_unique<sc6::research::CombatResourcePreparation<>>();
+     if(!resources->start(r.base,first_match)){
+         InterlockedExchange(&r.observation->status,3);ReleaseSRWLockExclusive(&r.lock);return false;
+     }
+     sc6::research::combat_resource_preparation.store(resources.release(),std::memory_order_release);
+ }
+ ReleaseSRWLockExclusive(&r.lock);return prepared;
+}
+static std::unique_ptr<sc6::research::NativeArmingDispatch> continuous_request;
+static std::uint64_t continuous_request_nonce{};
+unsigned continuous_start_state_impl(){return continuous_request?1u+static_cast<unsigned>(continuous_request->state()):0u;}
+bool queue_continuous_start_impl(const ContinuousStartRequest& request){
+ auto& r=state();AcquireSRWLockExclusive(&r.lock);bool result=false;
+ try {result=[&]{
+     using namespace sc6::research;
+     if(continuous_request || !request.private_match_confirmed || !request.build || !request.ticket ||
+        !r.verified || !r.hooked || !SC6Original || !r.observation || r.observation->nonce!=request.local_nonce ||
+        r.observation->reserved!=sc6::observation::owned_mode || r.observation->count || r.observation->status!=1)return false;
+     const auto now=GetTickCount64();CombatPeerContext::Snapshot peer;NativeClockDiscovery::Observation clock;
+     if(!combat_peer_context.read(now,peer) || peer.peer!=request.steam_peer || peer.local_nonce!=request.local_nonce ||
+        peer.remote_nonce!=request.remote_nonce || peer.local_slot!=request.local_slot ||
+        !native_clock_hook::discovery.read(now,clock) || clock.base!=r.base || clock.clock.local_mask!=request.local_slot ||
+        clock.clock.identity!=request.clock_identity || clock.clock.frame>=request.clock_frame || now>UINT64_MAX-10000)return false;
+     auto* resources=combat_resource_preparation.load(std::memory_order_acquire);
+     const auto round=round_event::snapshot();
+     if(!resources || !resources->ready.load() || resources->failed.load() || resources->retired.load() ||
+        resources->owner_thread.load()!=clock.thread || !round.round || !round.generation)return false;
+     NativeCombatSession::Config config;config.general_restore=true;
+     config.base=r.base;config.caller=r.base+0x3FE816;config.clock_object=clock.object;
+     config.original=reinterpret_cast<SingleUpdateCall::Routine>(SC6Original);
+     config.identity.session=request.local_nonce;config.identity.peer=request.remote_nonce;
+     config.identity.generation=round.generation;config.identity.round=round.round;config.identity.event=round.counter;
+     config.identity.frame=request.battle_frame;config.identity.slot=request.local_slot;config.identity.thread=clock.thread;
+     config.clock_identity=request.clock_identity;config.clock_frame=request.clock_frame;
+     config.offer={request.local_nonce,request.remote_nonce,request.ticket,request.build,round.round,round.counter,
+         request.battle_frame,request.local_slot,0,3,observation::capacity};
+     config.image_verified=config.bilateral_private=config.boundaries_owned=config.verified_void_entry=true;
+     // No arbitrary character/profile approval is inferred from the handshake.
+     auto queued=std::make_unique<NativeArmingDispatch>(config,ReplayDependencySource{},*r.observation,request.steam_peer,now+10000);
+     if(!queued->source_on_owner(resources,[](void* p){return static_cast<CombatResourcePreparation<>*>(p)->source_on_owner();}) || !queued->queue())return false;
+     continuous_request_nonce=request.local_nonce;continuous_request=std::move(queued);return true;
+ }();}catch(...){result=false;}
+ ReleaseSRWLockExclusive(&r.lock);return result;
+}
+void abort_combat_recording_impl(std::uint64_t nonce){
+ auto& r=state();AcquireSRWLockExclusive(&r.lock);
+ if(nonce && nonce==continuous_request_nonce && continuous_request)continuous_request->cancel();
+ if(nonce && r.observation && r.observation->reserved==sc6::observation::owned_mode &&
+     r.observation->nonce==nonce && r.observation->count==0){
+     InterlockedCompareExchange(&r.observation->status,3,1);
+     if(auto* resources=sc6::research::combat_resource_preparation.load())resources->request_stop();
+ }
+ ReleaseSRWLockExclusive(&r.lock);
+}
 void recorder_poll() {
     prepare_owned_replay=prepare_owned_replay_impl;
+    prepare_combat_recording=prepare_combat_recording_impl;
+    abort_combat_recording=abort_combat_recording_impl;
+    queue_continuous_start=queue_continuous_start_impl;
+    continuous_start_state=continuous_start_state_impl;
     auto& r=state();auto now=GetTickCount64();if(now-r.lastPoll<250)return;r.lastPoll=now;
     if(r.verified)sc6::research::effect_observer::poll(r.base,r.directory);
     if(r.verified)sc6::research::range_observer::poll(r.base,r.directory);
@@ -1082,6 +1169,7 @@ void recorder_poll() {
              <<"\ngeneration="<<marker.generation<<"\nready="<<(marker.round!=0 && marker.generation!=0)<<'\n';
     }
     if(!TryAcquireSRWLockExclusive(&r.lock))return;
+    if(r.observation && r.observation->reserved==sc6::observation::owned_mode){ReleaseSRWLockExclusive(&r.lock);return;}
     if(r.observing){
         if(r.active.load() && now>=r.deadline){r.active.store(false);InterlockedExchange(&r.observation->status,3);}
         if(!r.active.load()){if(r.observation->status==1)InterlockedExchange(&r.observation->status,3);r.ready=false;}

@@ -2017,3 +2017,241 @@ This is local attachment evidence only. The live startup command still needs to
 initialize the owned mapping and coordinate transport attachment, resource
 collection, validated boundary selection and bilateral startup. No installation
 or live activation occurred.
+Full Build-Native.ps1 passed (owned-transport-attachment-build.log); build staged the DLL locally without installation.
+
+### 2026-10-11: recorder-owned combat buffer preparation
+
+Added prepare_combat_recording callback in the recorder. Under its lock it
+requires a verified executable, installed battle hook, unused observation
+mapping, no active recorder/reuse experiment and no restore failure. The shared
+buffer helper claims only an idle, empty, unassigned current-process mapping,
+sets owned mode and session nonce, then publishes recording status. Existing
+recordings are never cleared. Recorder polling returns before arm handling when
+this buffer is owned, preventing a second observer writer or offline experiment.
+
+Shared-mapping tests passed for zero nonce, nonempty/used mappings, successful
+preparation and one-shot rejection. Preparation alone does not collect resource
+references, attach transport, hold the clock or activate rollback. The live
+command must still coordinate those operations. No game installation performed.
+Full Build-Native.ps1 passed (combat-recording-prepare-build.log); DLL staged locally without installation.
+
+### 2026-10-11: local owned capture startup transaction
+
+Capture::prepare_owned calls the recorder preparation callback and then attaches
+the network reader. Missing callbacks, preparation failure and attachment failure
+have distinct results. Failed attachment invokes an abort callback; the recorder
+marks only the matching owned, empty, recording-state mapping failed under its
+lock. It does not erase records, reset the mapping for reuse or stop another
+session. Duplicate starts are rejected before invoking callbacks.
+
+Shared-memory tests cover unavailable callbacks, preparation rejection, attach
+failure with exactly one abort, successful prepare/attach and duplicate startup.
+The public live command still does not invoke this transaction; resource
+collection, boundary admission and bilateral activation remain to be wired.
+No installation or live game test was performed.
+Full Build-Native.ps1 passed (owned-start-transaction-build.log); DLL staged locally only.
+
+### 2026-10-11: runnable startup-preparation command
+
+Steam-Prepare.cmd invokes Steam-Inputs.ps1 -StartupPreparation. A distinct
+PRIVATE_STEAM_PREPARE protocol signature prevents mixing this with old observer
+or replay modes. After mutual authentication it invokes the real recorder buffer
+preparation and transport attachment transaction, exchanges assigned slots and
+waits for a fresh clock observation matching the local slot. It never arms the
+legacy recorder, publishes a combat route or holds the clock. After at least ten
+seconds it retires the empty buffer and reports PREPARED_NOT_ACTIVATED. Terminal
+polling also retires a prepared empty buffer after an error/disconnect.
+
+Reports identify startup_buffer_attached and the unresolved activation blocker.
+This is a runnable startup rehearsal, NOT complete combat startup: owned resource
+collection, game-boundary admission and bilateral activation remain unconnected.
+The launcher accepts the explicit preparation result, requests both reports and
+requires a restart. PowerShell parse validation passed. No live test performed.
+Full native build passed (startup-preparation-command-build.log). Package: C:\Users\Ben\Downloads\SC6Rollback-Startup-Preparation-20261011-155740.zip. No installation or live test performed.
+
+### 2026-10-11: startup resource ownership integration
+
+Baseline live preparation: PID 56104 reported PREPARED_NOT_ACTIVATED with mutual
+handshake and owned buffer attachment. User confirmed both PCs produced that
+result and gameplay remained normal.
+
+The next build starts ReplayOwnedResources when preparing the owned recording.
+A process-lifetime CombatResourcePreparation is serviced at the persistent battle
+entry after lease service. Readiness requires owned resources plus the pinned
+battle caller, valid round and fresh clock observation on the same thread.
+Network abort requests retirement; only the game callback calls resource stop.
+Cancellation is terminal and reported. Reports retain readiness evidence and
+require retirement before PREPARED_NOT_ACTIVATED. Protocol signature changed to
+0x002A53433648534b to prevent mixing with the prior preparation build.
+
+This checks resources and boundary observations; it does not construct snapshots,
+claim clock ownership, publish combat routes or activate rollback. Full boundary
+admission and bilateral activation remain separate. Start scripts in the lobby
+before loading so ownership callbacks can be observed. Lifecycle fixture tests
+passed for readiness, invalid boundary, deferred cleanup, single release and
+cancellation. No live result for this new build yet.
+Full build passed (resource-startup-command-build.log). Package: C:\Users\Ben\Downloads\SC6Rollback-Resource-Startup-20261011-162118.zip
+
+### 2026-10-11: distinguish unknown resource owner thread from mismatch
+
+Live resource-startup attempt PID56512 and partner report both failed with
+cancellation reason8, no readiness, cleanup retired, no snapshots/injection/load.
+The old report did not expose expected/actual thread IDs, so it cannot establish
+whether owner was zero or a genuine different thread.
+
+ReplayOwnedResources now defers callbacks only when the expected owner is zero
+and no references are held. It neither acquires nor caches borrowed pointers in
+that case. Known mismatches, or losing thread identity while holding references,
+remain terminal. Generated buffer/setup callbacks outside the two supported roots
+are ignored before thread evaluation. Reports include cancellation actual/expected
+thread IDs, held-reference flag and deferred callback count/thread. Protocol is
+0x002B53433648534b to prevent mixing builds. Tests cover unknown/known owner,
+held/unheld references and matching/mismatched threads.
+
+Deferred acquisition requires a later native callback; it is not a retrospective
+handoff. Next live procedure: after restart enter a private match briefly, return
+to lobby without scripts, then arm the next match load. This establishes the
+existing game-frame owner before collection. Full combat activation remains off.
+Full build passed: resource-thread-startup-build.log. Package: C:\Users\Ben\Downloads\SC6Rollback-Resource-Thread-Startup-20261011-163204.zip. Not installed yet.
+
+### Clock-entry resource preparation (2026-10-11)
+Both Resource-Thread-Startup peers reported resource ready/retired=1, failed=0 and normal gameplay (local PID 2276; partner attachment f880ea20). The next preparation build additionally observes resource availability at the native clock entry, on the established resource owner thread, before stock clock dispatch. It reports clock identity/frame/slot and requires this evidence before successful retirement. This is historical readiness evidence, not boundary ownership, bilateral activation, or rollback. Unit coverage rejects wrong objects, stale observations, unavailable resources, and observations after retirement was requested. Runtime validation remains pending.
+
+
+Clock-resource live result, PID 60496: PREPARED_NOT_ACTIVATED; buffer_attached=1; resource_ready=1, retired=1, failed=0, cancellation=0, deferred=0. Clock-resource readiness=1 at native identity=0/frame=1/local slot=1; reported battle resource frame=109, owner thread=11376. These independently sampled clock/battle counters do not establish a shared frame mapping or exclusive ownership. No injection/restoration/rollback. User confirmed normal gameplay without glitches. Partner report still pending.
+
+
+Partner report 98b48ceb-3bd4-43d1-adbe-d48843423950 also passed PREPARED_NOT_ACTIVATED: clock_resource_ready=1, resource_ready=1/retired=1/failed=0, cancel=0/deferred=0, mutual=1. Native clock identity=0/frame=1/slot=2, battle resource frame=109, owner thread=15924. Both peers passed this historical readiness check with complementary slots; no injection, restoration, or rollback. This is not bilateral boundary activation or proof of synchronized game frames.
+
+
+Clock progression preparation: both previous reports showed native identity=0/frame=1 while battle frame=109. This does not prove the inspected native frame advances with battle updates. Before choosing bilateral activation targets, added five seconds of bounded progression observations (maximum 512 per clock/battle stream): first/last native frame, local/all input cursors, object changes, identity/reset counts, and battle first/last. No shared-frame mapping is inferred; no native hold, activation, injection, or restoration is introduced. Updated preparation handshake signature to prevent mixing the older immediate-retirement build. Unit tests cover stationary clocks, advancement, object switches/resets, sample cap, and stop behavior.
+
+Clock progression live capture PID 57256: PREPARED_NOT_ACTIVATED; resource ready/retired=1, failed/cancelled=0. 300 clock samples, 299 changes, zero resets/object changes; native frame 1->300, local cursor 4->303, all cursor 3->302. 300 battle samples, counter 62->361. Both counter endpoints advanced by 299 with an endpoint offset of 61; aggregate counters do not establish per-entry pairing or bilateral activation. User confirmed normal gameplay with no glitches. No injection/restoration/rollback. Partner report pending.
+
+Partner clock progression report a4c46eef-3600-4036-a8b2-561c8455cddb matches local PID 57256 aggregate results: 300 samples, native 1->300, battle 62->361, local cursor 4->303, all cursor 3->302, zero clock resets/object changes. Partner slot=2, local slot=1. Both PREPARED_NOT_ACTIVATED with resources ready/retired=1 and failures/cancellations=0; mutual confirmation=1. This supports consistent counter progression on both PCs but does not prove per-frame correspondence or authorize activation. No rollback/injection/restoration occurred.
+
+Boundary-pair preparation implementation: immutable bounded rows (120) publish native identity/frame from an accepted clock callback with the next accepted battle entry on the resource owner thread. Report includes every row and overwritten, unpaired and discontinuity counts. Acquisition/release publication prevents readers accessing unfinished rows. Does not infer correspondence from aggregate totals, negotiate an activation target, or hold/restore/inject. Tests cover absent clock, overwritten observation, sequential pairing, identity reset/discontinuity and immutable capacity. Live comparison pending.
+
+Boundary-pairs live PID 3088: 120 paired observations, zero overwritten/unpaired/discontinuities. Rows identity=0, clock 1..120, battle 546..665, constant offset 545. Resources ready/retired=1, failed/cancel=0; PREPARED_NOT_ACTIVATED; no rollback/injection/restore. User confirmed normal gameplay without glitches. Offset differs from previous capture endpoint offset 61, so it must not be hardcoded across sessions. Partner pair report pending.
+
+Partner report c03fcf55-bc43-4e73-a2a1-4b9d3d78c046: all 120 indexed boundary rows exactly match local PID 3088 (identity=0, clock 1..120, battle 546..665). Zero missing/overwritten/discontinuous pairs on both; partner slot2; readiness and retirement passed with no resource failures/cancellation. Both PREPARED_NOT_ACTIVATED, no injection/restore/rollback. Evidence establishes matching sampled counter pairs in this session, not live bilateral activation or full simulation-state equality.
+
+Boundary-agreement rehearsal implemented: after validated 120 consecutive pairs, deterministic candidate = first pair +600 frames (overflow rejected). Existing authenticated peer and reciprocal session-nonce validation wraps kind6 offers and acknowledgements. Opposite slots and all mapping/target fields must match; mismatches latch failure. Retransmits every 100ms and retains exchange for one second after local acknowledgement. Native clock identity mismatch or elapsed target stops preparation; neither held-clock authority nor activation is produced. New preparation protocol signature isolates older builds. Local tests cover reciprocal agreement, duplicates, mapping mismatch and insufficient pair evidence. Runtime pending.
+
+Boundary agreement live PID 66276: startup_boundary_agreed=1, failed=0; candidate clock=601/battle=661. 120 pairs, zero overwritten/unpaired/discontinuities. Resources ready/retired=1, failed/cancel=0; terminal PREPARED_NOT_ACTIVATED at reported clock367/battle427. User confirmed normal gameplay, no glitches. Agreement rehearsal only: no hold, activation, injection, restore or rollback. Partner terminal report pending.
+
+Partner boundary agreement report 0e2b72d8-78a0-44b5-91e6-ec31d10bfedd also PREPARED_NOT_ACTIVATED: agreed=1/failed=0, same candidate clock601/battle661 as local PID66276, slot2. 120 valid pairs, no overwritten/unpaired/discontinuities. Resources ready/retired=1 and failed/cancel=0. Partner finished reporting clock366/battle426 versus local367/427; neither held or reached candidate under mod control. Both terminal reports confirm negotiation and cleanup, not synchronized holding or rollback.
+
+Boundary hold rehearsal: after authenticated boundary agreement, owner-thread dispatcher attempts the exact target with last battle entry target_battle-1. NativeStartHold services the clock without advancement for 100ms, validates unchanged boundary, then resumes stock dispatch on the next callback. No snapshot, replay or input injection. Foreign objects pass through once bound. Failure after servicing suppresses original dispatch and requires restart to avoid duplicate native processing. Local fixtures verify early pass-through, exact boundary, foreign object pass-through, successful release, wrong battle rejection and service failure latch. Runtime pending.
+
+Boundary hold live PID 55376: boundary agreed=1/failed=0, target clock601/battle744. Hold state3 (released), services7. Resource ready/retired=1, failed/cancel=0; 120 pairs with zero overwritten/unpaired/discontinuities. PREPARED_NOT_ACTIVATED; no rollback, input injection, or restoration. User confirmed normal gameplay without glitches. Local bounded hold/release completed; partner report pending.
+
+Partner hold report bb3ad39c-42b8-4968-9f9a-cee869898426 confirms same clock601/battle744 target as local PID55376; boundary agreed=1/failed=0, slot2, hold state3/released, services7. Both resource retirement checks passed with failures/cancellations=0 and 120 valid pairs. Both completed bounded local hold/release; reports do not establish simultaneous wall-clock release or continuous rollback. No injection/restoration/rollback. Next integration remains snapshot/replay at the controlled boundary.
+
+Boundary snapshot integration: after native hold release, battle entry now supplies session/peer/round/generation/thread identity and input argument to a bounded four-state NativeRollingHistory capture. First frame must equal negotiated battle target, subsequent frames contiguous and same round. Captures use existing supported-profile restrictions (approved_profile=false); validate all owned dependencies, then retire snapshots before resource-source retirement. No restore/replay or continuous scheduler activation. Tests cover four-state completion, gap rejection and capture-failure retirement. Live runtime pending.
+
+Consolidated startup test runner: PRIVATE_STEAM_SUITE supports Boundary/Hold/Snapshots and 0..180 seconds observation, with configuration-specific protocol signature. Reports immutable local/peer pass/fail/skip masks via authenticated kind7 exchange and reciprocal acknowledgement. Selected prerequisites run in one session; safe resource/pair/agreement/snapshot failures retire resources and continue observation. Hold failures after servicing remain restart-required. Observation counts round changes and rematch candidates; these are not correctness verdicts. Steam-TestSuite.cmd reads TestSuite.json; scripts write combined text/JSON summaries and label replay unavailable. One run per launch remains required. Local tests cover protocol-result validation, configuration bounds, immutable results, acknowledgements, event counts and summary failure/missing-data behavior. Live suite validation pending.
+
+First consolidated suite live PID62892: SUITE_COMPLETE, profile3/Snapshots, 60s observation. Local and authenticated peer pass masks63, fail0, skip0, peer received/ack1. Local hold released with7 services; four snapshots captured, dependencies validated and snapshots retired, failures0; resources retired without failure. One round change observed, zero rematch candidates (rematch not established). No injection/restore/rollback; replay unavailable. User confirmed normal gameplay, no glitches. Combined summary generated from local report, containing peer stage results; separate partner report not needed to establish these exchanged stage outcomes.
+
+ReferenceReplay suite profile implemented (4): allocates NativeRollbackWindow before game-thread capture; starts exactly at negotiated battle target after hold release. Captures four idle-supported states with owned dependencies, preflights all adjacent restore hops, rewinds and invokes existing replay_reference through SC6Original trampoline. No normal battle update resumes after a partial restore or replay mismatch; native clock and entry routes suppress execution pending restart. Successful reference replay releases dependencies and continues suite observation. Reports capture/prepare/hop/plan diagnostics, restore invocation, verification and retirement; suite uses seventh stage bit64 and authenticated result schema requires mask127. Earlier profiles skip replay explicitly. Unit tests cover successful lifecycle, preflight rejection, partial load and replay mismatch. Full live validation pending.
+
+ReferenceReplay suite live PID49416: SUITE_COMPLETE, profile4, 60s observation. Local and authenticated peer pass masks127, fail0, skip0, peer received/ack1: all seven stages passed on both PCs. Local four snapshots captured, stage5, restore invoked1, reference verified1, retired1, failed0, restart_required0. Negotiated clock601/battle661; hold released with6 services; resources ready/retired1 and failed0. One round change observed, zero rematch candidates. User confirmed normal gameplay without glitches. Combined summary saved beside steam-inputs-49416.txt. This validates a controlled idle three-frame reference rewind/replay and cleanup in a private online match, not continuous combat rollback or correction of late network inputs.
+
+OwnedPredictionCorrection backend added after PID49416 reference-suite pass. Not installed or registered with live suite. Owns separate clean/predicted NativeRollbackWindow workspaces and requires confirmed_replay_window for all three frames before restoration; composed authoritative input must equal the independently captured clean reference. Only measured neutral-to-screen-right fixture on the remote slot is accepted. Captures the predicted branch with owned dependencies, requires player-state divergence for success, reverse-restores it, and checks each corrected update against clean reference state. Any post-rewind failure retains restart_required until a verified clean endpoint and successful dependency release; caller remains responsible for owner-thread failure cleanup. Local MSVC /W4 /WX tests pass, including both slots, absent/stale/foreign confirmations, reference disagreement, auxiliary ownership, unsupported active inputs, and empty-window nonmutation. Native mutation path has not been live tested. Remaining integration: supply/drain authenticated exact-frame confirmations in startup suite before this transaction, preserve boundary/hold authority while waiting, expose correction diagnostics and bilateral results, then package for explicit live test. Existing ReferenceReplay install unchanged.
+
+PredictionCorrection suite profile5 connected. StartupCorrectionExchange publishes three immutable local saved-input records, accepts only authenticated outer-session packets at the agreed frames/opposite slot, compares round/event metadata, and exchanges acknowledgements of both transcripts. A second NativeHoldRehearsal at clock/battle target+3 services native clock without advancing until confirmation, bounded to 2000ms with restart on touched failure. Fourth clean snapshot and OwnedPredictionCorrection run only after release. Correction uses peer-owned player pair with local auxiliary data, requires actual player-state divergence and three clean-reference comparisons, and publishes atomics for injection, restoration, verification, cleanup, confirmation and hold diagnostics. Profile5 results require mask255/eight stages on both peers; profiles1-4 retain mask127, with new protocol signature isolating old builds. Added missing/stale/conflict/wrong-round/slot/certificate rejection, delayed release/timeout, bilateral result and summary tests. Full Build-Native.ps1, MSVC /W4 /WX native tests, PowerShell summary and parser checks passed. ZIP SC6Rollback-PredictionCorrection-Suite-20261011-192653.zip verified against DLL SHA256 EED18FFF8B5EE6855DD1BD8A64A7D2E2D7389883E7F59AEA0C9C5AC5DE366BC5. Live test pending; not installed yet at this entry. User asked to close SC6 for installation. Continuous combat rollback remains disabled.
+
+PredictionCorrection suite installed after user closed confirmation. Leftover windowless PID68088 required elevated taskkill (exit0). Packaged Install-Observer.ps1 completed and installed DLL hash matched EED18FFF8B5EE6855DD1BD8A64A7D2E2D7389883E7F59AEA0C9C5AC5DE366BC5. No test armed. Next: both install, warm up in private match, return to lobby, partner Steam-TestSuite.cmd P2; arm Ben P1 with PRIVATE_STEAM_SUITE PID 76561199553590821 1 5 60 after readiness/identity checks.
+
+PredictionCorrection first live PID62696 failed restart-required at stage6 (correction_rewind). Four clean snapshots captured; local/remote confirmations3 each, ready1 failed0; confirmation hold released with7 services; initial hold also7. Clean restoration invoked1, injection1, three predicted updates completed, player-state divergence1. Corrected verified updates0. Snapshot dependencies retired1; main resource retirement0 because clock stop prevents further owner boundary. No bilateral final stage exchange. Current report does not expose predicted-window preflight/restore substage, so cannot distinguish rejection before its load from partial predicted rewind. User notified to close both games and provide visual observations/partner diagnostics. Need publish predicted window plan, prepare stage, failing hop and NativeAdjacentRestore rejection/restore diagnostics before narrowing the fix.
+
+User reported game frozen after PID62696 failure and confirmed both games closed. This is consistent with restart-required dispatch suppression. Diagnostic build adds suite_correction_diagnostic_schema=1 and atomic detail fields: selected clean/predicted window (0/1), plan, prepare stage, hop, rejection, native restore stage/invocation/verification, delayed failure line, exception/fault, replay stage/mask, wind detail, topology mask and source/next frames. Captures details before dependency release. Guard behavior unchanged. The next run is diagnostic, not a claimed fix. Windowless PID72456 cleanup required elevated taskkill and exited0.
+
+Diagnostic full build/local tests passed and installed through packaged installer. Installed and ZIP DLL SHA256: E49166D13FEE2B21E781C82401BD62D1BE2A2E502F22E91B8ED9B48C47781CD3. Partner ZIP: C:\Users\Ben\Downloads\SC6Rollback-PredictionCorrection-Diagnostic-Suite-20261011-194733.zip. No test armed; next warmup/lobby P1/P2 run remains PRIVATE_STEAM_SUITE PID 76561199553590821 1 5 60.
+
+Diagnostic PredictionCorrection live PID11488: SUITE_COMPLETE. Both local and authenticated peer masks255, fail0 skip0, peer received/ack1. Local four clean snapshots; three predicted updates with actual player-state divergence; all three corrected updates verified using confirmed network inputs. Stage8 complete, restoration/injection1, verified1, snapshot and main-resource retirement1, restart0, resource failure0. Predicted rewind detail plan4 prepare5 hop2 rejection0 restorestage10 verified1; failureline/exception/probefault0; replaystage5 comparisonmask1023; topology0. Confirmation3/3 ready1 failed0, confirmation hold released7services, initial hold6services. One round change observed. User reported finished with no failures. This is a successful bounded three-frame wrong-prediction correction on both peers, not continuous combat rollback. Previous PID62696 rewind failure remains unexplained: this build added diagnostics, not a behavior fix; one passing run does not resolve intermittent rejection. Summary saved beside raw report.
+
+## 2026-10-11 — Continuous combat integration work (not activated)
+
+User explicitly requested the next live test be continuous rollback with a friend, with shareable reports, rather than another isolated idle cycle. No live test was armed and no DLL was installed in this work.
+
+Implemented and locally verified:
+- LiveInputComposition has an explicit authoritative_peer purpose, retaining strict comparison as the default. It accepts differing predictions only in that purpose, requires bound session and round metadata, takes only the peer-owned player pair, and retains local player and auxiliary data. Both slot assignments and wrong-round rejection tested.
+- NativeCombatSession now attaches its existing SPSC RollbackJournal before scheduler startup. ContinuousRollbackReport drains on the logging worker, distinguishing pending/completed corrections, replay depth, failures, and lost events. Worker pumping to the live Steam report is NOT connected yet.
+- Collect-RollbackReport.cmd/ps1 collects one report and matching CSV/JSON/text siblings into a Downloads ZIP using shared reads. Included in future suite packages. Tested against a report still open for writing and verified unrelated report exclusion. No new package emitted.
+- Test-LiveInputComposition, Test-BoundedRollback, Test-NativeRollbackWindow passed.
+
+Concrete integration gaps found: native scheduler not published by Steam runner; normal input staging was comparison-only; NativeCombatSession is single-round and stops at capacity; arbitrary combat capture modes explicitly reject restoration; native clock dispatch still respects stock native_wait (not a replacement for stock network delay). Do not describe these changes as a ready continuous rollback build. Do not remove restore guards merely to enable combat. Remaining work includes active runner/worker lifecycle, native restore coverage for combat and safe round/disconnect handling, and diagnostics pumping from session to report. Existing installed Diagnostic DLL remains unchanged.
+
+### Continuous runtime stop/report wiring
+
+Added CombatRuntimeStatus with a worker-only stop request and atomic active/restart/reason/cleanup diagnostics. NativeCombatArming publishes it with process-lifetime held routes. Owner-thread termination preserves the first reason, stops the clock, and retires history once; it does not silently resume stock simulation. Reaching capture capacity explicitly requires restart, rather than implying all outstanding predictions were confirmed.
+
+SteamHandshake now drains the runtime journal to steam-inputs-PID-continuous-events.csv and writes a companion -continuous.txt every 250 ms, including after terminal transport state so delayed owner-thread cleanup can appear. Both are automatically included by Collect-RollbackReport. The global runtime is still dormant: no runner activation command added and no live test armed.
+
+Full Build-Native.ps1 passed, including all local tests, after fixing a missing explicit RollbackJournal include found by the first compile. New owner-thread termination tests cover requested stop, first-cause preservation, cleanup reporting and absence of route publication. DLL staged only, not installed, and no new partner ZIP created. Combat restoration coverage and round lifecycle remain required before continuous normal-play testing. NativeAdjacentRestore::prepare_captured still restricts its source to idle/direction; do not mistake general capture support for general restore support.
+
+### Continuous combat restore routing and retained diagnostics
+
+NativeAdjacentRestore now accepts an explicit combat route only for matching throw/charge/attack/edge/reversal modes already classified by the existing approved-profile capture path. NativeHistoryRestore selects it. Structural/input/topology/readiness/native-load/post-load checks are unchanged; unknown/general combat_capture_only and transitions between different modes remain rejected. This is untested in live continuous play; it does not establish arbitrary move coverage.
+
+Added NativeRestoreDiagnostic carried out of the per-attempt workspace before destruction, through NativeSchedulerStorage to the runtime stop report. Includes source/next modes, rejection, hop/depth, load stage/exception/failure line, and whether any hop invoked restoration. Failed restore does not retire the predicted suffix. Local tests cover all five named mode routes, all-hop preparation before reverse loads, unsupported transition rejection with zero loads, invalid-capture rejection in the actual native class, and retained failure details. Full Build-Native passed; targeted native-window tests passed again after added diagnostic retention coverage. Staged only: no install, ZIP, or live test. Remaining continuous runner activation/round lifecycle/general combat coverage still outstanding.
+
+## 2026-10-11 Experimental continuous runner packaged and installed
+Connected PRIVATE_STEAM_CONTINUOUS to future-boundary game-thread preparation, bilateral activation, authoritative peer input composition, and the continuous scheduler. Added deferred resource source resolution and cancellation tests. Runtime reports now record native updates/restoration; round changes stop the experiment. Added Steam-Continuous.cmd and Package-Continuous.ps1 with automatic report collection.
+Full Build-Native.ps1 passed (continuous-runner-build.log); PowerShell parser checks and targeted dispatch tests passed. ZIP DLL hash verified against staged DLL. Installed verified DLL after elevated termination of windowless leftover PID 73672; installer backed up old files.
+Package: C:/Users/Ben/Downloads/SC6Rollback-Continuous-Experimental-20261011-203659.zip
+DLL SHA256: C01AC432919CE098F7B1D1F83EE010B654FEA5C13CBD188786C4805241E404BB
+Live validation NOT started. Both peers need this build, warmup match then lobby, Steam-Continuous with correct sides and consent. Ben P1/partner P2 last known. Do not arm until both ready.
+Limits: one-round experiment, max rollback depth 3, stops on fault/round boundary/capture limit and requires restart. Unsupported combat restoration remains guarded; approved character profile is not inferred. Native network waits remain respected, so no latency improvement is established. This is not a complete multi-round rollback match. Retained hook ownership can freeze simulation after stop. Reports do not infer rollback PASS from transport or zero corrections.
+
+## 2026-10-11 First-match startup implementation
+User requested removing the warmup match. Continuous preparation now explicitly opts into provisional ownership on audited loaded-descriptor/generated-buffer callbacks. The first actual ownership callback selects a thread atomically; setup alone does not nominate one. Resources retain their original acquisition/release thread. A validated battle boundary must match it before readiness/source access or activation. Different callback/boundary threads reject startup; no speculative thread is published as the global game thread. Legacy suite preparation keeps the prior policy.
+Added startup_first_match_requested/thread/verified report fields. Tests cover nomination/mismatch, no readiness before verified boundary, successful readiness/retirement, rejection cleanup, and first-match flag forwarding through owned capture preparation. Launcher and FirstMatch package instructions now start from a freshly launched private lobby, with no warmup. Initial agreement still occurs during the first match; this does not promise activation before FIGHT or implement round transitions.
+Full Build-Native.ps1 passed (build-native/first-match-build.log); launcher/packager PowerShell syntax passed. Packaged and installed with installer backup, ZIP/staged/installed DLL hash verification:
+C:/Users/Ben/Downloads/SC6Rollback-Continuous-FirstMatch-20261011-204656.zip
+SHA256 A5EF2DF243291F409BF26F946A1FD35BD67C852A229E5064067CFA17CBC3676D
+Both PCs need this FirstMatch build. Live first-match validation has NOT run. No test armed; await both ready in fresh lobby. One-round stop/restart and unsupported-combat guards remain.
+
+## 2026-10-11 First-match live result and premature activation correction
+Ben PID 68436: first-match ownership verified; 2 predicted native updates; correction depth 2 rejected at prepare stage, source/next mode 8 (combat_capture_only), rejection 3 (mode), zero native restore invocations. Partner PID 20752 ZIP ae31efee: same result at depth 3, verified first-match ownership, P2 mapping, no reported exceptions or dropped events. Both froze because the terminal scheduler retained hook ownership. This was not a successful continuous rollback test.
+Root cause is a capability mismatch: unrestricted capture can succeed while general combat restore is absent. Approved-profile fixture routing is not a general restore implementation and must not be enabled speculatively.
+Added an explicit backend capability barrier before continuous transport preparation and also in native arming/session preparation/activation. Current capability is false. The check reports continuous_unavailable_default_networking before any native hold, prediction or restoration. Stock gameplay remains in control. This prevents the observed activation/freeze path but DOES NOT IMPLEMENT unrestricted combat rollback. Do not describe this patch as combat restore support or ask for another normal-play rollback test with it.
+Regression checks use a structurally valid config and both approved-profile settings to verify native arming returns without a hold, runtime status or route publication. Existing isolated fixture tests remain separate. Next substantive work is a general native restoration contract for arbitrary input/move transitions, including scalar/blend/camera restore guards and replay verification; a capability boolean must not be flipped as a substitute.
+
+Activation guard full build/tests passed. Packaged ZIP hash verified and installed with backup. Package: C:\Users\Ben\Downloads\SC6Rollback-ActivationGuard-20261011-210920.zip SHA256: A2EA00A417376B667AF3C1E7021F9AAA822F24414396631CCA720AA2006C2673. No live session armed: this is capability refusal, not combat rollback implementation. The regression test output now uses unique build folders to avoid a stale assertion-process executable lock.
+
+## 2026-10-11 Experimental general-state restoration implementation
+User explicitly requested general combat restore and continuous testing. Added NativeBoundarySnapshot::Mode::general_combat (9), distinct from combat_capture_only (8). NativeSchedulerStorage now captures through NativeRollingHistory::capture_general_owned, retaining existing descriptor/generated-buffer ownership. No fixture move-ID classifier or approved character profile is used for this path.
+General adjacent preparation accepts independently valid changing input envelopes but retains frame/player/serializer/ring/RNG/transform/camera structural checks. FullStateProbe checks the exact captured live endpoint immediately before loading (keys, player identities, sampled fields and RNG; permits only the already-known rebuilt self-pointer). Scalar preservation admits identical saved/loaded control fields or the existing audited native normalization, never unexplained changes. Generic camera-flag handling accepts exact unchanged records/absence, otherwise delegates to the audited flag normalization; no move-ID inference. Existing blend, wind/sway/constraint, camera, payload and final state verification remain mandatory. These conservative guards still limit supported topology/animation transitions; no claim of universal combat coverage.
+General multi-hop restoration checks pure structural/input readiness for ALL hops first, then runs live preflight immediately before each backward load. This avoids comparing historical intermediate transforms against the newest live frame. A later-hop live rejection after an earlier load still requires restart.
+The activation capability now indicates an implemented experimental general path, and NativeCombatSession requires explicit config.general_restore. Continuous command sets it; approved_profile alone does not authorize activation. Continuous protocol signature changed so old builds cannot join this experiment. No warmup required; one-round stop/restart limit and native network waits remain.
+Local tests: general save/load mock passes with unknown move IDs 777/888 and changed input; stale live keys/player fields reject before load; malformed input rejects before load; capture-only still rejects; three-frame mocked orchestration verifies pure-preflight then reverse live-preflight/load ordering. Existing suite remains required. This is not live general-combat evidence. Added restore preflight-mask and completion section/record/kind/offset diagnostics.
+
+GeneralCombat full build/tests passed: build-native/general-combat-build.log. PowerShell syntax passed. ZIP DLL verified and installed with backup: C:\Users\Ben\Downloads\SC6Rollback-GeneralCombat-20261011-212450.zip SHA256 B5BE1DC991CC8425EC6A95E4FC5B62A3DCEB4CA90D4AFBCEA93DB2BAE3876009. Live test NOT armed. Both peers need this build and a fresh process; Ben P1, friend P2, last friend code 1053318446. Await ready in lobby; no warmup. Native general restore is locally mocked/guarded, not yet live validated.
+
+## 2026-10-11 GeneralCombat source guard diagnostic
+Live Ben PID63888 activated and recorded 7 predicted frames with no completed correction. Partner report PID12464 activated, predicted 4 frames and attempted depth2 correction at frame2. Newest hop1 rejected preparation with sources=15, both modes9; no native load, retired history and restart required. This narrows failure to delayed_sources_ok (shape/ring flags or unrecognized serializer source relocation), not proof of a particular record yet. Added six source_guard fields (reason, record, length, saved/next pointers, writer address) to continuous restore reports; guards unchanged. Reason1 shape,2 unchanged-ring flag,3 rotation flag,4 unsupported source relocation. FullStateProbe regression mutates a source address, verifies rejection/diagnostic with no load and reset on valid retry. This is diagnostic, not a freeze fix. Both PCs require new SourceGuard package for useful paired evidence.
+SourceGuard full native build/tests passed. Installed verified DLL SHA256 DE296EF6ADD77E8D8A4958A9EE67D75B3A5CFE23C5EAD5F0510F13018B411B1A; backup 20261011-214611-9984a524. No live test armed.
+
+## Final test tonight: PID74244, SourceGuard
+User reports finished, no freezes. Transport mutual confirmation succeeded, resources ready and first-match verified. Terminal status boundary_agreement_rejected_or_expired; continuous_start_state=0, injection=0, restore=0, no continuous journal produced. No rollback ran; source guard was not exercised. Local report ZIP: C:\Users\Ben\Downloads\SC6Rollback-Report-steam-inputs-74244-fc582cf9.zip. Partner report pending. User explicitly ends testing tonight. Tomorrow priorities: source ownership/validity; general combat restore; freeze recovery; repeated corrections; round/rematch; native latency waits. Also diagnose boundary agreement failure before another activation attempt. Do not interpret no freezes as rollback success or automatically schedule another live test.
+
+## Tomorrow's agreed priorities — 2026-10-12
+User explicitly requests deeper implementation work using existing logs, rather than more premature live tests. No automatic run or reminder scheduled.
+
+1. Snapshot source validity and ownership: inspect the depth-two correction failure from partner PID12464. Rejection15 (sources) at hop1, modes9; no native restoration invoked. Determine whether the cause is shape/ring validation or an unsupported serializer source relocation. Do not bypass guards without evidence. SourceGuard instrumentation is installed but has not yet been exercised by a correction.
+2. General combat restoration: establish correct preparation, native loading and replay for changing combat states; controlled tests must prove restoration beyond fixture-only cases.
+3. Freeze prevention and failure recovery: compare partner's stopped runner with Ben's still-active runner. Identify how one-sided failure propagates and implement coordinated termination/recovery. Do not assume safe stock handback after mutation.
+4. Repeated combat corrections: verify sustained history reuse, corrected input delivery and replay correctness; normal gameplay or transport PASS alone is insufficient.
+5. Round/rematch continuity: verify cleanup and activation lifecycle across boundaries.
+6. Latency reduction: address native SC6 network waits only after correctness and recovery are established.
+
+Supporting evidence:
+- C:\Users\Ben\Downloads\SC6Rollback-Report-steam-inputs-12464-08a99782.zip — partner: 4 predicted frames, first correction depth2 rejected before loading, restart required.
+- C:\Users\Ben\Downloads\SC6Rollback-Report-steam-inputs-63888-b6579f48.zip — Ben: 7 predicted frames, 0 corrections/replays, runtime still active. User observed freeze. Exact causal linkage to peer stop remains unproven.
+- C:\Users\Ben\Downloads\SC6Rollback-Report-steam-inputs-74244-fc582cf9.zip — final SourceGuard run: mutual handshake/resources succeeded, boundary_agreement_rejected_or_expired before activation; no injection/restoration, user reports no freezes. This does not validate rollback. Partner final report not yet supplied.
+- Earlier first-match freeze reports PID68436 and partner20752 document mode8 capture-only rejection; distinguish from current mode9 sources rejection.
+
+Investigate startup boundary agreement from the final logs alongside the above priorities, before requiring another live run. Preserve the agreed priority order; do not substitute another string of isolated live diagnostics for implementation work. Exhaust useful code/log analysis and local verification first. User ended tonight's tests.

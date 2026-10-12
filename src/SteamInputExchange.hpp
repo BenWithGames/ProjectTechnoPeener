@@ -1,6 +1,7 @@
 #pragma once
 #include "InputObservation.hpp"
 #include "OwnedTransportAttachment.hpp"
+#include "FrameRecorder.hpp"
 #include "LiveShadowPrediction.hpp"
 #include "LiveInputComposition.hpp"
 #include <filesystem>
@@ -66,6 +67,14 @@ struct Capture {
         return accepted;
     }
     ~Capture(){research::owned_transport_attachment.detach(owned_nonce);if(shared)UnmapViewOfFile(shared);if(mapping)CloseHandle(mapping);}
+    enum class OwnedStart {attached,unavailable,prepare_failed,attach_failed};
+    OwnedStart prepare_owned(uint64_t nonce,bool first_match=false){
+        if(!nonce || armed || mapping || shared || !prepare_combat_recording || !abort_combat_recording)
+            return OwnedStart::unavailable;
+        if(!prepare_combat_recording(nonce,first_match))return OwnedStart::prepare_failed;
+        if(attach_owned(nonce))return OwnedStart::attached;
+        abort_combat_recording(nonce);return OwnedStart::attach_failed;
+    }
     // Attach to a mapping initialized by the game-thread combat controller.
     // Unlike arm(), this never creates network-observe.arm or starts a writer.
     bool attach_owned(uint64_t nonce){

@@ -42,6 +42,7 @@ struct RollbackWindowPlan {
 // Captures and reverse-loads existing supported native states only. A rewind
 // leaves simulation in the past: the caller MUST finish replay before resuming.
 class NativeRollbackWindow {
+    friend class OwnedPredictionCorrection;
     using Pool=NativeSnapshotPool<4>;
     Pool pool_;
     std::array<Pool::Handle,4> handles_{};

@@ -28,6 +28,7 @@ struct FullStateProbe {
         }
         m.valid=true;
     }
+    bool general_combat_requested{};
     bool preserve_requested{},preserve_applied{},preserve_verified{},throw_requested{},charge_requested{},attack_requested{},edge_requested{},reversal_requested{},trigger_matched{};
     static constexpr unsigned scalar_offsets[]={0x20,0x24,0x30,0x34,0x40,0x50};
     static constexpr unsigned throw_scalar_offsets[]={0x1C,0x38};
@@ -65,7 +66,10 @@ struct FullStateProbe {
             if(player!=source.players[side] || player!=written.players[side] || player!=loaded.players[side])return false;
             uintptr_t rebuilt{};std::memcpy(&rebuilt,loaded.fields[side].data(),8);
             if(rebuilt!=player)return false;
-            if(combat_requested() && !combat_transition(source.fields[side],loaded.fields[side],side,charge_requested || attack_requested || edge_requested,reversal_requested,
+            const bool general_controls_equal=general_combat_requested &&
+                !std::memcmp(source.fields[side].data()+128+0x1C,loaded.fields[side].data()+128+0x1C,4) &&
+                !std::memcmp(source.fields[side].data()+128+0x38,loaded.fields[side].data()+128+0x38,4);
+            if(combat_requested() && !general_controls_equal && !combat_transition(source.fields[side],loaded.fields[side],side,charge_requested || attack_requested || edge_requested,reversal_requested,
                 combat_later_window && combat_replay_requested && throw_requested && delayed_requested))return false;
             // Reject unexpected changes before any preservation writes.
             for(unsigned k=8;k<224;++k){
@@ -174,7 +178,7 @@ struct FullStateProbe {
         }
         return true;
     }
-    bool combat_requested()const{return throw_requested || charge_requested || attack_requested || edge_requested || reversal_requested;}
+    bool combat_requested()const{return general_combat_requested || throw_requested || charge_requested || attack_requested || edge_requested || reversal_requested;}
     static bool charge_aux_active(uintptr_t b)noexcept{
         __try {
             auto manager=ptr(b+0x470DF28);if(manager<0x10000)return false;
@@ -211,7 +215,26 @@ struct FullStateProbe {
         // Observed connected Yoshimitsu A+G freeze; not a generic combat detector.
         return p1==487 && p2==10041 && multiplier==0.0f && selector==-1;
     }
+    // General loading is authorized by an exact captured live endpoint, not
+    // a character-specific move number. Recheck immediately before mutation.
+    bool general_live_endpoint(uintptr_t b)const{
+        if(!general_combat_requested || !audit_done || delayed_loaded)return false;
+        const auto& expected=measurements[2];
+        if(!expected.valid || !expected.rng || expected.rng>=2147483647 ||
+           *reinterpret_cast<const unsigned*>(b+0x485EB28)!=expected.rng)return false;
+        std::array<unsigned,std::size(key_rvas)> live_keys{};uintptr_t live_players[2]{};
+        keys(b,live_keys.data(),live_players);
+        if(live_keys!=after_keys || std::memcmp(live_players,after_players,sizeof(live_players)))return false;
+        for(unsigned side=0;side<2;++side){const auto player=live_players[side];
+            if(!player || player!=expected.players[side] ||
+               (std::memcmp(reinterpret_cast<void*>(player+0x43DF0),expected.fields[side].data(),8) && ptr(player+0x43DF0)!=player) ||
+               std::memcmp(reinterpret_cast<void*>(player+0x97100),expected.fields[side].data()+8,120) ||
+               std::memcmp(reinterpret_cast<void*>(player+0x971E8),expected.fields[side].data()+128,96))return false;
+        }
+        return true;
+    }
     bool combat_state(uintptr_t b)const{
+        if(general_combat_requested)return general_live_endpoint(b);
         return trigger_values(*reinterpret_cast<std::uint16_t*>(b+0x475A04A),
             *reinterpret_cast<std::uint16_t*>(b+0x47F143A),*reinterpret_cast<float*>(b+0x48462F4),
             *reinterpret_cast<int*>(b+0x4846458)) && (!charge_requested || charge_aux_active(b));
@@ -527,8 +550,13 @@ struct FullStateProbe {
         // Observation only: changing inputs do not authorize or trigger restoration.
         return true;
     }
+    mutable unsigned source_guard_reason{},source_guard_record{};
+    mutable uint64_t source_guard_length{};
+    mutable uintptr_t source_guard_saved{},source_guard_next{},source_guard_writer{};
     bool delayed_sources_ok()const{
-        if(audit_shape_changes || !ring_save_unchanged || !ring_rotation_ok)return false;
+        source_guard_reason=source_guard_record=0;source_guard_length=0;
+        source_guard_saved=source_guard_next=source_guard_writer=0;
+        if(audit_shape_changes || !ring_save_unchanged || !ring_rotation_ok){source_guard_reason=audit_shape_changes?1:!ring_save_unchanged?2:3;return false;}
         for(unsigned i=0;i<saved.writes;++i){
             if(saved.traces[i].source==after_save.traces[i].source)continue;
             bool ring=false;
@@ -537,7 +565,8 @@ struct FullStateProbe {
                 if(saved.lengths[i]==expected && saved.traces[i].source==rings[0].headers[j].current &&
                    after_save.traces[i].source==rings[2].headers[j].current)ring=true;
             }
-            if(!ring)return false;
+            if(!ring){source_guard_reason=4;source_guard_record=i;source_guard_length=saved.lengths[i];
+                source_guard_saved=saved.traces[i].source;source_guard_next=after_save.traces[i].source;source_guard_writer=saved.traces[i].writer;return false;}
         }
         return true;
     }
@@ -652,7 +681,7 @@ struct FullStateProbe {
                         camera_restore_verified=cameras[0].restore_smoothing(cameras[1],cameras[2],b,false,combat_replay_requested || direction_restore_requested || a_restore_requested,false,charge_requested || direction_restore_requested || a_restore_requested,&camera_diagnostic);
                         if(!camera_restore_verified || !cameras[4].capture(restored,b)){delayed_failure_line=__LINE__;fault=true;__leave;}
                     }
-                    if(combat_replay_requested && !throw_camera_flag.restore(saved,restored,b,attack_requested,edge_requested,reversal_requested)){delayed_failure_line=__LINE__;fault=true;__leave;}
+                    if(combat_replay_requested && !(general_combat_requested?throw_camera_flag.restore_general(saved,restored,b):throw_camera_flag.restore(saved,restored,b,attack_requested,edge_requested,reversal_requested))){delayed_failure_line=__LINE__;fault=true;__leave;}
                     auto n=restored.stream.write_position,m=saved.stream.write_position;
                     restored_byte_differences=n>m?n-m:m-n;
                     for(std::uint64_t i=0;i<(n<m?n:m);++i)if(restored.stream.payload[i]!=saved.stream.payload[i])++restored_byte_differences;

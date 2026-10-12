@@ -4,6 +4,8 @@
 #include <iostream>
 #include <memory>
 using namespace sc6::steam_inputs;
+static sc6::observation::Shared* preparation_fixture;
+static unsigned aborts;
 int main(){
     {
         using namespace sc6;
@@ -12,7 +14,29 @@ int main(){
         assert(handle && GetLastError()!=ERROR_ALREADY_EXISTS);
         auto shared=static_cast<observation::Shared*>(MapViewOfFile(handle,FILE_MAP_WRITE,0,0,sizeof(observation::Shared)));assert(shared);
         *shared={};shared->signature=observation::magic;shared->schema=observation::version;
+        shared->pid=GetCurrentProcessId();shared->frequency=10000000;
+        auto startup=std::make_unique<Capture>();
+        assert(startup->prepare_owned(77)==Capture::OwnedStart::unavailable);
+        abort_combat_recording=[](uint64_t nonce){assert(nonce==77);++aborts;};
+        prepare_combat_recording=[](uint64_t,bool cold){assert(!cold);return false;};
+        assert(startup->prepare_owned(77)==Capture::OwnedStart::prepare_failed && aborts==0);
+        prepare_combat_recording=[](uint64_t,bool){return true;};
+        assert(startup->prepare_owned(77)==Capture::OwnedStart::attach_failed && aborts==1);
+        preparation_fixture=shared;
+        prepare_combat_recording=[](uint64_t nonce,bool cold){assert(cold);return observation::prepare_owned(*preparation_fixture,nonce);};
+        assert(startup->prepare_owned(77,true)==Capture::OwnedStart::attached && aborts==1);
+        assert(startup->prepare_owned(77)==Capture::OwnedStart::unavailable);
+        startup.reset();assert(!research::owned_transport_attachment.ready(77));
+        prepare_combat_recording=nullptr;abort_combat_recording=nullptr;preparation_fixture=nullptr;
+        // Fixture reset only: production mappings remain single-use.
+        shared->reserved=0;shared->nonce=0;shared->status=0;
         shared->pid=GetCurrentProcessId();shared->nonce=77;shared->frequency=10000000;shared->status=1;
+        assert(!observation::prepare_owned(*shared,88) && shared->nonce==77);
+        shared->nonce=0;shared->status=0;
+        assert(!observation::prepare_owned(*shared,0) && shared->status==0);
+        shared->count=1;assert(!observation::prepare_owned(*shared,77));shared->count=0;
+        assert(observation::prepare_owned(*shared,77) && shared->status==1 && shared->reserved==observation::owned_mode);
+        assert(!observation::prepare_owned(*shared,88) && shared->nonce==77);
         auto capture=std::make_unique<Capture>();
         shared->reserved=1;assert(!capture->attach_owned(77));
         shared->reserved=observation::owned_mode;assert(!capture->attach_owned(78));

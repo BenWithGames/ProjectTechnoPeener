@@ -890,6 +890,76 @@ int main(){
                 require(source->structural_readiness(*current)==Boundary::Rejection::none);
                 auto capture_only_restore=std::make_unique<P>();Boundary::Rejection capture_only_reason{};
                 require(!source->prepare_adjacent(*current,*capture_only_restore,&capture_only_reason) && capture_only_reason==Boundary::Rejection::mode && !capture_only_restore->saved.sealed && loads==0);
+                {
+                    auto gs=std::make_unique<Boundary>(Boundary::Mode::general_combat);
+                    auto gn=std::make_unique<Boundary>(Boundary::Mode::general_combat);
+                    gs->module=gn->module=base;gs->thread=gn->thread=GetCurrentThreadId();
+                    gs->attempted=gn->attempted=gs->valid=gn->valid=true;
+                    *gs->data=*source->data;*gn->data=*current->data;
+                    std::array<std::byte,88> finite_group{};
+                    const auto root=gs->data->transforms[0].records[0].address;
+                    const auto previous_group=P::ptr(root+0x10);
+                    *reinterpret_cast<uintptr_t*>(root+0x10)=reinterpret_cast<uintptr_t>(finite_group.data());
+                    require(gs->data->transforms[0].capture(gs->data->blends[0].owners,base));
+                    require(gn->data->transforms[0].capture(gn->data->blends[0].owners,base));
+                    for(auto* state:{gs.get(),gn.get()})for(auto& cam:state->data->cameras[0].records)if(cam.smoothing_valid){
+                        unsigned one=0x3F800000u;std::memcpy(cam.targets.data()+0x68,&one,4);std::memcpy(cam.targets.data()+0x6C,&one,4);
+                        *reinterpret_cast<unsigned*>(cam.owner+0x250)=one;*reinterpret_cast<unsigned*>(cam.owner+0x254)=one;
+                    }
+                    gn->data->delayed_inputs[0]=std::byte{1};
+                    auto general=std::make_unique<P>();Boundary::Rejection general_reason{};
+                    require(!gs->prepare_adjacent(*gn,*general,&general_reason) && general_reason==Boundary::Rejection::mode && loads==0);
+                    general=std::make_unique<P>();
+                    const bool gp=gs->prepare_adjacent(*gn,*general,&general_reason,false,false,true);
+                    if(!gp)std::cerr<<"general prepare rejection="<<unsigned(general_reason)<<" mask="<<general->combat_preflight_pass_mask<<"\n";
+                    require(gp && loads==0 && general->general_live_endpoint(base));
+                    const auto source_before=general->after_save.traces[0].source;
+                    general->after_save.traces[0].source=source_before+1;
+                    require(!general->delayed_sources_ok() && general->source_guard_reason==4 && general->source_guard_record==0 && general->source_guard_next==source_before+1 && loads==0);
+                    general->after_save.traces[0].source=source_before;
+                    require(general->delayed_sources_ok() && general->source_guard_reason==0);
+                    ++*reinterpret_cast<unsigned*>(base+P::key_rvas[1]);require(!general->general_live_endpoint(base));--*reinterpret_cast<unsigned*>(base+P::key_rvas[1]);
+                    const auto general_player=P::ptr(base+0x470DE90);
+                    *reinterpret_cast<unsigned char*>(general_player+0x97100)^=1;require(!general->general_live_endpoint(base));*reinterpret_cast<unsigned char*>(general_player+0x97100)^=1;
+                    auto stale=std::make_unique<sc6::research::NativeAdjacentRestore>();
+                    require(stale->prepare_captured(*gs,*gn,false,false,true));
+                    ++*reinterpret_cast<unsigned char*>(general_player+0x97100);
+                    sc6::research::RecordedInput stale_input;
+                    require(!stale->restore_captured(*gs,base,stale_input.assign(gn->data->delayed_inputs),trajectory_save,boundary_load,check) && !stale->probe->restore_invoked && loads==0);
+                    --*reinterpret_cast<unsigned char*>(general_player+0x97100);
+                    const auto old_move1=*reinterpret_cast<uint16_t*>(base+0x475A04A),old_move2=*reinterpret_cast<uint16_t*>(base+0x47F143A);
+                    *reinterpret_cast<uint16_t*>(base+0x475A04A)=777;*reinterpret_cast<uint16_t*>(base+0x47F143A)=888;
+                    auto unrestricted_capture=std::make_unique<Boundary>(Boundary::Mode::combat_capture_only);
+                    track_boundary_stack=false;
+                    require(unrestricted_capture->capture_general(base,argument,trajectory_save,check) && unrestricted_capture->mode==Boundary::Mode::general_combat && unrestricted_capture->mode_values[2]==777 && unrestricted_capture->mode_values[3]==888);
+                                        auto bad_general=std::make_unique<sc6::research::NativeAdjacentRestore>();
+                    auto saved_general_inputs=gn->data->delayed_inputs;
+                    unsigned bad_nan=0x7FC00000u;std::memcpy(gn->data->delayed_inputs.data()+24,&bad_nan,4);
+                    require(!bad_general->preflight_general(*gs,*gn) && bad_general->rejection==Boundary::Rejection::inputs && !bad_general->probe->restore_invoked && loads==0);
+                    gn->data->delayed_inputs=saved_general_inputs;
+                    auto gr=std::make_unique<sc6::research::NativeAdjacentRestore>();
+                    require(gr->prepare_captured(*gs,*gn,false,false,true));
+                    sc6::research::RecordedInput general_input;
+                    track_boundary_stack=false;
+                    const bool loaded=gr->restore_captured(*gs,base,general_input.assign(gn->data->delayed_inputs),trajectory_save,boundary_load,check);
+                    if(!loaded)std::cerr<<"general load stage="<<gr->diagnostic_stage<<" line="<<gr->probe->delayed_failure_line<<" mask="<<gr->probe->combat_preflight_pass_mask<<" completion="<<gr->completion.failure_line<<"\n";
+                    require(loaded && gr->verified && gr->probe->restore_invoked && loads==1);
+                    *reinterpret_cast<uint16_t*>(base+0x475A04A)=old_move1;*reinterpret_cast<uint16_t*>(base+0x47F143A)=old_move2;
+                    // Restore the independently captured fixture endpoint so
+                    // the pre-existing idle tests still run from identical state.
+                    *reinterpret_cast<uintptr_t*>(root+0x10)=previous_group;
+                    for(unsigned i=0;i<std::size(P::key_rvas);++i)*reinterpret_cast<unsigned*>(base+P::key_rvas[i])=current->data->before_keys[i];
+                    *reinterpret_cast<unsigned*>(base+0x485EB28)=current->data->measurements[0].rng;
+                    for(unsigned side=0;side<2;++side){const auto gp_player=current->data->before_players[side];const auto& fields=current->data->measurements[0].fields[side];
+                        std::memcpy(reinterpret_cast<void*>(gp_player+0x43DF0),fields.data(),8);std::memcpy(reinterpret_cast<void*>(gp_player+0x97100),fields.data()+8,120);std::memcpy(reinterpret_cast<void*>(gp_player+0x971E8),fields.data()+128,96);
+                    }
+                    const auto& cam=current->data->cameras[0].records[0];
+                    std::memcpy(reinterpret_cast<void*>(cam.owner),cam.bytes.data(),cam.bytes.size());
+                    std::memcpy(reinterpret_cast<void*>(cam.owner+0x1D0),cam.response.data(),12);
+                    std::memcpy(reinterpret_cast<void*>(cam.owner+0x1E0),cam.smoothing.data(),8);std::memcpy(reinterpret_cast<void*>(cam.owner+0x25C),cam.smoothing.data()+8,72);
+                    std::memcpy(reinterpret_cast<void*>(cam.owner+0x1E8),cam.targets.data(),116);std::memcpy(reinterpret_cast<void*>(cam.owner+0x2A4),cam.targets.data()+116,12);
+                    require(current->data->rings[0].restore(base,*scratch));loads=0;track_boundary_stack=true;
+                }
                 source->mode=current->mode=Boundary::Mode::idle;
                 const auto original_frame=source->data->before_keys[0],next_frame=current->data->before_keys[0];
                 source->data->before_keys[0]=UINT32_MAX;current->data->before_keys[0]=0;

@@ -19,10 +19,16 @@ private:
     Phase phase_{Phase::idle};
     native_clock_hook::StartupPoll poll_route_{this,[](void* context,uintptr_t object)noexcept{
         auto& self=*static_cast<NativeCombatArming*>(context);
+        if(GetCurrentThreadId()!=self.owner_)return;
+        const auto round=round_event::snapshot();
+        if(self.phase_==Phase::active && (round.round!=self.config_.identity.round || round.counter!=self.config_.identity.event ||
+            round.generation!=self.config_.identity.generation)){self.stop(CombatRuntimeStatus::round_boundary);return;}
         if(object!=self.config_.clock_object)return;
         try {self.poll();}catch(...){self.stop();}
     }};
-    bool stop(){if(session_)session_->stop();phase_=Phase::restart_required;return false;}
+    bool stop(CombatRuntimeStatus::Reason reason=CombatRuntimeStatus::backend_failure){
+        if(session_)session_->terminate(reason);phase_=Phase::restart_required;return false;
+    }
 public:
     NativeCombatArming():owner_(GetCurrentThreadId()),mailbox_(owner_){}
     NativeCombatArming(const NativeCombatArming&)=delete;
@@ -30,6 +36,8 @@ public:
     Phase phase()const{return phase_;}
     bool prepare(const NativeCombatSession::Config& config,ReplayDependencySource source,
         observation::Shared& shared,uint64_t steam_peer,bool quiescent_verified){
+        // Refuse before a native hold, resource access, or route publication.
+        if(!config.general_restore || !NativeBoundarySnapshot::general_restore_implemented)return false;
         if(attempted_ || GetCurrentThreadId()!=owner_ || !quiescent_verified)return false;
         attempted_=true;phase_=Phase::preparing;config_=config;
         if(!NativeCombatSession::valid_config(config) || shared.reserved!=observation::owned_mode || config.identity.thread!=owner_ || !native_clock_hook::installed || native_clock_hook::installed_base!=config.base ||
@@ -48,6 +56,8 @@ public:
         NativeStartHold<>* empty_hold=nullptr;
         if(!native_clock_hook::start_hold.compare_exchange_strong(empty_hold,&hold_,std::memory_order_release))return stop();
         published_=true;
+        CombatRuntimeStatus* empty_status=nullptr;
+        if(!combat_runtime_status.compare_exchange_strong(empty_status,&session_->status,std::memory_order_release))return stop();
         CombatStartExchange* empty_exchange=nullptr;
         if(!combat_start_exchange.compare_exchange_strong(empty_exchange,&exchange_,std::memory_order_release))return stop();
         if(!hold_.announce(exchange_,config.offer.ticket,config.clock_object,GetTickCount64()))return stop();
@@ -58,15 +68,16 @@ public:
     }
     bool poll(){
         if(GetCurrentThreadId()!=owner_)return false;
+        if(session_ && session_->status.stop_requested.load(std::memory_order_acquire))return stop(CombatRuntimeStatus::requested);
         if(phase_==Phase::active){
-            if(session_->complete()){phase_=Phase::complete;return true;}
+            if(session_->complete()){session_->terminate(CombatRuntimeStatus::capture_limit);phase_=Phase::complete;return true;}
             return session_->ready()?true:stop();
         }
         if(phase_!=Phase::holding)return false;
         if(!hold_.ready(config_.clock_object,GetTickCount64()))return stop();
         CombatStartAgreement agreement;
         if(!mailbox_.take(agreement))return true;
-        if(!session_->activate(agreement))return stop();
+        if(!session_->activate(agreement))return stop(CombatRuntimeStatus::activation_failure);
         phase_=Phase::active;return true;
     }
     bool requires_process_lifetime()const{return published_;}

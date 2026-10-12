@@ -86,6 +86,28 @@ int main(int argc,char** argv){
     assert(c->replay_round_rejected==1 && c->replay_eligible==0);
     assert(c->update(f->local,2,f->peer,f->seen,&lr,&rr) && c->replay_round_rejected==1);
     assert(!c->bind_replay_session(10,21));
+    // Continuous prediction uses the peer's own pair as truth, not equality
+    // against our predicted remote pair. Never copy their view of our player
+    // or their auxiliary block. Exercise both player assignments.
+    for(unsigned slot=1;slot<=2;++slot){
+        f=std::make_unique<Fixture>();f->seen[0]=true;
+        for(unsigned w=1;w<=10;++w){f->local[0].data[w]=10+w;f->peer[0].data[w]=100+w;}
+        lr[0]=rr[0]={1,80};
+        c=std::make_unique<C>();assert(c->configure(slot,C::Purpose::authoritative_peer));
+        assert(c->announce(3-slot) && c->bind_replay_session(10,20));
+        assert(c->update(f->local,1,f->peer,f->seen,&lr,&rr) && c->matched==1);
+        const unsigned off=(2-slot)*2;
+        for(unsigned w=0;w<10;++w)
+            assert(c->envelopes[0][w]==((w==off || w==off+1)?f->peer[0].data[w+1]:f->local[0].data[w+1]));
+        assert(c->update(f->local,1,f->peer,f->seen,&lr,&rr) && c->matched==1);
+        c=std::make_unique<C>();assert(c->configure(slot,C::Purpose::authoritative_peer));
+        assert(c->announce(3-slot));
+        assert(!c->update(f->local,1,f->peer,f->seen,&lr,&rr)); // no authenticated session binding
+        c=std::make_unique<C>();assert(c->configure(slot,C::Purpose::authoritative_peer));
+        assert(c->announce(3-slot) && c->bind_replay_session(10,20));
+        rr[0].event_counter++;
+        assert(!c->update(f->local,1,f->peer,f->seen,&lr,&rr)); // wrong round still rejects
+    }
     if(argc==2){
         std::ifstream input(argv[1]);assert(input);std::string line;std::getline(input,line);
         std::map<uint32_t,G::Key> left,right;

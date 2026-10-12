@@ -6,6 +6,7 @@
 #include "CombatRouteBundle.hpp"
 #include "NativeStartHold.hpp"
 #include "NativeClockDiscovery.hpp"
+#include "CombatResourcePreparation.hpp"
 namespace sc6::research::native_clock_hook {
 using Dispatch=NativeClockDispatch<>;
 inline Dispatch::Original original{};
@@ -19,6 +20,13 @@ inline uintptr_t installed_base{};
 inline NativeClockDiscovery discovery;
 inline void bridge(uintptr_t object) {
     if(installed_base)discovery.observe(installed_base,object,GetTickCount64());
+    if(auto* resources=combat_resource_preparation.load(std::memory_order_acquire)){
+        if(resources->replay_restart())return;
+        NativeClockDiscovery::Observation observed;const auto now=GetTickCount64();
+        if(discovery.read(now,observed))resources->clock_entry(observed,object,now);
+        if(!combat_routes.load() && !start_hold.load() && !route.load() &&
+            !startup_poll.load() && !preparation_poll.load() && resources->run_hold(observed,object,now))return;
+    }
     if(const auto* preparation=preparation_poll.load(std::memory_order_acquire))preparation->poll(preparation->context,object);
     // Owner-thread startup polling must precede servicing/advancement. A held
     // clock may produce no battle entry, so battle-only polling deadlocks.

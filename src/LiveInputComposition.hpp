@@ -8,6 +8,8 @@ namespace sc6 {
 // Network-thread-owned staging only. Nothing here calls game code. Counter
 // evidence is not a round identity and must never authorize native restoration.
 struct LiveInputComposition {
+    enum class Purpose {comparison,authoritative_peer};
+    Purpose purpose{Purpose::comparison};
     unsigned local_slot{},peer_slot{},imported_local{},validated_remote{};
     unsigned matched{},transitions{},auxiliary_differences{};
     unsigned round_matches{},round_missing{},round_mismatches{};
@@ -25,9 +27,9 @@ struct LiveInputComposition {
         replay_local_nonce=local;replay_peer_nonce=peer;return true;
     }
     bool fail(const char* reason){failure=reason;return false;}
-    bool configure(unsigned slot){
+    bool configure(unsigned slot,Purpose selected=Purpose::comparison){
         if(slot<1 || slot>2 || local_slot)return fail("composition_invalid_local_slot");
-        local_slot=slot;return true;
+        local_slot=slot;purpose=selected;return true;
     }
     bool announce(unsigned slot){
         if(slot<1 || slot>2 || !local_slot || slot==local_slot || (peer_slot && peer_slot!=slot))
@@ -41,6 +43,8 @@ struct LiveInputComposition {
                 const std::array<observation::Round,observation::capacity>* remote_rounds=nullptr){
         if(failure!=std::string_view("none"))return false;
         if(count>observation::capacity)return fail("composition_count_invalid");
+        if(purpose==Purpose::authoritative_peer && (!local_rounds || !remote_rounds || !replay_local_nonce || !replay_peer_nonce))
+            return fail("composition_authority_identity_missing");
         while(imported_local<count){
             unsigned i=imported_local++;
             if(i && local[i].data[0]!=local[i-1].data[0]+1u)return fail("composition_local_counter_reset");
@@ -73,11 +77,12 @@ struct LiveInputComposition {
                 // Unknown round metadata never authorizes staging.
                 if(!a.number || !b.number)continue;
             }
-            for(unsigned w=1;w<=4;++w)if(local[i].data[w]!=p.data[w])return fail("composition_button_alignment_mismatch");
+            if(purpose==Purpose::comparison)
+                for(unsigned w=1;w<=4;++w)if(local[i].data[w]!=p.data[w])return fail("composition_button_alignment_mismatch");
             NetworkInputComposer::Envelope a{},b{};
             for(unsigned w=0;w<10;++w){a[w]=local[i].data[w+1];b[w]=p.data[w+1];}
             auto composed=NetworkInputComposer::compose(a,b,peer_slot,local[i].data[0],p.data[0]);
-            if(!composed || *composed!=a)return fail("composition_preservation_mismatch");
+            if(!composed || (purpose==Purpose::comparison && *composed!=a))return fail("composition_preservation_mismatch");
             bool differs=false;for(unsigned w=4;w<10;++w)differs|=a[w]!=b[w];
             auxiliary_differences+=differs;envelopes[i]=*composed;staged[i]=true;++matched;
         }
