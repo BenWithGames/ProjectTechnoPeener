@@ -18,6 +18,7 @@
 #include "CombatResourcePreparation.hpp"
 #include "StartupBoundaryAgreement.hpp"
 #include "StartupSuite.hpp"
+#include "RepeatedCorrectionSession.hpp"
 #include "NetworkCheckpointStatus.hpp"
 #include "StatusOverlay.hpp"
 #include "FrameRecorder.hpp"
@@ -48,6 +49,7 @@ inline void poll() {
     static bool continuous_mode=false,continuous_queued=false;
     static bool suite_mode=false,suite_finishing=false;
     static sc6::research::StartupSuite suite;
+    static sc6::research::RepeatedCorrectionSession repeated;
     static sc6::research::StartupBoundaryAgreement boundary_agreement;
     static ULONGLONG boundary_sent=0,boundary_agreed_at=0;
     static ULONGLONG correction_sent=0;
@@ -59,7 +61,9 @@ inline void poll() {
     static std::array<bool,steam_inputs::limit> scheduler_handed_off{};
     static ULONGLONG last_peer=0,last_announcement=0;
     const auto now=GetTickCount64();
-    sc6::research::combat_peer_context.clear();
+    // Keep the last fresh authenticated value throughout an active poll.
+    // publish() replaces it atomically and clears it on lost liveness.
+    if(stopped || !running || data_done)sc6::research::combat_peer_context.clear();
     // Continue flushing after a terminal transport report: owner-thread
     // cleanup may publish its result on a later clock callback.
     if(auto* runtime=sc6::research::combat_runtime_status.load(std::memory_order_acquire);
@@ -92,10 +96,16 @@ inline void poll() {
             <<"\ncontinuous_requested=1\ncontinuous_start_state="<<(continuous_start_state?continuous_start_state():0)
             <<"\ncontinuous_report="<<report_path.stem().string()<<"-continuous.txt\n";
         const auto* prepared=sc6::research::combat_resource_preparation.load();
-        const bool correction_restore=prepared && prepared->correction_enabled.load() && prepared->correction->restored.load();
-        const bool correction_injected=prepared && prepared->correction_enabled.load() && prepared->correction->injected.load();
+        bool correction_restore=prepared && prepared->correction_enabled.load() && prepared->correction->restored.load();
+        bool correction_injected=prepared && prepared->correction_enabled.load() && prepared->correction->injected.load();
+        if(prepared && prepared->cycles_enabled.load())for(unsigned i=0;i<prepared->cycles->active();++i){
+            correction_restore=correction_restore || prepared->cycles->at(i).runner.restored.load();
+            correction_injected=correction_injected || prepared->cycles->at(i).runner.injected.load();
+        }
         const bool reference_restore=correction_restore || (prepared && prepared->replay_enabled.load() && prepared->replay->restored.load());
         if(suite_mode){
+            out<<"suite_prediction_fixture="<<(suite.profile>=9?"remote_neutral_real_inputs":(suite.profile==7 || suite.profile==8)?"one_frame_A":suite.profile>=5?"screen_right":"none")<<"\n";
+            out<<"suite_minimum_hold_ms="<<(suite.profile==9?0:100)<<"\nsuite_timing_mode="<<(suite.profile==9?"immediate":"baseline_100ms")<<"\n";
             out<<"suite_schema=1\nsuite_profile="<<suite.profile<<"\nsuite_observe_seconds="<<suite.seconds
                <<"\nsuite_reason="<<suite.reason<<"\nsuite_replay=controlled_correction_available\nsuite_restart_required="
                <<(prepared && (prepared->hold_test.state.load()==5 || prepared->replay_restart()))
@@ -116,9 +126,17 @@ inline void poll() {
                <<"\nstartup_first_match_verified="<<resources->first_match_verified.load()<<'\n';
             if(resources->correction_enabled.load(std::memory_order_acquire)){
                 const auto& c=*resources->correction;
-                out<<"suite_correction_diagnostic_schema=1\n";
+                out<<"suite_correction_diagnostic_schema=15\n";
                 for(unsigned i=0;i<c.diagnostic.size();++i)
                     out<<"suite_correction_detail_"<<sc6::research::OwnedPredictionCorrection::diagnostic_names[i]<<'='<<c.diagnostic[i].load()<<'\n';
+                out<<"suite_correction_blend_evidence_valid="<<c.blend_evidence_valid.load(std::memory_order_acquire)<<'\n';
+                if(c.blend_evidence_valid.load(std::memory_order_acquire)){
+                    constexpr char digits[]="0123456789abcdef";
+                    out<<"suite_correction_blend_saved_hex=";
+                    for(const auto& cell:c.blend_saved){const auto value=cell.load();out<<digits[value>>4]<<digits[value&15];}out<<'\n';
+                    out<<"suite_correction_blend_next_hex=";
+                    for(const auto& cell:c.blend_next){const auto value=cell.load();out<<digits[value>>4]<<digits[value&15];}out<<'\n';
+                }
                 out<<"suite_correction_captured="<<c.captured.load()<<"\nsuite_correction_stage="<<c.stage.load()
                    <<"\nsuite_correction_failed="<<c.failed.load()<<"\nsuite_correction_restore_invoked="<<c.restored.load()
                    <<"\nsuite_correction_injected="<<c.injected.load()<<"\nsuite_correction_state_changed="<<c.changed.load()
@@ -126,10 +144,11 @@ inline void poll() {
                    <<"\nsuite_correction_verified="<<c.verified.load()<<"\nsuite_correction_retired="<<c.retired.load()
                    <<"\nsuite_correction_restart_required="<<c.restart.load()<<"\nsuite_correction_capture_detail="<<c.capture_detail.load()
                    <<"\nsuite_confirmation_local="<<c.exchange.local_count.load()<<"\nsuite_confirmation_remote="<<c.exchange.remote_count.load()
-                   <<"\nsuite_confirmation_ready="<<c.exchange.ready.load()<<"\nsuite_confirmation_failed="<<c.exchange.failed.load()
+                   <<"\nsuite_confirmation_input_rejection="<<c.exchange.input_rejection.load()<<"\nsuite_confirmation_ready="<<c.exchange.ready.load()<<"\nsuite_confirmation_failed="<<c.exchange.failed.load()
                    <<"\nsuite_confirmation_hold_state="<<resources->confirmation_hold.state.load()
                    <<"\nsuite_confirmation_hold_services="<<resources->confirmation_hold.services.load()<<'\n';
             }
+            if(resources->cycles_enabled.load()){resources->cycles->write_report(out);resources->cycles->write_evidence(out,report_path);}
             if(resources->replay_enabled.load(std::memory_order_acquire)){
                 const auto& replay=*resources->replay;
                 out<<"suite_reference_captured="<<replay.captured.load()<<"\nsuite_reference_stage="<<replay.stage.load()
@@ -139,6 +158,7 @@ inline void poll() {
                    <<"\nsuite_reference_prepare_detail="<<replay.prepare_detail.load()<<"\nsuite_reference_hop="<<replay.hop.load()
                    <<"\nsuite_reference_plan="<<replay.plan.load()<<'\n';
             }
+            out<<"startup_resource_stop_requested="<<resources->stop_requested()<<"\n";
             out<<"startup_resource_ready="<<resources->ready.load()<<"\nstartup_resource_retired="<<resources->retired.load()
                <<"\nstartup_resource_failed="<<resources->failed.load()<<"\nstartup_resource_cancel_reason="<<resources->cancellation.load()
                <<"\nstartup_resource_frame="<<resources->boundary_frame.load()<<"\nstartup_resource_thread="<<resources->owner_thread.load()
@@ -170,6 +190,7 @@ inline void poll() {
                <<"\nstartup_battle_last="<<resources->battle_last.load()<<'\n';
             const auto count=resources->pairs.count.load(std::memory_order_acquire);
             out<<"startup_pairs_schema=1\nstartup_pairs_count="<<count
+               <<"\nstartup_pairs_duplicates="<<resources->pairs.duplicates.load()
                <<"\nstartup_pairs_overwritten="<<resources->pairs.overwritten.load()
                <<"\nstartup_pairs_unpaired="<<resources->pairs.unpaired.load()
                <<"\nstartup_pairs_discontinuities="<<resources->pairs.discontinuities.load()<<'\n';
@@ -396,6 +417,7 @@ inline void poll() {
         if(prepare_mode)protocol.expected_signature=0x003053433648534bULL;
         if(continuous_mode)protocol.expected_signature=0x004753433648534bULL;
         if(suite_mode)protocol.expected_signature=0x004253433648534bULL^(uint64_t(suite.profile)<<40)^(uint64_t(suite.seconds)<<48);
+        if(suite_mode && suite.profile>=9)protocol.expected_signature^=0x0000000400000000ULL; // guarded animation timer restoration; reject older builds
         HMODULE api=GetModuleHandleW(L"steam_api64.dll");if(!api){report("steam_missing");return;}
         using Handle=int(*)();using Factory=void*(*)(const char*);using Network=void*(*)(void*,int,int,const char*);
         auto user=reinterpret_cast<Handle>(GetProcAddress(api,"SteamAPI_GetHSteamUser"));
@@ -440,7 +462,16 @@ inline void poll() {
             const auto packet_received_us=clock_us();
             if(!protocol.mutual||sender!=protocol.expected_peer||size!=sizeof(packet)||packet.nonce!=protocol.remote_nonce||packet.echo!=protocol.local_nonce){++rejected;continue;}
             if(packet.magic!=steam_inputs::signature){++rejected;continue;}
-            if(suite_mode && suite.profile==5 && (packet.kind==8 || packet.kind==9)){
+            if(suite_mode && (suite.profile==6 || suite.profile==8 || suite.profile>=9) && (packet.kind==8 || packet.kind==9 || packet.kind==10)){
+                auto* r=sc6::research::combat_resource_preparation.load();bool accepted=false;
+                if(r && r->cycles_enabled.load(std::memory_order_acquire) && !packet.own_hash && !packet.received_hash){
+                    accepted=packet.kind==10?repeated.receive(packet.index,packet.record.data):
+                        r->cycles->receive(packet.kind==9,packet.index,packet.record.data);
+                }
+                if(accepted){++received;last_peer=now;}else ++rejected;
+                continue;
+            }
+            if(suite_mode && (suite.profile==5 || suite.profile==7) && (packet.kind==8 || packet.kind==9)){
                 auto* resources=sc6::research::combat_resource_preparation.load();bool accepted=false;
                 if(resources && resources->correction_enabled.load(std::memory_order_acquire) && !packet.own_hash && !packet.received_hash){
                     auto& exchange=resources->correction->exchange;
@@ -520,7 +551,29 @@ inline void poll() {
             if(send(net,protocol.expected_peer,&announcement,sizeof(announcement),1,channel))++sent;else ++send_failed;
             }
             if(prepare_mode && !(continuous_mode && sc6::research::combat_routes.load(std::memory_order_acquire))){
-                if(suite_mode && suite.profile==5){auto* r=sc6::research::combat_resource_preparation.load();
+                if(suite_mode && (suite.profile==6 || suite.profile==8 || suite.profile>=9)){auto* r=sc6::research::combat_resource_preparation.load();
+                    if(r && r->cycles_enabled.load(std::memory_order_acquire) && r->cycles->active()){
+                        auto& bank=*r->cycles;auto* c=bank.current();c->runner.exchange.update();
+                        repeated.update(bank,r->clock_identity.load(),r->clock_frame.load());
+                        c=bank.current();
+                        if(now-correction_sent>=20){correction_sent=now;
+                            for(unsigned i=0;i<4;++i){sc6::research::StartupCorrectionExchange::Words words{};
+                                if(!(i<3?c->runner.exchange.local(i,words):c->runner.exchange.certificate(words)))continue;
+                                steam_inputs::Packet message;message.nonce=protocol.local_nonce;message.echo=protocol.remote_nonce;
+                                message.kind=i<3?8:9;message.index=bank.packet_index(bank.active(),i);message.record.data=words;
+                                if(send(net,protocol.expected_peer,&message,sizeof(message),1,channel))++sent;else ++send_failed;
+                            }
+                            for(unsigned i=1;i<=bank.limit;++i){sc6::research::StartupCorrectionExchange::Words words{};
+                                if(!repeated.outgoing(i,words))continue;
+                                steam_inputs::Packet message;message.nonce=protocol.local_nonce;message.echo=protocol.remote_nonce;
+                                message.kind=10;message.index=i;message.record.data=words;
+                                if(send(net,protocol.expected_peer,&message,sizeof(message),1,channel))++sent;else ++send_failed;
+                            }
+                        }
+                        if(repeated.failed){suite.reason="repeated_correction_failed_restart_required";suite_finishing=true;abort_combat_recording(protocol.local_nonce);}
+                    }
+                }
+                if(suite_mode && (suite.profile==5 || suite.profile==7)){auto* r=sc6::research::combat_resource_preparation.load();
                     if(r && r->correction_enabled.load(std::memory_order_acquire)){
                         auto& exchange=r->correction->exchange;exchange.update();
                         if(now-correction_sent>=20){correction_sent=now;
@@ -534,7 +587,8 @@ inline void poll() {
                     }
                 }
                 if(suite_mode){auto* r=sc6::research::combat_resource_preparation.load();if(r && r->replay_restart()){
-                    suite.reason=suite.profile==5?"prediction_correction_failed_restart_required":"reference_replay_failed_restart_required";running=false;stopped=true;
+                    suite.reason=suite.profile>=5?"prediction_correction_failed_restart_required":"reference_replay_failed_restart_required";running=false;stopped=true;
+                    abort_combat_recording(protocol.local_nonce);
                     report(suite.reason);return;
                 }}
                 if(suite_mode && suite_finishing){
@@ -554,7 +608,7 @@ inline void poll() {
                         if(suite.profile<3)skip|=32;else if(r && r->snapshots.captured.load()==4 && r->snapshots.retired.load() && !r->snapshots.failed.load())pass|=32;
                         else if(r && r->snapshots.failed.load())fail|=32;else if(suite.profile==4 && r && r->replay_enabled.load()){if(r->replay->captured.load()==4)pass|=32;else fail|=32;}else skip|=32;
                         if(suite.profile<4)skip|=64;else if(r && r->replay_enabled.load() && r->replay->verified.load())pass|=64;else fail|=64;
-                        if(suite.profile==5){
+                        if((suite.profile==5 || suite.profile==7)){
                             pass&=~(32u|64u);fail&=~(32u|64u);skip&=~(32u|64u);
                             if(r && r->correction_enabled.load()){
                                 const auto& c=*r->correction;
@@ -562,6 +616,19 @@ inline void poll() {
                                 if(c.corrected.load()==3 && c.retired.load() && !c.restart.load())pass|=64;else fail|=64;
                                 if(c.verified.load() && c.changed.load() && c.exchange.ready.load() && !c.exchange.failed.load())pass|=128;else fail|=128;
                             }else fail|=32|64|128;
+                        }
+                        if((suite.profile==6 || suite.profile==8 || suite.profile>=9)){
+                            pass&=~(16u|32u|64u|128u);fail&=~(16u|32u|64u|128u);skip&=~(16u|32u|64u|128u);
+                            bool holds=true,saves=true;
+                            if(!r || !r->cycles_enabled.load())holds=saves=false;
+                            else for(unsigned i=0;i<r->cycles->active();++i){if(r->cycles->skipped(i))continue;const auto& c=r->cycles->at(i);
+                                holds=holds && c.entry.state.load()==3 && c.confirmation.state.load()==3;
+                                saves=saves && c.runner.captured.load()==4;
+                            }
+                            (holds?pass:fail)|=16;(saves?pass:fail)|=32;
+                            const bool verified=r && r->cycles_enabled.load() && r->cycles->all_verified() && repeated.complete && !repeated.failed;
+                            (verified?pass:fail)|=64|128;
+                            if(suite.profile>=9 && repeated.exhausted){pass&=~(16u|32u|64u|128u);fail&=~(16u|32u|64u|128u);skip|=16|32|64|128;}
                         }
                         suite.seal(pass,fail,skip);
                     }
@@ -573,7 +640,7 @@ inline void poll() {
                     if(!suite.complete()){if(now-last_report>=1000){last_report=now;report("waiting_for_suite_peer_result");}return;}
                     if(!suite.agreed_at)suite.agreed_at=now;
                     if(now-suite.agreed_at<1000)return;
-                    running=false;stopped=true;report((suite.local[4] || suite.peer[4])?"SUITE_COMPLETED_WITH_FAILURES":"SUITE_COMPLETE");return;
+                    running=false;stopped=true;report((suite.local[4] || suite.peer[4])?"SUITE_COMPLETED_WITH_FAILURES":(suite.profile>=9 && repeated.exhausted)?"SUITE_NO_SUITABLE_WINDOW":"SUITE_COMPLETE");return;
                 }
                 if(!capture.armed){
                     const auto prepared=capture.prepare_owned(protocol.local_nonce,continuous_mode);
@@ -586,7 +653,7 @@ inline void poll() {
                 if(clock.clock.local_mask!=capture.composition.local_slot){running=false;stopped=true;abort_combat_recording(protocol.local_nonce);report("combat_clock_slot_mismatch");return;}
                 auto* resources=sc6::research::combat_resource_preparation.load();
                 if(resources && continuous_mode)resources->capture_enabled=false;
-                if(resources && suite_mode){resources->capture_enabled.store(suite.profile==3);if(suite.profile==4)resources->enable_replay();if(suite.profile==5)resources->enable_correction();}
+                if(resources && suite_mode){resources->capture_enabled.store(suite.profile==3);if(suite.profile==4)resources->enable_replay();if((suite.profile==5 || suite.profile==7))resources->enable_correction(suite.profile==7,suite.profile>=9);if((suite.profile==6 || suite.profile==8 || suite.profile>=9))resources->enable_cycles(suite.profile==8,suite.profile>=9,suite.profile==10?100:0);}
                 if(!resources || resources->failed.load()){
                     abort_combat_recording(protocol.local_nonce);if(suite_mode){suite.reason="startup_resource_failed";suite_finishing=true;return;}running=false;stopped=true;report("startup_resource_failed");return;
                 }
@@ -599,7 +666,7 @@ inline void poll() {
                     abort_combat_recording(protocol.local_nonce);if(suite_mode){suite.reason="boundary_pairs_rejected";suite_finishing=true;return;}running=false;stopped=true;report("boundary_pairs_rejected");return;
                 }
                 if(boundary_agreement.failed() || clock.clock.identity!=resources->pairs.rows[0].identity ||
-                    (!continuous_queued && resources->hold_test.state.load()==0 && clock.clock.frame>=boundary_agreement.target_clock())){
+                    (!continuous_queued && !repeated.started && resources->hold_test.state.load()==0 && clock.clock.frame>=boundary_agreement.target_clock())){
                     abort_combat_recording(protocol.local_nonce);if(suite_mode){suite.reason="boundary_agreement_rejected_or_expired";suite_finishing=true;return;}running=false;stopped=true;report("boundary_agreement_rejected_or_expired");return;
                 }
                 if(now-boundary_sent>=100){
@@ -626,13 +693,21 @@ inline void poll() {
                     if(continuous_start_state && continuous_start_state()==4){running=false;stopped=true;report("continuous_start_rejected_restart_required");return;}
                     if(now-last_report>=1000){last_report=now;report("waiting_for_continuous_activation");}return;
                 }
-                if(suite_mode && suite.profile==5 && !resources->request_confirmation_hold(resources->pairs.rows[0].identity,
+                if(suite_mode && (suite.profile==5 || suite.profile==7) && !resources->request_confirmation_hold(resources->pairs.rows[0].identity,
                     boundary_agreement.target_clock(),boundary_agreement.target_battle(),capture.composition.local_slot)){
                     suite.reason="confirmation_hold_request_failed";suite_finishing=true;abort_combat_recording(protocol.local_nonce);return;
                 }
                 if(suite_mode && suite.profile==1){
                     if(now-boundary_agreed_at<1000)return;
                     suite_finishing=true;abort_combat_recording(protocol.local_nonce);return;
+                }
+                if(suite_mode && (suite.profile==6 || suite.profile==8 || suite.profile>=9)){
+                    if(!repeated.begin(*resources->cycles,resources->pairs.rows[0].identity,boundary_agreement.target_clock(),
+                        boundary_agreement.target_battle(),capture.composition.local_slot)){
+                        suite.reason="repeated_correction_start_failed";suite_finishing=true;abort_combat_recording(protocol.local_nonce);return;
+                    }
+                    if(repeated.complete){if(repeated.exhausted)suite.reason="no_suitable_window_observed";suite_finishing=true;abort_combat_recording(protocol.local_nonce);return;}
+                    if(now-last_report>=1000){last_report=now;report("waiting_for_repeated_correction");}return;
                 }
                 if(resources->hold_test.state.load()==0){
                     if(!resources->hold_test.request(resources->pairs.rows[0].identity,boundary_agreement.target_clock(),boundary_agreement.target_battle())){
@@ -647,7 +722,7 @@ inline void poll() {
                 }
                 if(hold_state!=3){if(now-last_report>=1000){last_report=now;report("waiting_for_boundary_hold");}return;}
                 if(suite_mode && suite.profile==2){suite_finishing=true;abort_combat_recording(protocol.local_nonce);return;}
-                if(suite_mode && suite.profile==5){
+                if(suite_mode && (suite.profile==5 || suite.profile==7)){
                     auto& c=*resources->correction;
                     if(c.failed.load() || c.verified.load() || c.exchange.failed.load() || resources->confirmation_hold.state.load()==4){
                         if(!c.verified.load())suite.reason="prediction_correction_rejected";

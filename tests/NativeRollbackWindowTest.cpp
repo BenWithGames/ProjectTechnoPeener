@@ -1,3 +1,4 @@
+#include <functional>
 #include "../src/NativeRollbackWindow.hpp"
 #include "../src/OwnedPredictionCorrection.hpp"
 #include <cassert>
@@ -20,10 +21,14 @@
 #include <iostream>
 #include <thread>
 using namespace sc6::research;
+#include "BoundedCorrectionTransactionFixture.hpp"
+#include "CorrectionCycleScheduleFixture.hpp"
+#include "CorrectionCycleBankFixture.hpp"
 struct Backend {
-    std::vector<unsigned> calls;unsigned rejectPrepare{99},rejectRestore{99};
+    std::vector<unsigned> calls;unsigned rejectPrepare{99},rejectRestore{99},invalidateAfterLoads{99},loads{};
+    bool validate_before_load(unsigned){return loads<invalidateAfterLoads;}
     bool prepare(unsigned i){calls.push_back(i);return i!=rejectPrepare;}
-    bool restore(unsigned i){calls.push_back(10+i);return i!=rejectRestore;}
+    bool restore(unsigned i){calls.push_back(10+i);++loads;return i!=rejectRestore;}
 };
 struct HistoryFixture {
     std::array<std::unique_ptr<NativeBoundarySnapshot>,4> states;
@@ -45,6 +50,19 @@ struct RestoreFixture {
         index=prepareCount;calls.push_back(prepareCount);return prepareCount++!=reject;
     }
     bool restore_captured(NativeBoundarySnapshot&,uintptr_t,uintptr_t){++loadCount;calls.push_back(10+index);return index!=rejectLoad;}
+};
+struct GeneralOwnedWindowFixture {
+    HistoryFixture history;
+    std::array<RestoreFixture,3> work;
+    unsigned rejectLive{99};
+    GeneralOwnedWindowFixture(){for(auto& s:history.states)s->mode=NativeBoundarySnapshot::Mode::general_combat;}
+    bool prepare(unsigned i){return OwnedWindowRestorePreparation::preflight(work[i],*history.states[i],*history.states[i+1]);}
+    bool validate_before_load(unsigned){return history.owned;}
+    bool restore(unsigned i){
+        RestoreFixture::reject=rejectLive;
+        return OwnedWindowRestorePreparation::before_load(work[i],*history.states[i],*history.states[i+1]) &&
+            work[i].restore_captured(*history.states[i],1,1);
+    }
 };
 struct CorrectionFixture {
     std::vector<unsigned> calls;unsigned frame{103},value{99},failFrame{999};
@@ -132,6 +150,97 @@ struct ReferenceWindowFixture {
     bool rewind_started()const{return mutated;}
     bool release_owned_dependencies(){return true;}
 };
+struct CorrectionExchangeFixture {
+    std::atomic<bool> failed{};
+    bool publish(const RollbackBoundaryKey&,const OwnedPredictionCorrection::Input&){return true;}
+    bool frames(OwnedPredictionCorrection::Frames&){return true;}
+};
+// Fault injection tests the production owner-thread wrapper, not SC6's loader.
+struct CorrectionLifecycleFixture {
+    inline static unsigned failStage{},releaseMode{},releases{},runs{};
+    inline static std::function<void()> evidence_observer;
+    void capture_failure_evidence(ReplayFailureEvidence& output){if(evidence_observer)evidence_observer();output.state=1;}
+    struct Clean {
+        unsigned capture_stage{};bool mutated{};
+        bool capture(const RollbackBoundaryKey&,uintptr_t,uintptr_t,NativeBoundarySnapshot::Mode,bool,ReplayDependencySource*){return true;}
+        bool any_restore_invoked()const{return mutated;}
+        bool rewind_started()const{return mutated;}
+    } clean;
+    unsigned stage{},predicted_updates{},corrected_updates{},capture_detail{};
+    enum class Stage {complete=8};
+    bool injected{},state_changed{},restart_required{},retired{};
+    inline static bool unchanged{};
+    FullStateProbe::BlendPairEvidence evidence;
+    const auto& blend_evidence(){return evidence;}
+    OwnedPredictionCorrection::Diagnostics diagnostics(){return {};}
+    bool run_confirmed(const OwnedPredictionCorrection::Frames&,const RollbackBoundaryKey&,uintptr_t,ReplayDependencySource&,SingleUpdateCall::Routine){
+        ++runs;stage=failStage?failStage:8;
+        if(failStage==6){evidence.valid=true;for(unsigned i=0;i<1372;++i){evidence.saved[i]=std::byte(i%256);evidence.next[i]=std::byte((i+1)%256);}}
+        clean.mutated=failStage!=1;restart_required=failStage && clean.mutated;
+        injected=stage>=3;state_changed=stage>=5;
+        predicted_updates=stage>=6?3:0;corrected_updates=failStage?0:3;
+        if(unchanged){state_changed=false;retired=true;restart_required=false;return false;}
+        if(failStage==9)throw 1;
+        return !failStage;
+    }
+    bool release(){++releases;if(releaseMode==2)throw 2;return releaseMode==0;}
+};
+void correction_lifecycle_tests(){
+    using Runner=StartupPredictionCorrectionRunner<CorrectionLifecycleFixture,CorrectionExchangeFixture>;
+    ReplayDependencySource source;RollbackBoundaryKey key{};RecordedInput input;
+    std::array<std::byte,40> bytes{};const auto argument=input.assign(bytes);
+    {
+        CorrectionLifecycleFixture::failStage=6;CorrectionLifecycleFixture::releaseMode=0;
+        CorrectionLifecycleFixture::releases=0;
+        Runner runner;bool observed=false;
+        CorrectionLifecycleFixture::evidence_observer=[&]{observed=true;assert(!runner.restart && !runner.failed && !runner.retired && CorrectionLifecycleFixture::releases==0);};
+        for(unsigned i=0;i<4;++i)runner.step(key,1,argument,source,nullptr,true);
+        assert(observed && runner.restart && runner.failed && runner.retired && runner.failure_evidence.state==1);
+        CorrectionLifecycleFixture::evidence_observer={};
+    }
+    for(unsigned stage=0;stage<=9;++stage){
+        CorrectionLifecycleFixture::failStage=stage;CorrectionLifecycleFixture::releaseMode=0;
+        CorrectionLifecycleFixture::releases=CorrectionLifecycleFixture::runs=0;
+        Runner runner;
+        for(unsigned i=0;i<4;++i)runner.step(key,1,argument,source,nullptr,true);
+        assert(runner.retired && runner.verified==(stage==0) && runner.failed==(stage!=0));
+        assert(runner.restart==(stage>1));assert(runner.failure_reason==(stage==0?0u:stage==9?7u:6u));
+        assert(runner.blend_evidence_valid==(stage==6));
+        if(stage==6)for(unsigned i=0;i<1372;++i)assert(runner.blend_saved[i]==i%256 && runner.blend_next[i]==(i+1)%256);
+        assert(CorrectionLifecycleFixture::releases==1 && CorrectionLifecycleFixture::runs==1);
+        runner.step(key,1,argument,source,nullptr,true);assert(runner.release());
+        assert(CorrectionLifecycleFixture::releases==1 && CorrectionLifecycleFixture::runs==1);
+    }
+    for(unsigned mode=0;mode<3;++mode){
+        CorrectionLifecycleFixture::failStage=0;CorrectionLifecycleFixture::releaseMode=mode;
+        CorrectionLifecycleFixture::unchanged=true;
+        Runner runner;runner.combat_inputs=true;
+        for(unsigned i=0;i<4;++i)runner.step(key,1,argument,source,nullptr,true);
+        assert(runner.no_divergence==(mode==0) && !runner.verified);
+        assert(runner.failed==(mode!=0) && runner.restart==(mode!=0));
+        CorrectionLifecycleFixture::unchanged=false;
+    }
+    {
+        CorrectionLifecycleFixture::failStage=0;CorrectionLifecycleFixture::releaseMode=0;
+        Runner runner;runner.exchange.failed=true;
+        runner.step(key,1,argument,source,nullptr,true);
+        assert(runner.failure_reason==1 && runner.captured==0 && runner.retired);
+        Runner hold;
+        for(unsigned i=0;i<4;++i)hold.step(key,1,argument,source,nullptr,false);
+        assert(hold.failure_reason==4 && hold.captured==4 && hold.retired && !hold.restored);
+    }
+    for(unsigned mode=1;mode<=2;++mode){
+        CorrectionLifecycleFixture::failStage=0;CorrectionLifecycleFixture::releaseMode=mode;
+        CorrectionLifecycleFixture::releases=CorrectionLifecycleFixture::runs=0;
+        Runner runner;
+        for(unsigned i=0;i<4;++i)runner.step(key,1,argument,source,nullptr,true);
+        assert(runner.failed && runner.restart && !runner.verified && !runner.retired);
+        assert(CorrectionLifecycleFixture::runs==1 && CorrectionLifecycleFixture::releases==1);
+        runner.step(key,1,argument,source,nullptr,true);assert(CorrectionLifecycleFixture::runs==1);
+        CorrectionLifecycleFixture::releaseMode=0;assert(runner.release());
+        assert(runner.retired && runner.failed && runner.restart && !runner.verified);
+    }
+}
 struct StartupHistoryFixture {
     inline static unsigned calls{},releases{};
     inline static bool capture_ok=true,validate_ok=true;
@@ -147,6 +256,55 @@ struct HoldRehearsalFixture {
     bool run(uintptr_t,uint64_t){return service_ok;}
 };
 int main(){
+    {
+        std::array<RollbackBoundaryKey,4> keys;
+        for(unsigned i=0;i<4;++i)keys[i]={1,2,3,4,5,100+i,1,GetCurrentThreadId()};
+        auto reset=[](){RestoreFixture::calls.clear();RestoreFixture::prepareCount=RestoreFixture::loadCount=RestoreFixture::structuralCount=0;RestoreFixture::reject=RestoreFixture::rejectLoad=99;};
+        reset();GeneralOwnedWindowFixture success;
+        assert(RollbackWindowPlan::execute(keys,4,keys[3],success)==RollbackWindowPlan::Result::restored);
+        assert((RestoreFixture::calls==std::vector<unsigned>{100,101,102,52,12,51,11,50,10}));
+        // No native load is admitted if any of the three structural pairs fails.
+        for(unsigned i=0;i<3;++i){reset();RestoreFixture::reject=i;GeneralOwnedWindowFixture reject;
+            assert(RollbackWindowPlan::execute(keys,4,keys[3],reject)==RollbackWindowPlan::Result::prepare_failed);
+            assert(RestoreFixture::loadCount==0);
+        }
+        // Reject a changed live endpoint before loading that hop; never continue
+        // into older states after a partial rewind has failed.
+        for(unsigned i=0;i<3;++i){reset();GeneralOwnedWindowFixture reject;reject.rejectLive=i;
+            assert(RollbackWindowPlan::execute(keys,4,keys[3],reject)==RollbackWindowPlan::Result::restore_failed);
+            assert(RestoreFixture::loadCount==2-i);
+        }
+        reset();GeneralOwnedWindowFixture mixed; mixed.history.states[2]->mode=NativeBoundarySnapshot::Mode::idle;
+        assert(RollbackWindowPlan::execute(keys,4,keys[3],mixed)==RollbackWindowPlan::Result::prepare_failed);
+        assert(RestoreFixture::loadCount==0);
+        reset();
+    }
+    test_correction_cycle_schedule();
+    cycle_bank_test::run();
+    correction_lifecycle_tests();
+    bounded_transaction_test::run();
+    for(unsigned scenario=0;scenario<4;++scenario){
+        StartupCorrectionExchange a,b;a.require_combat_inputs=b.require_combat_inputs=true;
+        assert(a.configure(600,1) && b.configure(600,2));
+        RollbackBoundaryKey ka{1,2,3,1,4,600,1,GetCurrentThreadId()},kb{2,1,9,1,4,600,2,GetCurrentThreadId()};
+        StartupCorrectionExchange::Words row{},ca{},cb{};
+        for(unsigned i=0;i<3;++i){
+            OwnedPredictionCorrection::Input x{},y{};unsigned p1=1,p2=scenario==2?0:0x400;
+            for(unsigned off:{0u,4u,16u})std::memcpy(x.data()+off,&p1,4);
+            for(unsigned off:{8u,12u,20u})std::memcpy(x.data()+off,&p2,4);
+            y=x;if(scenario==1 && i==1)y[8]=std::byte{2};
+            if(scenario==3){float half=.5f;std::memcpy(y.data()+24,&half,4);}
+            ka.frame=kb.frame=600+i;assert(a.publish(ka,x) && b.publish(kb,y));
+            assert(a.local(i,row) && b.receive(i,row));assert(b.local(i,row) && a.receive(i,row));
+        }
+        if(scenario==1 || scenario==2){
+            assert(!a.certificate(ca) && !b.certificate(cb));a.update();b.update();
+            assert(a.failed && b.failed && !a.ready && !b.ready && a.input_rejection==scenario && b.input_rejection==scenario);
+        }else{
+            assert(a.certificate(ca) && b.certificate(cb));assert(a.receive_certificate(cb) && b.receive_certificate(ca));
+            a.update();b.update();assert(a.ready && b.ready);
+        }
+    }
     {
         StartupCorrectionExchange a,b;
         assert(!a.configure(UINT32_MAX,1) && !a.configure(600,0));
@@ -202,6 +360,14 @@ int main(){
                     assert(value==((word==2*(remote-1) || word==2*(remote-1)+1 || word==4+remote-1)?0x400u:0u));
                 }
             }
+            assert(C::inputs(frames,keys,reference,actual,wrong,true));
+            for(unsigned i=0;i<3;++i)for(unsigned word=0;word<10;++word){
+                unsigned value{};std::memcpy(&value,wrong[i].data()+4*word,4);
+                const unsigned remote=3-side;
+                const bool button=word==2*(remote-1) || word==2*(remote-1)+1 || word==4+remote-1;
+                assert(value==((i==0 && button)?1u:0u));
+                assert(actual[i]==reference[i]);
+            }
             for(unsigned i=0;i<3;++i){auto missing=frames;missing[i].confirmed=false;
                 assert(!C::inputs(missing,keys,reference,actual,wrong));
                 assert((actual==std::array<C::Input,3>{}) && (wrong==std::array<C::Input,3>{}));
@@ -216,6 +382,26 @@ int main(){
             // must not overwrite the local historical envelope.
             auto peerAux=frames;peerAux[0].peer[6]=0x7FC00000;
             assert(C::inputs(peerAux,keys,reference,actual,wrong));
+            assert(!C::inputs(frames,keys,reference,actual,wrong,false,true));
+            auto combat=frames;auto combatReference=reference;
+            for(unsigned i=0;i<3;++i){
+                for(unsigned w=0;w<6;++w)combat[i].local[w]=combat[i].peer[w]=(i+1)*16+w+1;
+                combat[i].local[6]=0x3F000000;
+                std::memcpy(combatReference[i].data(),combat[i].local.data(),40);
+            }
+            assert(C::inputs(combat,keys,combatReference,actual,wrong,false,true));
+            for(unsigned i=0;i<3;++i){
+                assert(actual[i]==combatReference[i]);
+                for(unsigned w=0;w<10;++w){unsigned value{};std::memcpy(&value,wrong[i].data()+w*4,4);
+                    const unsigned remote=3-side;
+                    const bool remoteWord=w==2*(remote-1) || w==2*(remote-1)+1 || w==4+remote-1;
+                    assert(value==(remoteWord?0u:combat[i].local[w]));
+                }
+            }
+            auto missingCombat=combat;missingCombat[1].confirmed=false;
+            assert(!C::inputs(missingCombat,keys,combatReference,actual,wrong,false,true));
+            auto wrongReference=combatReference;wrongReference[2][0]^=std::byte{1};
+            assert(!C::inputs(combat,keys,wrongReference,actual,wrong,false,true));
             auto unsupported=reference;unsupported[0][0]=std::byte{1};
             auto active=frames;active[0].local[0]=1;active[0].peer[0]=1;
             assert(!C::inputs(active,keys,unsupported,actual,wrong));
@@ -223,6 +409,39 @@ int main(){
         auto correction=std::make_unique<C>();sc6::NetworkGameHandoff handoff;ReplayDependencySource source;
         assert(!correction->run(handoff,keys[3],1,source,nullptr));
         assert(correction->attempted && !correction->injected && !correction->restart_required && !correction->verified);
+        correction->stage=C::Stage::clean_rewind;
+        auto& detail=correction->clean.diagnostic();
+        detail.probe->source_guard_reason=4;detail.probe->source_guard_record=17;
+        detail.probe->source_guard_length=16;detail.probe->source_guard_saved=100;detail.probe->source_guard_next=200;detail.probe->source_guard_writer=300;
+        detail.completion.failure_line=321;detail.completion.section=2;detail.completion.record=9;detail.completion.kind=24;detail.completion.difference_offset=12;
+        detail.probe->combat_postload_pass_mask=31;detail.probe->load_entry_rng=42;detail.probe->load_entry_rng_valid=true;detail.probe->original_next.rng=43;detail.probe->combat_preflight_pass_mask=7;
+        detail.probe->camera_readiness={9,7,3,104,1,0,1065353216};
+        correction->clean.topology={6,12,20,21,{0x100000001ULL,1,2,3,4,24},{0x200000002ULL,2,3,4,5,32}};
+        detail.replay_measurement_read=true;detail.replay_rng_equal=false;detail.replay_players_equal=true;
+        detail.replay_rng_expected=123;detail.replay_rng_actual=456;
+        detail.replay_scalar_differences={2,3};detail.replay_first_offset={8,128};detail.replay_expected_byte={10,20};detail.replay_live_byte={11,21};
+        assert(correction->diagnostics()[291]==0); // Not compared yet.
+        detail.replay_checked=true;
+        detail.probe->rings[2].valid=detail.probe->replay_rings.valid=true;
+        detail.probe->replay_rings.bytes[12]=std::byte{7};
+        detail.replay_native_difference.reason=4;detail.replay_native_difference.record=19;
+        detail.replay_native_difference.writer=0x100000001ULL;
+        const auto diagnosis=correction->diagnostics();
+        assert(diagnosis[291]==2 && diagnosis[292]==3 && diagnosis[295]==12 && diagnosis[298]==7);
+        assert(diagnosis[301]==4 && diagnosis[302]==19 && diagnosis[305]==0x100000001ULL);
+        ReplayFailureEvidence evidence;evidence.capture(*detail.probe);
+        assert(evidence.state==1 && evidence.bytes.size()>RingSnapshot::byte_count*2);
+        const auto evidence_size=evidence.bytes.size();evidence.capture(*detail.probe);assert(evidence.bytes.size()==evidence_size);
+        ReplayFailureEvidence bounded;bool rejected=false;try{bounded.append(nullptr,ReplayFailureEvidence::limit+1);}catch(...){rejected=true;}assert(rejected);
+        assert(diagnosis.size()==313 && diagnosis[0]==0 && diagnosis[91]==31);
+        const std::array<uint64_t,15> expectedDetail={4,17,16,100,200,300,321,2,9,24,12,42,1,43,7};
+        for(unsigned i=0;i<expectedDetail.size();++i)assert(diagnosis[23+i]==expectedDetail[i]);
+        const std::array<uint64_t,7> expectedCamera={9,7,3,104,1,0,1065353216};
+        for(unsigned i=0;i<7;++i)assert(diagnosis[46+i]==expectedCamera[i]);
+        const std::array<uint64_t,15> expectedTopology={12,20,21,0x100000001ULL,1,2,3,4,24,0x200000002ULL,2,3,4,5,32};
+        for(unsigned i=0;i<15;++i)assert(diagnosis[53+i]==expectedTopology[i]);
+        const std::array<uint64_t,13> expectedScalars={1,0,1,123,456,2,8,10,11,3,128,20,21};
+        for(unsigned i=0;i<13;++i)assert(diagnosis[68+i]==expectedScalars[i]);
         assert(correction->release());
     }
     {
@@ -245,7 +464,9 @@ int main(){
         ReferenceWindowFixture::mutated=false;ReferenceWindowFixture::replay_ok=true;
     }
     {
-        StartupSuite a,b;assert(!a.configure(6,60) && !a.configure(3,181));
+        StartupSuite combatSuite;assert(combatSuite.configure(9,60) && combatSuite.mask()==255);
+        StartupSuite attackSuite;assert(attackSuite.configure(8,60) && attackSuite.mask()==255);
+        StartupSuite a,b;assert(!a.configure(11,60) && !a.configure(3,181));
         assert(a.configure(3,1) && b.configure(3,1));
         a.observe(100,1,1);a.observe(200,2,2);a.observe(300,1,3);
         assert(a.round_changes==2 && a.rematches==1 && !a.elapsed(1099) && a.elapsed(1100));
@@ -269,15 +490,36 @@ int main(){
         StartupHistoryFixture::capture_ok=true;
     }
     {
+        StartupSuite baseline_suite,immediate_suite;
+        assert(baseline_suite.configure(10,60) && immediate_suite.configure(9,60));
+        assert(baseline_suite.seal(255,0,0) && immediate_suite.seal(255,0,0));
+        assert(!baseline_suite.receive(immediate_suite.outgoing()));
         using H=NativeHoldRehearsal<HoldRehearsalFixture>;
+        H immediate;assert(immediate.request(0,601,661,1000,0));
+        assert(!immediate.run(1,2,3,0,601,660,110,true));
+        assert(immediate.state==H::released && immediate.services==0 && immediate.held_ms==0);
+        H gated;assert(gated.request(0,601,661,1000,0));
+        assert(gated.run(1,2,3,0,601,660,110,true,false));
+        assert(gated.state==H::holding);
+        assert(!gated.run(1,2,3,0,601,660,111,true,true));
+        assert(gated.state==H::released && gated.held_ms==1);
+        H expired;assert(expired.request(0,601,661,1000,0));
+        assert(expired.run(1,2,3,0,601,660,110,true,false));
+        assert(expired.run(1,2,3,0,601,660,1110,true,false));
+        assert(expired.state==H::restart_required);
+        H invalid;assert(!invalid.request(0,601,661,1000,1000));
+        H incomplete;assert(incomplete.request(0,604,722,2000));
+        assert(incomplete.target_clock()==604);
+        assert(!incomplete.run(1,2,3,0,604,721,110,false,false));
+        assert(incomplete.state==H::rejected && incomplete.services==0 && incomplete.reason==H::invalid_context);
         H hold;assert(hold.request(0,601,661));assert(!hold.request(0,601,661));
         assert(!hold.run(1,2,3,0,600,659,100,true));
         assert(hold.run(1,2,3,0,601,660,110,true) && hold.state==H::holding);
         assert(!hold.run(1,9,3,0,601,660,120,true));
         assert(hold.run(1,2,3,0,601,660,209,true));
-        assert(!hold.run(1,2,3,0,601,660,210,true) && hold.state==H::released && hold.services==2);
+        assert(!hold.run(1,2,3,0,601,660,210,true) && hold.state==H::released && hold.services==2 && hold.held_ms==100 && hold.reason==H::none);
         H wrong;assert(wrong.request(0,601,661));
-        assert(!wrong.run(1,2,3,0,601,659,110,true) && wrong.state==H::rejected);
+        assert(!wrong.run(1,2,3,0,601,659,110,true) && wrong.state==H::rejected && wrong.reason==H::battle_mismatch && wrong.observed_battle==659);
         H failure;assert(failure.request(0,601,661));HoldRehearsalFixture::service_ok=false;
         assert(failure.run(1,2,3,0,601,660,110,true) && failure.state==H::restart_required);
         assert(failure.run(1,2,3,0,601,660,120,true));HoldRehearsalFixture::service_ok=true;
@@ -285,6 +527,15 @@ int main(){
         assert(waiting.run(1,2,3,0,604,663,100,true,false));
         assert(waiting.run(1,2,3,0,604,663,201,true,false) && waiting.state==H::holding);
         assert(!waiting.run(1,2,3,0,604,663,202,true,true) && waiting.state==H::released);
+        H cancelled;assert(cancelled.request(0,604,664,2000));
+        assert(cancelled.run(1,2,3,0,604,663,100,true,false));
+        assert(!cancelled.run(1,2,3,0,604,663,101,true,false,true));
+        assert(cancelled.state==H::rejected && cancelled.services==1);
+        assert(!cancelled.run(1,2,3,0,605,664,102,true,false));
+        H invalid_cancel;assert(invalid_cancel.request(0,604,664,2000));
+        assert(invalid_cancel.run(1,2,3,0,604,663,100,true,false));
+        assert(invalid_cancel.run(1,2,3,1,604,663,101,true,false,true));
+        assert(invalid_cancel.state==H::restart_required && invalid_cancel.reason==H::identity_changed);
         H timeout;assert(timeout.request(0,604,664,2000));
         assert(timeout.run(1,2,3,0,604,663,100,true,false));
         assert(timeout.run(1,2,3,0,604,663,2100,true,false) && timeout.state==H::restart_required);
@@ -299,13 +550,24 @@ int main(){
         assert(a.receive(b.outgoing()));
         StartupBoundaryAgreement bad;assert(bad.begin(pairs,1));auto wrong=b.outgoing();++wrong[3];
         assert(!bad.receive(wrong) && bad.failed() && !bad.ready());
+        StartupBoundaryPairs repeated;
+        for(unsigned i=0;i<120;++i){for(unsigned j=0;j<5;++j)repeated.clock(0,i+1);repeated.battle(i+546);}
+        assert(repeated.duplicates==480 && repeated.overwritten==0 && repeated.discontinuities==0);
+        StartupBoundaryAgreement accepted;assert(accepted.begin(repeated,1));
+        for(bool change_identity:{false,true}){
+            StartupBoundaryPairs changed_pair;
+            changed_pair.clock(0,1);changed_pair.clock(change_identity?1:0,change_identity?1:2);changed_pair.battle(546);
+            assert(changed_pair.overwritten==1 && changed_pair.duplicates==0);
+            for(unsigned i=1;i<120;++i){changed_pair.clock(change_identity?1:0,i+(change_identity?1:2));changed_pair.battle(i+546);}
+            StartupBoundaryAgreement denied;assert(!denied.begin(changed_pair,1));
+        }
         StartupBoundaryPairs empty;StartupBoundaryAgreement invalid;assert(!invalid.begin(empty,1));
     }
     {
         StartupBoundaryPairs pairs;
         pairs.battle(61);assert(pairs.unpaired==1 && pairs.count==0);
         pairs.clock(0,1);pairs.clock(0,1);pairs.battle(62);
-        assert(pairs.overwritten==1 && pairs.count==1 && pairs.rows[0].battle==62);
+        assert(pairs.overwritten==0 && pairs.duplicates==1 && pairs.count==1 && pairs.rows[0].battle==62);
         pairs.clock(0,2);pairs.battle(63);assert(pairs.discontinuities==0);
         pairs.clock(1,1);pairs.battle(64);assert(pairs.discontinuities==1);
         for(unsigned i=0;i<200;++i){pairs.clock(1,i+2);pairs.battle(i+65);}
@@ -364,7 +626,8 @@ int main(){
         preparation.clock_entry(observed,125,103);assert(preparation.clock_resets==1 && preparation.clock_object_changes==1);
         for(unsigned i=0;i<600;++i){preparation.clock_entry(observed,125,104);preparation.frame(15,true);}
         assert(preparation.clock_samples==512 && preparation.battle_samples==512);
-        preparation.request_stop();assert(PreparationResourcesFixture::releases==0);
+        assert(!preparation.stop_requested());
+        preparation.request_stop();assert(preparation.stop_requested() && PreparationResourcesFixture::releases==0);
         observed.clock.frame=13;preparation.clock_entry(observed,125,100);assert(preparation.clock_frame==1);
         preparation.frame(13,true);assert(preparation.retired.load() && !preparation.failed.load());
         preparation.frame(14,true);assert(PreparationResourcesFixture::releases==1);
@@ -812,6 +1075,14 @@ int main(){
         assert(RollbackWindowPlan::execute(keys,4,keys[3],c)==R::restore_failed);
         assert(c.calls.back()==10+i);
     }
+    // Retained dependency validity can change after preparation or a prior
+    // native load. Never invoke the next load with invalid dependencies.
+    for(unsigned completed=0;completed<3;++completed){
+        Backend invalidated;invalidated.invalidateAfterLoads=completed;
+        assert(RollbackWindowPlan::execute(keys,4,keys[3],invalidated)==R::restore_failed);
+        assert(invalidated.loads==completed && invalidated.calls.size()==3+completed);
+        for(unsigned i=0;i<completed;++i)assert(invalidated.calls[3+i]==12-i);
+    }
     for(unsigned field=0;field<8;++field){auto changed=keys;
         auto& k=changed[1];switch(field){
             case 0:++k.session;break;case 1:++k.peer;break;case 2:++k.generation;break;
@@ -839,4 +1110,6 @@ int main(){
     request.frame=saved.frame=200;NativeWindowReuseProbe::validated(probe.get(),request,saved);assert(probe->confirmed[0]);
     std::cout<<"PASS: native window identity, all-hop preflight, reverse load order, depth limits and failure stop\n";
 }
+
+
 

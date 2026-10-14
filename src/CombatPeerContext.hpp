@@ -19,7 +19,10 @@ public:
         AcquireSRWLockExclusive(&lock_);latest_=value;ReleaseSRWLockExclusive(&lock_);return value.valid;
     }
     bool read(uint64_t now,Snapshot& out){
-        out={};if(!TryAcquireSRWLockShared(&lock_))return false;
+        // Writers only replace this small value under the lock; no I/O or
+        // game calls occur there. Contention must not look like lost consent
+        // and silently drop a one-shot capture boundary.
+        out={};AcquireSRWLockShared(&lock_);
         const auto value=latest_;ReleaseSRWLockShared(&lock_);
         if(!value.valid || now<value.tick || now-value.tick>250)return false;
         out=value;return true;

@@ -5,7 +5,8 @@ try {$reader=New-Object IO.StreamReader($file);try{$text=$reader.ReadToEnd()}fin
 $values=@{}
 foreach($line in ($text -split '\r?\n')){if($line -match '^([^=]+)=(.*)$'){$values[$Matches[1]]=$Matches[2]}}
 $names=@('Transport','Resources and cleanup','Frame pairs','Boundary agreement','Hold and release','Four snapshots','Three-frame reference replay')
-if($values.suite_profile -eq '5'){$names[6]='Three corrected frames';$names+= 'Changed prediction corrected'}
+if($values.suite_profile -in @('5','6','7','8','9','10')){$names[6]='Three corrected frames';$names+= 'Changed prediction corrected'}
+if($values.suite_profile -in @('6','8')){$names[6]='Three cycles: corrected frames';$names[7]='Three cycles: changed predictions corrected'}
 $rows=@()
 foreach($side in @('local','peer')){
     for($i=0;$i -lt $names.Count;$i++){
@@ -13,7 +14,7 @@ foreach($side in @('local','peer')){
         if($side -eq 'peer' -and $values.suite_peer_received -ne '1'){$result='Report unavailable'}
         elseif(([int]$values["suite_${side}_fail"] -band $bit) -ne 0){$result='Failed'}
         elseif(([int]$values["suite_${side}_pass"] -band $bit) -ne 0){$result='Passed'}
-        elseif(([int]$values["suite_${side}_skip"] -band $bit) -ne 0){$result='Skipped (not selected or prerequisite failed)'}
+        elseif(([int]$values["suite_${side}_skip"] -band $bit) -ne 0){$result=if($values.suite_reason -eq 'no_suitable_window_observed'){'Not observed: no suitable input window'}else{'Skipped (not selected or prerequisite failed)'}}
         $rows += [pscustomobject]@{Side=$side;Stage=$names[$i];Result=$result}
     }
 }

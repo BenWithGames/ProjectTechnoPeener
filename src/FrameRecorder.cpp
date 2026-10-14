@@ -819,14 +819,20 @@ extern "C" void SC6RecordEntry(uintptr_t argument,uintptr_t* replacement=nullptr
     // Persistent boundary service runs before the recording gate and outside r.lock.
     if(r.verified){uint32_t frame{};if(copy(&frame,r.base+0x470D0C4,4))sc6::research::lease_service::dispatch(frame);sc6::research::generated_observer::observe_frame();}
     if(auto* preparation=sc6::research::combat_resource_preparation.load(std::memory_order_acquire)){
-        if(preparation->replay_restart()){if(continuation)*continuation=0;return;}
+        if(preparation->replay_restart()){
+            // Dirty sessions remain stopped, but owner-thread cleanup must not
+            // be starved by the guard which suppresses the normal update.
+            preparation->request_stop();uint32_t cleanup_frame{};
+            copy(&cleanup_frame,r.base+0x470D0C4,4);preparation->frame(cleanup_frame,false);
+            if(continuation)*continuation=0;return;
+        }
         uint32_t frame{};sc6::research::NativeClockDiscovery::Observation clock;
         const auto round=sc6::round_event::snapshot();
         const bool valid=return_address==r.base+0x3FE816 && round.round && round.generation &&
             copy(&frame,r.base+0x470D0C4,4) && sc6::research::native_clock_hook::discovery.read(GetTickCount64(),clock) &&
             clock.base==r.base && clock.thread==GetCurrentThreadId();
         preparation->frame(frame,valid);
-        if(valid && preparation->hold_test.state.load()==sc6::research::NativeHoldRehearsal<>::released){
+        if(valid && (preparation->hold_test.state.load()==sc6::research::NativeHoldRehearsal<>::released || preparation->cycles_enabled.load(std::memory_order_acquire))){
             sc6::research::CombatPeerContext::Snapshot peer;
             if(sc6::research::combat_peer_context.read(GetTickCount64(),peer)){
                 sc6::research::RollbackBoundaryKey key{peer.local_nonce,peer.remote_nonce,round.generation,

@@ -133,8 +133,13 @@ struct TransformSnapshot {
         unsigned mask{},index{UINT32_MAX},before_count{},after_count{};
         // address, side, kind, list, parent index, size; no live dereference.
         std::array<uint64_t,6> before{},after{};
+        unsigned removed_nodes{},added_nodes{};
+        std::array<uint64_t,4> removed_node{},added_node{}; // address, saved vtable, next link, parent address
+        // First two changed nodes: address, vtable RVA, next, parent, child count,
+        // first child address, kind, size, and total captured child bytes.
+        std::array<std::array<uint64_t,9>,2> removed_details{},added_details{};
     };
-    TopologyDifference topology_difference(const TransformSnapshot& other)const{
+    TopologyDifference topology_difference(const TransformSnapshot& other,uintptr_t module_base=0)const{
         TopologyDifference d;d.before_count=count;d.after_count=other.count;
         if(!valid || !other.valid)d.mask|=1;
         if(count!=other.count)d.mask|=2;
@@ -148,6 +153,30 @@ struct TransformSnapshot {
         if(d.index==UINT32_MAX && count!=other.count)d.index=common;
         if(d.index<count){const auto& a=records[d.index];d.before={a.address,a.side,a.kind,a.list,a.parent,a.size};}
         if(d.index<other.count){const auto& b=other.records[d.index];d.after={b.address,b.side,b.kind,b.list,b.parent,b.size};}
+        // Match global list nodes by address, not shifting record indices.
+        // Only captured bytes are inspected; removed objects are never read live.
+        const auto scan=[module_base](const TransformSnapshot& from,const TransformSnapshot& to,unsigned& total,std::array<uint64_t,4>& first,std::array<std::array<uint64_t,9>,2>& details){
+            for(unsigned i=0;i<from.count;++i){const auto& r=from.records[i];
+                if(r.side!=2 || r.kind!=4 || r.size!=24)continue;
+                bool found=false;
+                for(unsigned j=0;j<to.count;++j){const auto& s=to.records[j];
+                    if(s.side==2 && s.kind==4 && s.address==r.address){found=true;break;}
+                }
+                if(found)continue;
+                if(!total)first={r.address,(module_base && pointer(r.bytes.data())>=module_base?pointer(r.bytes.data())-module_base:pointer(r.bytes.data())),pointer(r.bytes.data()+16),r.parent<from.count?from.records[r.parent].address:0};
+                if(total<details.size()){
+                    auto& detail=details[total];
+                    detail={r.address,(module_base && pointer(r.bytes.data())>=module_base?pointer(r.bytes.data())-module_base:pointer(r.bytes.data())),pointer(r.bytes.data()+16),r.parent<from.count?from.records[r.parent].address:0};
+                    for(unsigned k=0;k<from.count;++k){const auto& child=from.records[k];
+                        if(k==i || child.side!=2 || child.parent!=i)continue;
+                        if(!detail[4]){detail[5]=child.address;detail[6]=child.kind;detail[7]=child.size;}
+                        ++detail[4];detail[8]+=child.size;
+                    }
+                }
+                ++total;
+            }
+        };
+        scan(*this,other,d.removed_nodes,d.removed_node,d.removed_details);scan(other,*this,d.added_nodes,d.added_node,d.added_details);
         return d;
     }
     // Combat group matrices retain the previous update. Validate every group

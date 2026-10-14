@@ -10,6 +10,8 @@ public:
     using Words=std::array<uint32_t,14>;
     std::atomic<unsigned> local_count{},remote_count{};
     std::atomic<bool> configured{},failed{},ready{};
+    bool require_combat_inputs{}; // configured before publication
+    std::atomic<unsigned> input_rejection{};
 private:
     unsigned target_{},slot_{};
     std::array<Words,3> local_{},remote_{};
@@ -26,6 +28,16 @@ private:
         if(!configured.load(std::memory_order_acquire) || failed.load() || local_count.load(std::memory_order_acquire)!=3 || remote_count.load()!=3)return false;
         for(unsigned i=0;i<3;++i){
             if(local_[i][10]!=remote_[i][10] || local_[i][11]!=remote_[i][11] || local_[i][12]!=remote_[i][12])return reject();
+        }
+        if(require_combat_inputs){
+            bool local_difference=false,peer_difference=false;
+            for(unsigned i=0;i<3;++i){
+                for(unsigned w=0;w<4;++w)if(local_[i][w]!=remote_[i][w]){input_rejection=1;return reject();}
+                const unsigned remote=3-slot_;
+                local_difference=local_difference || local_[i][2*(remote-1)] || local_[i][2*(remote-1)+1] || local_[i][4+remote-1];
+                peer_difference=peer_difference || remote_[i][2*(slot_-1)] || remote_[i][2*(slot_-1)+1] || remote_[i][4+slot_-1];
+            }
+            if(!local_difference || !peer_difference){input_rejection=2;return reject();}
         }
         return true;
     }

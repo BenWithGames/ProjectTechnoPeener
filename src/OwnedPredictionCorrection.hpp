@@ -1,42 +1,102 @@
 #pragma once
 #include "ConfirmedReplayWindow.hpp"
 #include "SingleUpdateCall.hpp"
+#include "ReplayFailureEvidence.hpp"
 namespace sc6::research {
-// Explicit experiment backend, not registered with the live suite. Both native
+// Bounded suite backend. Both native
 // windows are constructed before entry. The caller supplies a drained,
 // authenticated handoff and owns the update boundary for the entire call.
-class OwnedPredictionCorrection {
+template<class Window=NativeRollbackWindow,class Update=SingleUpdateCall,class Source=ReplayDependencySource>
+class OwnedPredictionCorrectionBackend {
 public:
     inline static constexpr const char* diagnostic_names[]={
         "window","plan","prepare_stage","hop","rejection","restore_stage","restore_invoked","restore_verified",
         "failure_line","exception","probe_fault","replay_stage","comparison_mask","wind_failure_line","wind_record",
-        "wind_kind","wind_size","wind_offset","wind_saved_word","wind_next_word","topology_mask","source_frame","next_frame"};
+        "wind_kind","wind_size","wind_offset","wind_saved_word","wind_next_word","topology_mask","source_frame","next_frame",
+        "source_guard_reason","source_guard_record","source_guard_length","source_guard_saved","source_guard_next","source_guard_writer",
+        "completion_line","completion_section","completion_record","completion_kind","completion_offset",
+        "load_entry_rng","load_entry_rng_valid","expected_next_rng","preflight_mask",
+        "blend_reason","blend_side","blend_offset","blend_changed","blend_saved","blend_next","blend_saved_owner","blend_next_owner",
+        "camera_reason","camera_record","camera_section","camera_offset","camera_side","camera_saved","camera_next",
+        "topology_index","topology_before_count","topology_after_count",
+        "topology_before_address","topology_before_side","topology_before_kind","topology_before_list","topology_before_parent","topology_before_size",
+        "topology_after_address","topology_after_side","topology_after_kind","topology_after_list","topology_after_parent","topology_after_size",
+        "scalar_measurement_read","scalar_rng_equal","scalar_players_equal","scalar_rng_expected","scalar_rng_actual",
+        "scalar_p1_differences","scalar_p1_first_offset","scalar_p1_expected_byte","scalar_p1_actual_byte",
+        "scalar_p2_differences","scalar_p2_first_offset","scalar_p2_expected_byte","scalar_p2_actual_byte",
+        "topology_removed_nodes","topology_added_nodes","topology_removed_address","topology_removed_vtable_rva","topology_removed_next","topology_removed_parent",
+        "topology_added_address","topology_added_vtable_rva","topology_added_next","topology_added_parent","postload_pass_mask","loaded_blend_reason","loaded_blend_side","loaded_blend_block","loaded_blend_offset","loaded_blend_saved","loaded_blend_next","loaded_blend_actual","loaded_blend_pointer_valid","loaded_blend_pointer_saved","loaded_blend_pointer_next","loaded_blend_pointer_actual","loaded_blend_wrapper_saved","loaded_blend_wrapper_next","loaded_blend_wrapper_actual",
+        "topology_removed_0_address","topology_removed_0_vtable_rva","topology_removed_0_next","topology_removed_0_parent","topology_removed_0_child_count","topology_removed_0_child_address","topology_removed_0_child_kind","topology_removed_0_child_size","topology_removed_0_child_bytes",
+        "topology_removed_1_address","topology_removed_1_vtable_rva","topology_removed_1_next","topology_removed_1_parent","topology_removed_1_child_count","topology_removed_1_child_address","topology_removed_1_child_kind","topology_removed_1_child_size","topology_removed_1_child_bytes",
+        "topology_added_0_address","topology_added_0_vtable_rva","topology_added_0_next","topology_added_0_parent","topology_added_0_child_count","topology_added_0_child_address","topology_added_0_child_kind","topology_added_0_child_size","topology_added_0_child_bytes",
+        "topology_added_1_address","topology_added_1_vtable_rva","topology_added_1_next","topology_added_1_parent","topology_added_1_child_count","topology_added_1_child_address","topology_added_1_child_kind","topology_added_1_child_size","topology_added_1_child_bytes",
+        "payload_structural","payload_records","payload_bytes","payload_retained","payload_overflow","payload_0_record","payload_0_length","payload_0_writer","payload_0_source_saved","payload_0_source_loaded","payload_0_first","payload_0_last","payload_0_expected","payload_0_actual","payload_1_record","payload_1_length","payload_1_writer","payload_1_source_saved","payload_1_source_loaded","payload_1_first","payload_1_last","payload_1_expected","payload_1_actual","payload_2_record","payload_2_length","payload_2_writer","payload_2_source_saved","payload_2_source_loaded","payload_2_first","payload_2_last","payload_2_expected","payload_2_actual","payload_3_record","payload_3_length","payload_3_writer","payload_3_source_saved","payload_3_source_loaded","payload_3_first","payload_3_last","payload_3_expected","payload_3_actual","payload_4_record","payload_4_length","payload_4_writer","payload_4_source_saved","payload_4_source_loaded","payload_4_first","payload_4_last","payload_4_expected","payload_4_actual","payload_5_record","payload_5_length","payload_5_writer","payload_5_source_saved","payload_5_source_loaded","payload_5_first","payload_5_last","payload_5_expected","payload_5_actual","payload_6_record","payload_6_length","payload_6_writer","payload_6_source_saved","payload_6_source_loaded","payload_6_first","payload_6_last","payload_6_expected","payload_6_actual","payload_7_record","payload_7_length","payload_7_writer","payload_7_source_saved","payload_7_source_loaded","payload_7_first","payload_7_last","payload_7_expected","payload_7_actual","payload_8_record","payload_8_length","payload_8_writer","payload_8_source_saved","payload_8_source_loaded","payload_8_first","payload_8_last","payload_8_expected","payload_8_actual","payload_9_record","payload_9_length","payload_9_writer","payload_9_source_saved","payload_9_source_loaded","payload_9_first","payload_9_last","payload_9_expected","payload_9_actual","payload_10_record","payload_10_length","payload_10_writer","payload_10_source_saved","payload_10_source_loaded","payload_10_first","payload_10_last","payload_10_expected","payload_10_actual","payload_11_record","payload_11_length","payload_11_writer","payload_11_source_saved","payload_11_source_loaded","payload_11_first","payload_11_last","payload_11_expected","payload_11_actual","payload_12_record","payload_12_length","payload_12_writer","payload_12_source_saved","payload_12_source_loaded","payload_12_first","payload_12_last","payload_12_expected","payload_12_actual","payload_13_record","payload_13_length","payload_13_writer","payload_13_source_saved","payload_13_source_loaded","payload_13_first","payload_13_last","payload_13_expected","payload_13_actual","payload_14_record","payload_14_length","payload_14_writer","payload_14_source_saved","payload_14_source_loaded","payload_14_first","payload_14_last","payload_14_expected","payload_14_actual","payload_15_record","payload_15_length","payload_15_writer","payload_15_source_saved","payload_15_source_loaded","payload_15_first","payload_15_last","payload_15_expected","payload_15_actual","replay_ring_status","replay_ring_validity","replay_ring_group","replay_ring_slot","replay_ring_offset","replay_ring_field","replay_ring_expected","replay_ring_actual","replay_ring_expected_word","replay_ring_actual_word","replay_native_reason","replay_native_record","replay_native_offset","replay_native_length","replay_native_writer","replay_native_source","replay_native_expected","replay_native_actual","replay_native_word_offset","replay_native_expected_word","replay_native_actual_word","replay_native_changed_bytes"};
     using Diagnostics=std::array<uint64_t,std::size(diagnostic_names)>;
     Diagnostics diagnostics(){
         auto& window=stage==Stage::clean_rewind?clean:predicted_;
         auto& hop=window.diagnostic();const auto& p=*hop.probe;const auto& w=p.wind_diagnostic;
-        return {stage==Stage::clean_rewind?0u:1u,window.plan_result,window.prepare_stage,window.last_hop,
+        Diagnostics result{stage==Stage::clean_rewind?0u:1u,window.plan_result,window.prepare_stage,window.last_hop,
             static_cast<unsigned>(hop.rejection),hop.diagnostic_stage,p.restore_invoked,hop.verified,
             p.delayed_failure_line,p.exception,p.fault,hop.replay_stage,hop.replay_comparison_mask,
             w.failure_line,w.record,w.kind,w.size,w.offset,w.saved_word,w.next_word,window.topology.mask,
-            window.source_frame,window.next_frame};
+            window.source_frame,window.next_frame,
+            p.source_guard_reason,p.source_guard_record,p.source_guard_length,p.source_guard_saved,p.source_guard_next,p.source_guard_writer,
+            hop.completion.failure_line,hop.completion.section,hop.completion.record,hop.completion.kind,hop.completion.difference_offset,
+            p.load_entry_rng,p.load_entry_rng_valid,p.original_next.rng,p.combat_preflight_pass_mask,
+            p.blend_pair_diagnostic.reason,p.blend_pair_diagnostic.side,p.blend_pair_diagnostic.offset,p.blend_pair_diagnostic.changed,
+            p.blend_pair_diagnostic.saved,p.blend_pair_diagnostic.next,p.blend_pair_diagnostic.saved_owner,p.blend_pair_diagnostic.next_owner,
+            p.camera_readiness.reason,p.camera_readiness.record,p.camera_readiness.section,p.camera_readiness.offset,
+            p.camera_readiness.side,p.camera_readiness.saved,p.camera_readiness.next,
+            window.topology.index,window.topology.before_count,window.topology.after_count,
+            window.topology.before[0],window.topology.before[1],window.topology.before[2],window.topology.before[3],window.topology.before[4],window.topology.before[5],
+            window.topology.after[0],window.topology.after[1],window.topology.after[2],window.topology.after[3],window.topology.after[4],window.topology.after[5],
+            hop.replay_measurement_read,hop.replay_rng_equal,hop.replay_players_equal,hop.replay_rng_expected,hop.replay_rng_actual,
+            hop.replay_scalar_differences[0],hop.replay_first_offset[0],hop.replay_expected_byte[0],hop.replay_live_byte[0],
+            hop.replay_scalar_differences[1],hop.replay_first_offset[1],hop.replay_expected_byte[1],hop.replay_live_byte[1],
+            window.topology.removed_nodes,window.topology.added_nodes,
+            window.topology.removed_node[0],window.topology.removed_node[1],window.topology.removed_node[2],window.topology.removed_node[3],
+            window.topology.added_node[0],window.topology.added_node[1],window.topology.added_node[2],window.topology.added_node[3],p.combat_postload_pass_mask,p.combat_loaded_blend.reason,p.combat_loaded_blend.side,p.combat_loaded_blend.block,p.combat_loaded_blend.offset,p.combat_loaded_blend.saved,p.combat_loaded_blend.next,p.combat_loaded_blend.loaded,
+            p.combat_loaded_blend.pointer_valid,p.combat_loaded_blend.pointer_saved,p.combat_loaded_blend.pointer_next,p.combat_loaded_blend.pointer_loaded,
+            p.measurements[0].valid?CombatBlend::wide(p.measurements[0].fields[p.combat_loaded_blend.side].data()+128):0,
+            p.measurements[1].valid?CombatBlend::wide(p.measurements[1].fields[p.combat_loaded_blend.side].data()+128):0,
+            p.measurements[2].valid?CombatBlend::wide(p.measurements[2].fields[p.combat_loaded_blend.side].data()+128):0,
+            window.topology.removed_details[0][0],window.topology.removed_details[0][1],window.topology.removed_details[0][2],window.topology.removed_details[0][3],window.topology.removed_details[0][4],window.topology.removed_details[0][5],window.topology.removed_details[0][6],window.topology.removed_details[0][7],window.topology.removed_details[0][8],
+            window.topology.removed_details[1][0],window.topology.removed_details[1][1],window.topology.removed_details[1][2],window.topology.removed_details[1][3],window.topology.removed_details[1][4],window.topology.removed_details[1][5],window.topology.removed_details[1][6],window.topology.removed_details[1][7],window.topology.removed_details[1][8],
+            window.topology.added_details[0][0],window.topology.added_details[0][1],window.topology.added_details[0][2],window.topology.added_details[0][3],window.topology.added_details[0][4],window.topology.added_details[0][5],window.topology.added_details[0][6],window.topology.added_details[0][7],window.topology.added_details[0][8],
+            window.topology.added_details[1][0],window.topology.added_details[1][1],window.topology.added_details[1][2],window.topology.added_details[1][3],window.topology.added_details[1][4],window.topology.added_details[1][5],window.topology.added_details[1][6],window.topology.added_details[1][7],window.topology.added_details[1][8]};
+        size_t payload_index=142;
+        const auto& pd=hop.payload_diagnostic;
+        for(auto value:{pd.structural,pd.records,pd.bytes,pd.retained,pd.overflow})result[payload_index++]=value;
+        for(const auto& row:pd.details)for(auto value:row)result[payload_index++]=value;
+        if(hop.replay_checked){
+            const auto rd=p.rings[2].first_difference(p.replay_rings);
+            const auto& nd=hop.replay_native_difference;
+            const uint64_t values[]={rd.status,rd.validity,rd.group,rd.slot,rd.offset,rd.field,rd.expected,rd.actual,rd.expected_word,rd.actual_word,
+                nd.reason,nd.record,nd.offset,nd.length,nd.writer,nd.source,nd.expected,nd.actual,nd.word_offset,nd.expected_word,nd.actual_word,nd.changed_bytes};
+            for(auto value:values)result[payload_index++]=value;
+        }
+        return result;
     }
+    void capture_failure_evidence(ReplayFailureEvidence& evidence){evidence.capture(*(stage==Stage::clean_rewind?clean:predicted_).diagnostic().probe,evidence_inputs_.data(),sizeof(evidence_inputs_),clean.base_);}
+    const auto& blend_evidence(){return (stage==Stage::clean_rewind?clean:predicted_).diagnostic().probe->blend_pair_evidence;}
     using Input=std::array<std::byte,40>;
     using Frames=std::array<CorrectedHistoryReplay::Frame,3>;
+    std::array<std::array<Input,3>,3> evidence_inputs_{};
     enum class Stage {unused,confirmation,clean_rewind,prediction,capture,divergence,correction_rewind,replay,complete};
     Stage stage{Stage::unused};
     unsigned predicted_updates{},corrected_updates{},capture_detail{};
     bool attempted{},injected{},state_changed{},verified{},restart_required{},retired{};
-    NativeRollbackWindow clean;
+    Window clean;
+    bool attack_fixture{},combat_inputs{};
 private:
-    NativeRollbackWindow predicted_;
+    Window predicted_;
     RecordedInput delivery_,guard_;
 public:
     // A reference comparison needs independently recorded truth. A peer pair
     // which disagrees with the clean reference cannot be used as its oracle.
     static bool inputs(const Frames& frames,const std::array<RollbackBoundaryKey,4>& keys,
-                       const std::array<Input,3>& reference,std::array<Input,3>& actual,std::array<Input,3>& wrong){
-        actual={};wrong={};std::array<Input,3> staged{},fixtures{};
+                       const std::array<Input,3>& reference,std::array<Input,3>& actual,std::array<Input,3>& wrong,bool attack=false,bool combat=false){
+        actual={};wrong={};std::array<Input,3> staged{},fixtures{};bool prediction_differs=false;
         for(unsigned i=0;i<3;++i){const auto& f=frames[i];
             if(!f.confirmed || !keys[i].same_round(keys[3]) || keys[i].frame>=keys[3].frame ||
                keys[3].frame-keys[i].frame!=3-i || !f.key.same_round(keys[i]) || f.key.frame!=keys[i].frame)return false;
@@ -44,22 +104,28 @@ public:
             if(!composed)return false;
             std::memcpy(staged[i].data(),composed->data(),40);
             if(staged[i]!=reference[i] || !RecordedInput::valid_envelope(staged[i]))return false;
-            // Only the measured neutral-to-screen-right fixture is supported.
-            for(unsigned j=0;j<24;++j)if(staged[i][j]!=std::byte{})return false;
-            fixtures[i]=staged[i];const unsigned remote=3-keys[i].slot,bits=0x400;
+            // Confirmed truth is neutral. Explicit attack mode pulses measured A
+            // for one frame; the default retains the screen-right fixture.
+            if(!combat)for(unsigned j=0;j<24;++j)if(staged[i][j]!=std::byte{})return false;
+            fixtures[i]=staged[i];const unsigned remote=3-keys[i].slot,bits=combat?0u:attack?(i==0?1u:0u):0x400u;
             for(unsigned offset:{8u*(remote-1),8u*(remote-1)+4u,16u+4u*(remote-1)})
                 std::memcpy(fixtures[i].data()+offset,&bits,4);
+            prediction_differs=prediction_differs || fixtures[i]!=staged[i];
         }
+        if(combat && !prediction_differs)return false;
         actual=staged;wrong=fixtures;return true;
     }
-    bool release(){
+    bool release() noexcept {
         if(retired)return true;
-        // Attempt both drains even if one fails.
-        const bool a=predicted_.release_owned_dependencies(),b=clean.release_owned_dependencies();
+        // Each window owns independent references. An exception in one drain
+        // must not prevent the other drain, or permit this backend's reuse.
+        bool a=false,b=false;
+        try {a=predicted_.release_owned_dependencies();}catch(...){ }
+        try {b=clean.release_owned_dependencies();}catch(...){ }
         retired=a&&b;return retired;
     }
     bool run(const NetworkGameHandoff& handoff,const RollbackBoundaryKey& live,uintptr_t base,
-             ReplayDependencySource& source,SingleUpdateCall::Routine original){
+             Source& source,SingleUpdateCall::Routine original){
         Frames frames{};
         if(clean.count_==4)confirmed_replay_window(handoff,clean.keys_[0],live,frames);
         return run_confirmed(frames,live,base,source,original);
@@ -67,7 +133,7 @@ public:
     // Alternative caller is the startup suite's authenticated three-record
     // exchange. It copies immutable confirmations at the held owner boundary.
     bool run_confirmed(const Frames& frames,const RollbackBoundaryKey& live,uintptr_t base,
-             ReplayDependencySource& source,SingleUpdateCall::Routine original){
+             Source& source,SingleUpdateCall::Routine original){
         if(attempted)return false;attempted=true;stage=Stage::confirmation;
         if(clean.count_!=4 || clean.fault_ || clean.rewind_started() || !base || base!=clean.base_ ||
            !original || reinterpret_cast<uintptr_t>(original)==base+0x2DBC60 ||
@@ -75,7 +141,8 @@ public:
            live.frame!=clean.keys_[3].frame || !source.available() || !clean.dependencies_valid())return false;
         std::array<Input,3> reference{},actual{},wrong{};
         for(unsigned i=0;i<3;++i)if(!clean.pool_.visit(clean.handles_[i],[&](NativeBoundarySnapshot& s){reference[i]=s.data->delayed_inputs;return true;}))return false;
-        if(!inputs(frames,clean.keys_,reference,actual,wrong))return false;
+        if(!inputs(frames,clean.keys_,reference,actual,wrong,attack_fixture,combat_inputs))return false;
+        evidence_inputs_={reference,actual,wrong};
         try {
             stage=Stage::clean_rewind;
             if(!clean.rewind(live)){restart_required=clean.rewind_started() || clean.any_restore_invoked();return false;}
@@ -85,12 +152,13 @@ public:
             for(unsigned i=0;i<4;++i){
                 stage=Stage::capture;Input envelope{};
                 if(!clean.pool_.visit(clean.handles_[i],[&](NativeBoundarySnapshot& s){envelope=s.data->delayed_inputs;return true;}))return false;
-                const auto mode=i?NativeBoundarySnapshot::Mode::direction_observation:NativeBoundarySnapshot::Mode::idle;
+                const auto mode=(attack_fixture || combat_inputs)?NativeBoundarySnapshot::Mode::general_combat:
+                    (i?NativeBoundarySnapshot::Mode::direction_observation:NativeBoundarySnapshot::Mode::idle);
                 if(!predicted_.capture(clean.keys_[i],base,guard_.assign(envelope),mode,true,&source)){
                     capture_detail=predicted_.capture_stage;return false;
                 }
                 if(i==3)break;
-                stage=Stage::prediction;SingleUpdateCall call;
+                stage=Stage::prediction;Update call;
                 const bool ok=call.run(original,delivery_.assign(wrong[i]),reinterpret_cast<volatile uint32_t*>(base+0x470D0C4),clean.keys_[i].frame,live.thread);
                 injected=injected||call.invoked;if(!ok)return false;++predicted_updates;
             }
@@ -109,12 +177,13 @@ public:
                 const bool ok=clean.pool_.visit(clean.handles_[i],[&](NativeBoundarySnapshot& a){return clean.pool_.visit(clean.handles_[i+1],[&](NativeBoundarySnapshot& b){
                     auto& hop=*predicted_.hops_[i];auto& q=*hop.probe;const auto& ref=*b.data;
                     q.after_save=ref.saved;q.after_keys=ref.before_keys;
+                    if(ref.blend_timer_count)q.blend_timer_expected=ref.blend_timer_history[0];
                     std::memcpy(q.after_players,ref.before_players,sizeof(q.after_players));
                     q.original_next=ref.measurements[0];q.rings[2]=ref.rings[0];q.blends[1]=ref.blends[0];q.transforms[1]=ref.transforms[0];q.cameras[1]=ref.cameras[0];
-                    SingleUpdateCall call;
+                    Update call;
                     if(!call.run(original,delivery_.assign(actual[i]),reinterpret_cast<volatile uint32_t*>(base+0x470D0C4),clean.keys_[i].frame,live.thread))return false;
                     hop.replay_delivered=true;
-                    return hop.replay_step(a,base,guard_.assign(ref.delayed_inputs),true);
+                    return hop.replay_step(a,base,guard_.assign(combat_inputs?actual[i]:ref.delayed_inputs),true);
                 });});
                 if(!ok)return false;++corrected_updates;
             }
@@ -125,4 +194,5 @@ public:
         }catch(...){restart_required=clean.rewind_started() || clean.any_restore_invoked();return false;}
     }
 };
+using OwnedPredictionCorrection=OwnedPredictionCorrectionBackend<>;
 }

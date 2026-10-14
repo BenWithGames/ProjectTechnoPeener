@@ -17,6 +17,12 @@ public:
     RecordedInput restore_input;
     ImmediateIdleCorrection completion;
     bool native_payload_verified{};
+    struct PayloadDiagnostic {
+        uint64_t structural{},records{},bytes{},retained{},overflow{};
+        // record,length,writer,source before/after,first,last,expected,actual
+        std::array<std::array<uint64_t,9>,16> details{};
+    };
+    PayloadDiagnostic payload_diagnostic;
     unsigned diagnostic_stage{}; // Last restoration check entered; no guard behavior changes.
     NativeBoundarySnapshot::Rejection rejection=NativeBoundarySnapshot::Rejection::none;
     // Call only after replay comparison completes and no caller retains views
@@ -173,7 +179,7 @@ private:
         // source identity; only the separately proven reader-unused padding
         // below may differ in its pinned 16-byte record.
         diagnostic_stage=6;
-        native_payload_verified=native_equal(saved,p,base);
+        native_payload_verified=native_equal(saved,p,base,&payload_diagnostic);
         if(!native_payload_verified)return fail();
         diagnostic_stage=7;
         if(!completion.apply(saved,*current.data,p,base))return fail();
@@ -214,30 +220,43 @@ private:
         }__except(EXCEPTION_EXECUTE_HANDLER){return false;}
     }
 public:
-    static bool native_equal(const FullStateProbe& a,const FullStateProbe& b,uintptr_t base){
+    static bool native_equal(const FullStateProbe& a,const FullStateProbe& b,uintptr_t base,PayloadDiagnostic* diagnostic=nullptr){
+        PayloadDiagnostic local{};auto& d=diagnostic?*diagnostic:local;d={};
         const auto& x=a.saved;const auto& y=b.restored;
-        if(!IdleTrajectoryAudit::same_shape(x,y) || x.stream.write_position!=y.stream.write_position)return false;
+        if(!IdleTrajectoryAudit::same_shape(x,y) || x.stream.write_position!=y.stream.write_position){d.structural=1;return false;}
+        if(x.stream.write_position>x.stream.payload.size() || y.stream.write_position>y.stream.payload.size()){d.structural=2;return false;}
         std::uint64_t offset=0;
-        for(unsigned i=0;i<x.writes;++i){auto size=x.lengths[i];unsigned skip=0;
-            if(offset>x.stream.write_position || size>x.stream.write_position-offset)return false;
+        for(unsigned i=0;i<x.writes;++i){auto size=x.lengths[i];unsigned skip=0;bool invalid_self=false;
+            if(offset>x.stream.write_position || size>x.stream.write_position-offset){d.structural=3;return false;}
             for(auto player:a.before_players)if(size==48 && x.traces[i].writer==base+0x30AA54 &&
                 x.traces[i].source==player+0x43DF0 && y.traces[i].source==player+0x43DF0){
-                if(TransformSnapshot::pointer(y.stream.payload.data()+offset)!=player)return false;skip=8;
+                invalid_self=TransformSnapshot::pointer(y.stream.payload.data()+offset)!=player;skip=invalid_self?0:8;
             }
-            // Same pinned writer/reader exception as the verified replay
-            // comparator: bytes4..7 are uninitialized and never consumed.
             const bool padding=size==16 && x.traces[i].writer==base+0x32AC76 &&
                 b.restore_completed && b.saved.sealed && i<b.saved.writes &&
                 b.saved.lengths[i]==16 && b.saved.traces[i].writer==base+0x32AC76 &&
                 b.saved.traces[i].reader==base+0x32AD1B;
-            if(padding){
-                if(std::memcmp(x.stream.payload.data()+offset,y.stream.payload.data()+offset,4) ||
-                   std::memcmp(x.stream.payload.data()+offset+8,y.stream.payload.data()+offset+8,8))return false;
-            }else if(std::memcmp(x.stream.payload.data()+offset+skip,y.stream.payload.data()+offset+skip,static_cast<size_t>(size-skip)))return false;
+            uint64_t count=0,first=0,last=0;
+            for(uint64_t j=skip;j<size;++j){
+                if(padding && j>=4 && j<8)continue;
+                if(x.stream.payload[offset+j]==y.stream.payload[offset+j])continue;
+                if(!count)first=j;last=j;++count;
+            }
+            if(count || invalid_self){
+                ++d.records;d.bytes+=count;
+                if(invalid_self)d.structural|=4;
+                if(d.retained<d.details.size()){
+                    d.details[d.retained++]={i,size,x.traces[i].writer,x.traces[i].source,y.traces[i].source,first,last,
+                        size?std::to_integer<unsigned>(x.stream.payload[offset+first]):0,
+                        size?std::to_integer<unsigned>(y.stream.payload[offset+first]):0};
+                }else ++d.overflow;
+            }
             offset+=size;
         }
-        return offset==x.stream.write_position;
+        if(offset!=x.stream.write_position)d.structural|=8;
+        return !d.structural && !d.records;
     }
+
 private:
     bool fail(){fault=true;return false;}
 };

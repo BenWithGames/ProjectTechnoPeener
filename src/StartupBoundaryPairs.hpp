@@ -10,13 +10,16 @@ public:
     struct Row {uint32_t identity{},clock{},battle{};};
     static constexpr unsigned capacity=120;
     std::array<Row,capacity> rows{};
-    std::atomic<unsigned> count{},overwritten{},unpaired{},discontinuities{};
+    std::atomic<unsigned> count{},overwritten{},duplicates{},unpaired{},discontinuities{};
 private:
     Row pending_{};bool pending_valid_{};
 public:
     void clock(uint32_t identity,uint32_t frame){
         if(count.load(std::memory_order_relaxed)==capacity)return;
-        if(pending_valid_)++overwritten;
+        if(pending_valid_){
+            if(pending_.identity==identity && pending_.clock==frame){++duplicates;return;}
+            ++overwritten;
+        }
         pending_={identity,frame,0};pending_valid_=true;
     }
     void battle(uint32_t frame){

@@ -22,36 +22,56 @@ struct CameraSnapshot {
         value=value+0.1f;if(value>1.0f)value=1.0f;
         unsigned expected{};std::memcpy(&expected,&value,4);return b==expected;
     }
-    bool adjacent_combat_ready(const CameraSnapshot& next,uintptr_t base,bool charge_rising=false)const noexcept {
-        if(!valid || !next.valid || !count || count>records.size() || count!=next.count)return false;
+    struct ReadinessDiagnostic {unsigned reason{},record{},section{},offset{},side{};uint64_t saved{},next{};};
+    bool adjacent_combat_ready(const CameraSnapshot& next,uintptr_t base,bool charge_rising=false,ReadinessDiagnostic* detail=nullptr,bool idle_camera=false)const noexcept {
+        if(detail)*detail={};
+        unsigned index=0,side=0;
+        auto reject=[&](unsigned reason,unsigned section,unsigned offset,uint64_t a,uint64_t b){
+            if(detail)*detail={reason,index,section,offset,side,a,b};return false;
+        };
+        if(!valid || !next.valid || !count || count>records.size() || count!=next.count)return reject(1,0,0,count,next.count);
         unsigned selected=0;
-        for(unsigned i=0;i<count;++i){auto& a=records[i];auto& b=next.records[i];
-            if(a.owner!=b.owner || a.smoothing_valid!=b.smoothing_valid ||
-               std::memcmp(a.bytes.data(),b.bytes.data(),8))return false;
+        for(unsigned i=0;i<count;++i){index=i;side=0;auto& a=records[i];auto& b=next.records[i];
+            if(a.owner!=b.owner)return reject(2,0,0,a.owner,b.owner);
+            if(a.smoothing_valid!=b.smoothing_valid)return reject(3,0,0,a.smoothing_valid,b.smoothing_valid);
+            if(std::memcmp(a.bytes.data(),b.bytes.data(),8)){uint64_t av{},bv{};std::memcpy(&av,a.bytes.data(),8);std::memcpy(&bv,b.bytes.data(),8);return reject(4,0,0,av,bv);}
             if(!a.smoothing_valid)continue;
             uintptr_t vt{};std::memcpy(&vt,a.bytes.data(),8);
-            if(vt!=base+0x3E87EB0 || ++selected!=1)return false;
-            for(auto* r:{&a,&b}){
-                if(word(r->smoothing.data()) || word(r->smoothing.data()+4) ||
-                   word(r->smoothing.data()+72)>0x7FFFFFFFu || word(r->smoothing.data()+76)>=16)return false;
-                for(unsigned j=8;j<72;j+=4)if((word(r->smoothing.data()+j)&0x7F800000u)==0x7F800000u)return false;
-                if(word(r->response.data()+4)!=0x3EC00000u || word(r->response.data())>0x3F800000u ||
-                   word(r->response.data()+8)>0x3F800000u)return false;
-                if(!charge_rising && (word(r->targets.data()+0x68)!=0x3F800000u || word(r->targets.data()+0x6C)!=0x3F800000u))return false;
+            if(vt!=base+0x3E87EB0 || ++selected!=1)return reject(5,0,0,vt,selected);
+            for(auto* r:{&a,&b}){side=r==&a?0:1;
+                for(unsigned j:{0u,4u,72u,76u}){auto v=word(r->smoothing.data()+j);
+                    if((j<8 && v) || (j==72 && v>0x7FFFFFFFu) || (j==76 && v>=16))return reject(6,1,j,v,0);
+                }
+                for(unsigned j=8;j<72;j+=4)if((word(r->smoothing.data()+j)&0x7F800000u)==0x7F800000u)return reject(7,1,j,word(r->smoothing.data()+j),0);
+                for(unsigned j:{4u,0u,8u}){auto v=word(r->response.data()+j);
+                    if(j==4?v!=0x3EC00000u:v>0x3F800000u)return reject(8,2,j,v,j==4?0x3EC00000u:0x3F800000u);
+                }
+                if(!charge_rising)for(unsigned j:{0x68u,0x6Cu})if(word(r->targets.data()+j)!=(idle_camera?0u:0x3F800000u))return reject(9,3,j,word(r->targets.data()+j),idle_camera?0u:0x3F800000u);
             }
-            auto old=word(a.smoothing.data()+72);
-            if(word(b.smoothing.data()+72)!=(old==0x7FFFFFFFu?old:old+1) ||
-               word(b.smoothing.data()+76)!=(word(a.smoothing.data()+76)+1)%16)return false;
+            side=0;auto old=word(a.smoothing.data()+72);
+            if(word(b.smoothing.data()+72)!=(old==0x7FFFFFFFu?old:old+1))return reject(10,1,72,old,word(b.smoothing.data()+72));
+            if(word(b.smoothing.data()+76)!=(word(a.smoothing.data()+76)+1)%16)return reject(11,1,76,word(a.smoothing.data()+76),word(b.smoothing.data()+76));
             for(unsigned j=0;j<128;j+=4){
                 bool position=(j>=0x48 && j<0x54)||(j>=0x58 && j<0x64);
+                const auto av=word(a.targets.data()+j),bv=word(b.targets.data()+j);
                 if(charge_rising && (j==0x68 || j==0x6C)){
-                    if(!rising_factor(word(a.targets.data()+j),word(b.targets.data()+j)))return false;
-                }else if(position){if((word(a.targets.data()+j)&0x7F800000u)==0x7F800000u ||
-                                (word(b.targets.data()+j)&0x7F800000u)==0x7F800000u)return false;}
-                else if(word(a.targets.data()+j)!=word(b.targets.data()+j))return false;
+                    if(!rising_factor(av,bv))return reject(12,3,j,av,bv);
+                }else if(position){if((av&0x7F800000u)==0x7F800000u || (bv&0x7F800000u)==0x7F800000u)return reject(13,3,j,av,bv);}
+                else if(av!=bv)return reject(14,3,j,av,bv);
             }
         }
-        return selected==1;
+        return selected==1?true:reject(15,0,0,selected,1);
+    }
+    // Reuse the existing strict idle restoration policy only when every
+    // target is unchanged and the response/factor values match that policy.
+    bool adjacent_idle_ready(const CameraSnapshot& next,uintptr_t base)const noexcept {
+        if(!adjacent_combat_ready(next,base,false,nullptr,true))return false;
+        for(unsigned i=0;i<count;++i){const auto& a=records[i];const auto& b=next.records[i];
+            if(!a.smoothing_valid)continue;
+            if(a.targets!=b.targets || a.response!=b.response ||
+               word(a.response.data()) || word(a.response.data()+8))return false;
+        }
+        return true;
     }
     struct RestoreDiagnostic {unsigned failure_line{},record{},section{},offset{},a{},b{},c{},live{};};
     static bool restore_reject(RestoreDiagnostic* diagnostic,unsigned line) noexcept {

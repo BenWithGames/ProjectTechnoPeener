@@ -164,9 +164,27 @@ struct NativeBoundarySnapshot {
         if(direction_pair || a_pair){
             if(direction_pair && (direction_slot!=current.direction_slot || current.direction_slot<1 || current.direction_slot>2 || direction_bits!=current.direction_bits || (current.direction_bits!=0x400 && current.direction_bits!=0x800)))return reject(Rejection::mode);
             for(unsigned i=0;i<24;++i)if(a.delayed_inputs[i]!=std::byte{} || b.delayed_inputs[i]!=std::byte{})return reject(Rejection::inputs);
-            for(unsigned side=0;side<2;++side)if(!a.blends[0].valid || !b.blends[0].valid ||
-                a.blends[0].owners[side]!=b.blends[0].owners[side] ||
-                (a_pair?!FullStateProbe::a_blend_pair(a.blends[0].bytes[side].data(),b.blends[0].bytes[side].data(),side):std::memcmp(a.blends[0].bytes[side].data(),b.blends[0].bytes[side].data(),1372)!=0))return reject(Rejection::combat);
+            q.blend_pair_diagnostic={};q.blend_pair_evidence={};
+            for(unsigned side=0;side<2;++side){
+                auto& d=q.blend_pair_diagnostic;
+                if(!a.blends[0].valid || !b.blends[0].valid){
+                    d.reason=1;d.side=side;d.saved=a.blends[0].valid;d.next=b.blends[0].valid;return reject(Rejection::combat);
+                }
+                if(a.blends[0].owners[side]!=b.blends[0].owners[side]){
+                    d.reason=2;d.side=side;d.saved_owner=a.blends[0].owners[side];d.next_owner=b.blends[0].owners[side];return reject(Rejection::combat);
+                }
+                const auto& before=a.blends[0].bytes[side];const auto& after=b.blends[0].bytes[side];
+                const bool accepted=a_pair?FullStateProbe::a_blend_pair(before.data(),after.data(),side):std::memcmp(before.data(),after.data(),1372)==0;
+                if(!accepted){
+                    std::copy_n(before.begin(),1372,q.blend_pair_evidence.saved.begin());
+                    std::copy_n(after.begin(),1372,q.blend_pair_evidence.next.begin());q.blend_pair_evidence.valid=true;
+                    d.reason=a_pair?4u:3u;d.side=side;d.saved_owner=a.blends[0].owners[side];d.next_owner=b.blends[0].owners[side];
+                    for(unsigned offset=0;offset<1372;++offset)if(before[offset]!=after[offset]){
+                        if(!d.changed){d.offset=offset;d.saved=std::to_integer<unsigned>(before[offset]);d.next=std::to_integer<unsigned>(after[offset]);}++d.changed;
+                    }
+                    return reject(Rejection::combat);
+                }
+            }
             if(!a.cameras[0].adjacent_combat_ready(b.cameras[0],module,true))return reject(Rejection::camera);
         }
         if(!q.saved.prepare_reader_from(a.saved))return reject(Rejection::reader);
@@ -179,6 +197,8 @@ struct NativeBoundarySnapshot {
         q.blends[0]=a.blends[0];q.blends[1]=b.blends[0];q.transforms[0]=a.transforms[0];q.transforms[1]=b.transforms[0];
         q.cameras[0]=a.cameras[0];q.cameras[1]=b.cameras[0];q.delayed_inputs=a.delayed_inputs;
         q.general_combat_requested=general_pair;
+        q.blend_timer_restore_requested=general_pair;
+        if(a.blend_timer_count)q.blend_timer_source=a.blend_timer_history[0];
         q.throw_requested=a.throw_requested;q.charge_requested=a.charge_requested;q.attack_requested=a.attack_requested;
         q.edge_requested=a.edge_requested;q.reversal_requested=a.reversal_requested;
         q.attempted=q.preflight_ok=q.save_valid=q.post_save_valid=q.audit_started=q.audit_done=true;

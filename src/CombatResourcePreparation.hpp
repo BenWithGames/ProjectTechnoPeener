@@ -6,6 +6,7 @@
 #include "StartupSnapshotCapture.hpp"
 #include "StartupReferenceReplay.hpp"
 #include "StartupPredictionCorrection.hpp"
+#include "CorrectionCycleBank.hpp"
 namespace sc6::research {
 // Resource callbacks acquire references. Only the game-frame thread inspects
 // readiness or releases them; the network worker can only request retirement.
@@ -21,17 +22,37 @@ public:
     std::atomic<bool> replay_enabled{};
     std::unique_ptr<StartupPredictionCorrection> correction;
     std::atomic<bool> correction_enabled{};
+    std::unique_ptr<CorrectionCycleBank<>> cycles;
+    std::atomic<bool> cycles_enabled{};
+    RollbackBoundaryKey cycle_identity_; // owner thread only
+    void enable_cycles(bool attack=false,bool combat=false,unsigned hold_ms=0){if(!cycles_enabled.load()){cycles=std::make_unique<CorrectionCycleBank<>>(attack,combat,hold_ms);cycles_enabled.store(true,std::memory_order_release);}}
     NativeHoldRehearsal<> confirmation_hold;
-    void enable_correction(){if(!correction_enabled.load()){correction=std::make_unique<StartupPredictionCorrection>();correction_enabled.store(true,std::memory_order_release);}}
+    void enable_correction(bool attack=false,bool combat=false){if(!correction_enabled.load()){correction=std::make_unique<StartupPredictionCorrection>();if(attack)correction->configure_attack();if(combat)correction->configure_combat();correction_enabled.store(true,std::memory_order_release);}}
     bool request_confirmation_hold(unsigned identity,unsigned clock,unsigned battle,unsigned slot){
         if(!correction_enabled.load(std::memory_order_acquire) || clock>UINT32_MAX-3 || battle>UINT32_MAX-3)return false;
         if(!correction->exchange.configure(battle,slot))return false;
         return confirmation_hold.state.load()!=0 || confirmation_hold.request(identity,clock+3,battle+3,2000);
     }
     void enable_replay(){if(!replay_enabled.load()){replay=std::make_unique<StartupReferenceReplay<>>();replay_enabled.store(true,std::memory_order_release);}}
-    bool replay_restart()const{return (replay_enabled.load(std::memory_order_acquire) && replay->restart.load()) ||
+    bool replay_restart()const{
+        if(cycles_enabled.load(std::memory_order_acquire)){
+            for(unsigned i=0;i<cycles->active();++i){const auto& c=cycles->at(i);
+                if(c.runner.restart.load() || c.entry.state.load()==5 || c.confirmation.state.load()==5)return true;
+            }
+        }
+        return (replay_enabled.load(std::memory_order_acquire) && replay->restart.load()) ||
         (correction_enabled.load(std::memory_order_acquire) && (correction->restart.load() || confirmation_hold.state.load()==5));}
     void replay_boundary(const RollbackBoundaryKey& key,uintptr_t base,uintptr_t argument,SingleUpdateCall::Routine original){
+        if(cycles_enabled.load(std::memory_order_acquire)){
+            auto* c=cycles->current();
+            if(!c || c->entry.state.load()!=NativeHoldRehearsal<>::released || stop_.load() || retired.load() || failed.load())return;
+            if(!cycle_identity_.session)cycle_identity_=key;
+            if(!cycle_identity_.same_round(key)){c->runner.failure_reason=8;c->runner.failed=true;c->runner.release();return;}
+            if(!c->runner.captured.load() && key.frame!=c->entry.target_battle()){
+                c->runner.failure_reason=9;c->runner.failed=true;c->runner.release();return;
+            }
+            auto source=resources_.source();c->runner.step(key,base,argument,source,original,c->confirmation.state.load()==3);return;
+        }
         if(correction_enabled.load(std::memory_order_acquire) && hold_test.state.load()==NativeHoldRehearsal<>::released &&
            !stop_.load() && !retired.load() && !failed.load()){
             if(!correction->captured.load() && key.frame!=hold_test.target_battle()){correction->failed=true;correction->release();return;}
@@ -54,11 +75,44 @@ public:
         const bool valid=observed.valid && observed.object==object && observed.thread==GetCurrentThreadId() &&
             observed.thread==owner_thread.load() && now>=observed.tick && now-observed.tick<=250 &&
             !stop_.load() && !retired.load() && !failed.load() && !resources_.cancelled() && resources_.ready();
+        if(cycles_enabled.load(std::memory_order_acquire)){
+            auto* c=cycles->current();if(!c)return false;
+            if(c->entry.run(observed.base,object,GetCurrentThreadId(),observed.clock.identity,
+                observed.clock.frame,boundary_frame.load(),now,valid))return true;
+            // A hold cannot produce a missing local battle record. Reject
+            // before touching the clock instead of waiting for ourselves.
+            if(c->confirmation.state.load(std::memory_order_acquire)==NativeHoldRehearsal<>::queued &&
+               observed.clock.frame>=c->confirmation.target_clock() && c->runner.exchange.local_count.load()!=3){
+                c->runner.failure_reason=10;c->runner.failed=true;c->runner.release();
+            }
+            const bool neutral=c->runner.exchange.input_rejection.load()==2 && c->runner.stage.load()==0 &&
+                !c->runner.restored.load() && !c->runner.injected.load() && !c->runner.restart.load();
+            return c->confirmation.run(observed.base,object,GetCurrentThreadId(),observed.clock.identity,
+                observed.clock.frame,boundary_frame.load(),now,valid && (neutral || (!c->runner.failed.load() && !c->runner.exchange.failed.load())),
+                c->runner.exchange.ready.load(),neutral);
+        }
         if(hold_test.run(observed.base,object,GetCurrentThreadId(),observed.clock.identity,
             observed.clock.frame,boundary_frame.load(),now,valid))return true;
-        if(correction_enabled.load(std::memory_order_acquire))return confirmation_hold.run(observed.base,object,GetCurrentThreadId(),observed.clock.identity,
-            observed.clock.frame,boundary_frame.load(),now,valid && !correction->failed.load() && !correction->exchange.failed.load(),
-            correction->exchange.ready.load(std::memory_order_acquire));
+        if(correction_enabled.load(std::memory_order_acquire)){
+            if(confirmation_hold.state.load()==NativeHoldRehearsal<>::queued &&
+               observed.clock.frame>=confirmation_hold.target_clock() && correction->exchange.local_count.load()!=3){
+                correction->failure_reason=10;correction->failed=true;correction->release();
+            }
+            // Worker rejection may request stop before this owner callback. Stop
+            // is not a native-state fault: cancel at the unchanged frontier so
+            // the next frame can retire the captured snapshots and resources.
+            const bool input_cancel=correction->exchange.failed.load() &&
+                correction->exchange.input_rejection.load()!=0 && correction->stage.load()==0 &&
+                !correction->restored.load() && !correction->injected.load() && !correction->restart.load();
+            const bool cancel_valid=observed.valid && observed.object==object &&
+                observed.thread==GetCurrentThreadId() && observed.thread==owner_thread.load() &&
+                now>=observed.tick && now-observed.tick<=250 && !retired.load() && !failed.load() &&
+                !resources_.cancelled() && resources_.ready();
+            return confirmation_hold.run(observed.base,object,GetCurrentThreadId(),observed.clock.identity,
+            observed.clock.frame,boundary_frame.load(),now,
+            input_cancel?cancel_valid:(valid && !correction->failed.load() && !correction->exchange.failed.load()),
+            correction->exchange.ready.load(std::memory_order_acquire),input_cancel);
+        }
         return false;
     }
     // Historical evidence only: this does not authorize clock ownership.
@@ -114,6 +168,7 @@ public:
         if constexpr(requires {resources_.source();})return resources_.source();
         else return {};
     }
+    bool stop_requested()const{return stop_.load(std::memory_order_acquire);}
     void request_stop(){stop_.store(true,std::memory_order_release);}
     void frame(unsigned frame,bool boundary_valid){
         if(retired.load())return;
@@ -130,6 +185,7 @@ public:
             failed=true;request_stop();
         }
         if(stop_.load(std::memory_order_acquire)){
+            if(cycles_enabled.load(std::memory_order_acquire) && !cycles->release()){failed=true;return;}
             if(correction_enabled.load(std::memory_order_acquire) && !correction->release()){failed=true;return;}
             if(replay_enabled.load(std::memory_order_acquire) && !replay->release()){failed=true;return;}
             if(!snapshots.release()){failed=true;return;}

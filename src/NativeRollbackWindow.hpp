@@ -1,6 +1,7 @@
 #pragma once
 #include "NativeSnapshotPool.hpp"
 #include "NativeAdjacentRestore.hpp"
+#include "OwnedWindowRestorePreparation.hpp"
 #include "SingleUpdateCall.hpp"
 #include "ResourceDependencyCapture.hpp"
 #include "GeneratedSnapshotDependency.hpp"
@@ -34,7 +35,9 @@ struct RollbackWindowPlan {
         for(unsigned i=1;i<count;++i)
             if(!keys[i-1].same_round(keys[i]) || keys[i-1].frame==UINT32_MAX || keys[i].frame!=keys[i-1].frame+1)return Result::invalid;
         for(unsigned i=0;i<count-1;++i)if(!backend.prepare(i))return Result::prepare_failed;
-        for(unsigned i=count-1;i-- >0;)if(!backend.restore(i))return Result::restore_failed;
+        for(unsigned i=count-1;i-- >0;){
+            if(!backend.validate_before_load(i) || !backend.restore(i))return Result::restore_failed;
+        }
         return Result::restored;
     }
 };
@@ -42,7 +45,7 @@ struct RollbackWindowPlan {
 // Captures and reverse-loads existing supported native states only. A rewind
 // leaves simulation in the past: the caller MUST finish replay before resuming.
 class NativeRollbackWindow {
-    friend class OwnedPredictionCorrection;
+    template<class,class,class> friend class OwnedPredictionCorrectionBackend;
     using Pool=NativeSnapshotPool<4>;
     Pool pool_;
     std::array<Pool::Handle,4> handles_{};
@@ -104,7 +107,7 @@ public:
             const bool visited=pool_.visit(handles_[i],[&](NativeBoundarySnapshot& a){
                 return pool_.visit(handles_[i+1],[&](NativeBoundarySnapshot& b){
                     same=a.data->transforms[0].same_topology(b.data->transforms[0]);
-                    if(!same){topology=a.data->transforms[0].topology_difference(b.data->transforms[0]);last_hop=i;source_frame=keys_[i].frame;next_frame=keys_[i+1].frame;}
+                    if(!same){topology=a.data->transforms[0].topology_difference(b.data->transforms[0],base_);last_hop=i;source_frame=keys_[i].frame;next_frame=keys_[i+1].frame;}
                     return true;
                 });
             });
@@ -209,10 +212,9 @@ private:
             prepare_stage=2;
             return pool_.visit(handles_[i+1],[&](NativeBoundarySnapshot& next){
                 prepare_stage=3;
-                const bool movement=next.mode==NativeBoundarySnapshot::Mode::direction_observation;
-                if(!hops_[i]->prepare_captured(source,next,movement)){
+                if(!OwnedWindowRestorePreparation::preflight(*hops_[i],source,next)){
                     if(hops_[i]->rejection==NativeBoundarySnapshot::Rejection::transforms)
-                        topology=source.data->transforms[0].topology_difference(next.data->transforms[0]);
+                        topology=source.data->transforms[0].topology_difference(next.data->transforms[0],base_);
                     return false;
                 }
                 prepare_stage=4;
@@ -232,12 +234,20 @@ private:
             });
         });
     }
+    bool validate_before_load(unsigned i){
+        last_hop=i;
+        if(count_<2 || i>=count_-1 || fault_ || keys_[0].thread!=GetCurrentThreadId() || !dependencies_valid()){
+            prepare_stage=6;return false;
+        }
+        return true;
+    }
     bool restore(unsigned i){
         if(count_<2 || i>=count_-1 || fault_)return false;
         last_hop=i;
-        rewind_attempted_=true;
         return pool_.visit(handles_[i],[&](NativeBoundarySnapshot& source){
             return pool_.visit(handles_[i+1],[&](NativeBoundarySnapshot& next){
+                if(!OwnedWindowRestorePreparation::before_load(*hops_[i],source,next))return false;
+                rewind_attempted_=true;
                 return hops_[i]->restore_captured(source,base_,guard_.assign(next.data->delayed_inputs));
             });
         });

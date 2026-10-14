@@ -15,7 +15,7 @@ $copied=@()
 try {
     $files=Get-ChildItem -LiteralPath $report.DirectoryName -File | Where-Object {
         $_.Name -eq $report.Name -or
-        ($_.Name.StartsWith($report.BaseName+'-',[StringComparison]::OrdinalIgnoreCase) -and $_.Extension -in '.txt','.csv','.json')
+        ($_.Name.StartsWith($report.BaseName+'-',[StringComparison]::OrdinalIgnoreCase) -and $_.Extension -in '.txt','.csv','.json','.bin')
     }
     foreach($file in $files){
         # Reports may still be open by the game. Collect a shared-read snapshot,

@@ -2,6 +2,8 @@
 #include "../src/CombatPeerContext.hpp"
 #include <cassert>
 #include <iostream>
+#include <thread>
+#include <atomic>
 using namespace sc6::steam_handshake;
 int main(){
     Protocol a{22,101},b{11,202};
@@ -25,6 +27,19 @@ int main(){
     auto pending=a;pending.mutual=false;assert(!context.publish(pending,1,1002,true));
     assert(context.publish(b,2,1003,true) && context.read(1003,snapshot) && snapshot.local_slot==2);
     context.clear();assert(!context.read(1003,snapshot));
+    // Reproduce the former poll gap: a battle callback between clear and
+    // refresh would skip its capture despite a still-authenticated peer.
+    assert(context.publish(a,1,1004,true));context.clear();
+    assert(!context.read(1004,snapshot));
+    assert(context.publish(a,1,1004,true));
+    std::atomic<bool> go{};
+    std::thread writer([&]{while(!go.load())std::this_thread::yield();
+        for(unsigned i=0;i<10000;++i)assert(context.publish(a,1,1004,true));});
+    go=true;
+    for(unsigned i=0;i<10000;++i){assert(context.read(1004,snapshot));
+        assert(snapshot.peer==22 && snapshot.local_nonce==101 && snapshot.remote_nonce==202);}
+    writer.join();
+    assert(!context.publish(a,1,1004,false));assert(!context.read(1004,snapshot));
     assert(a.receive(22,b.outgoing(),32)); // duplicate is harmless
     bad=b.outgoing();bad.nonce=303;assert(!a.receive(22,bad,32));
     Protocol restarted{22,404};assert(!restarted.receive(22,b.outgoing(),32));assert(!restarted.mutual);

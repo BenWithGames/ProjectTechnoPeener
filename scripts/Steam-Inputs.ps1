@@ -1,6 +1,7 @@
 param([switch]$CheckpointCapture,[switch]$NativeReplay,[switch]$LateInputs,[switch]$WindowReuse,[switch]$StartupPreparation,[switch]$Continuous,
-      [switch]$TestSuite,[ValidateSet('Boundary','Hold','Snapshots','ReferenceReplay','PredictionCorrection')][string]$SuiteProfile='Snapshots',
-      [ValidateRange(0,180)][int]$ObserveSeconds=60)
+      [switch]$TestSuite,[ValidateSet('Boundary','Hold','Snapshots','ReferenceReplay','PredictionCorrection','RepeatedCorrection','AttackCorrection','RepeatedAttackCorrection','CombatCorrection','CombatCorrectionBaseline')][string]$SuiteProfile='Snapshots',
+      [ValidateRange(0,180)][int]$ObserveSeconds=60,
+      [string]$FriendCode,[ValidateRange(0,2)][int]$PlayerSlot=0,[switch]$Consent)
 $ErrorActionPreference='Stop'
 function Read-ReportSnapshot([string]$Path) {
     # A writer may briefly deny reads. Let the caller retry on its next poll.
@@ -36,8 +37,8 @@ try {
     if(Test-Path -LiteralPath $report){throw 'This game launch already ran an input exchange. Restart SC6 on both PCs before retrying.'}
     Write-Host 'Both players: install this build, launch SC6, and join the same private lobby.'
     Write-Host 'Both PCs need this build and opposite assigned player slots.'
-    if($TestSuite -and $SuiteProfile -in @('ReferenceReplay','PredictionCorrection')){Write-Host 'CONTROLLED REPLAY: leave both players idle until the script says observing_suite_gameplay, then play normally. This explicitly enables a guarded three-frame restore/replay. Restart immediately if the report requires it.'}
-    if($TestSuite){Write-Host "TEST SUITE: $SuiteProfile; then $ObserveSeconds seconds of normal-play observation. Both PCs must choose identical settings. PredictionCorrection injects a controlled wrong movement and verifies correction; continuous rollback remains disabled. Restart after the run."}
+    if($TestSuite -and $SuiteProfile -notin @('CombatCorrection','CombatCorrectionBaseline') -and $SuiteProfile -in @('ReferenceReplay','PredictionCorrection','RepeatedCorrection','AttackCorrection','RepeatedAttackCorrection','CombatCorrection','CombatCorrectionBaseline')){Write-Host 'CONTROLLED REPLAY: leave both players idle until the script says observing_suite_gameplay, then play normally. This explicitly enables a guarded three-frame restore/replay. Restart immediately if the report requires it.'}
+    if($TestSuite){Write-Host "TEST SUITE: $SuiteProfile; then $ObserveSeconds seconds of normal-play observation. Both PCs must choose identical settings. PredictionCorrection runs one controlled correction; RepeatedCorrection runs three while both players stay idle; AttackCorrection injects one A then corrects three frames; RepeatedAttackCorrection repeats that attack correction three times; continuous rollback remains disabled. Restart after the run."}
     elseif($Continuous){Write-Host 'EXPERIMENTAL GENERAL COMBAT RESTORE: real predictions and corrections up to three frames within one round. First-match start; no warmup. Structural guards remain and may stop/freeze the experiment. Close BOTH games after a stop. Live validation is pending.'}
     elseif($StartupPreparation){Write-Host 'STARTUP CHECK: agreement, brief clock hold and four snapshots. No restoration or replay. Restart afterward.'}
     if($StartupPreparation -and -not $Continuous){Write-Host 'Before this check: after restarting SC6, enter a private match briefly, then return to the lobby without running scripts. This identifies the game thread before resource acquisition.'}
@@ -45,14 +46,14 @@ try {
     if($WindowReuse){Write-Host 'NATIVE WINDOW REUSE TEST: both players idle for 10 seconds after FIGHT, then play normally. Two three-frame reference replays; no prediction.'}elseif($NativeReplay){Write-Host 'THREE-FRAME REMOTE-PLAYER RIGHTWARD MOVEMENT PREDICTION/CORRECTION EXPERIMENT: both players idle for 10 seconds after round start. If restoration fails, close both games before retrying.'}elseif(-not $TestSuite -and -not $Continuous){Write-Host 'No restoration or replay occurs in this mode.'}
     Write-Host 'You can start these scripts in the lobby. Then ready up, select characters and stage, and start your PRIVATE match within 10 minutes.'
     if($CheckpointCapture){Write-Host 'Native checkpoint READINESS test: leave BOTH players idle for 5 seconds after the round starts. No restoration or replay.'}
-    $peerText=(Read-Host "Enter your FRIEND'S numeric Steam friend code or 17-digit SteamID64").Trim()
+    $peerText=if($FriendCode){$FriendCode.Trim()}else{(Read-Host "Enter your FRIEND'S numeric Steam friend code or 17-digit SteamID64").Trim()}
     if($peerText -notmatch '^\d{1,17}$'){throw 'Enter a numeric friend code or SteamID64.'}
     [UInt64]$peer=$peerText
     if($peer -gt 0 -and $peer -le 4294967295){$peer+=[UInt64]'76561197960265728'}
     if($peer -le [UInt64]'76561197960265728' -or $peer -gt [UInt64]'76561202255233023'){throw 'Invalid individual Steam ID.'}
-    $localSlot=(Read-Host 'Are YOU assigned Player 1 or Player 2 in this match? Enter 1 or 2').Trim()
+    $localSlot=if($PlayerSlot){[string]$PlayerSlot}else{(Read-Host 'Are YOU assigned Player 1 or Player 2 in this match? Enter 1 or 2').Trim()}
     if($localSlot -notin @('1','2')){throw 'Enter your assigned player number, not current screen position.'}
-    if((Read-Host 'Both consent and are in the same PRIVATE lobby or match? Type YES') -ne 'YES'){throw 'Not started.'}
+    if(-not $Consent -and (Read-Host 'Both consent and are in the same PRIVATE lobby or match? Type YES') -ne 'YES'){throw 'Not started.'}
     Read-Host 'When both scripts are ready, press Enter on both PCs to start' | Out-Null
     if($gameProcess.HasExited){throw 'SC6 closed before starting.'}
     New-Item -ItemType Directory -Force -Path $captureDir | Out-Null
@@ -60,9 +61,11 @@ try {
     $arm=Join-Path $captureDir 'steam-inputs.arm'
     $stream=[IO.File]::Open($arm,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
     $armMode=if($Continuous){'PRIVATE_STEAM_CONTINUOUS'}elseif($TestSuite){'PRIVATE_STEAM_SUITE'}elseif($StartupPreparation){'PRIVATE_STEAM_PREPARE'}elseif($WindowReuse){'PRIVATE_STEAM_REUSE'}elseif($LateInputs){'PRIVATE_STEAM_LATE'}elseif($NativeReplay){'PRIVATE_STEAM_REPLAY'}elseif($CheckpointCapture){'PRIVATE_STEAM_CHECKPOINTS'}else{'PRIVATE_STEAM_INPUTS'}
-    $suiteArgs=if($TestSuite){' '+(@{Boundary=1;Hold=2;Snapshots=3;ReferenceReplay=4;PredictionCorrection=5}[$SuiteProfile])+' '+$ObserveSeconds}else{''}
+    if($TestSuite -and $SuiteProfile -in @('CombatCorrection','CombatCorrectionBaseline')){Write-Host 'COMBAT CORRECTION: play normally from round start. One bounded three-frame remote-neutral prediction is corrected against recorded inputs. Neutral windows are skipped automatically: up to 12 attempts, spaced 180 frames apart, stop after one verified correction. Stop if restart is required.'}
+    $suiteArgs=if($TestSuite){' '+(@{Boundary=1;Hold=2;Snapshots=3;ReferenceReplay=4;PredictionCorrection=5;RepeatedCorrection=6;AttackCorrection=7;RepeatedAttackCorrection=8;CombatCorrection=9;CombatCorrectionBaseline=10}[$SuiteProfile])+' '+$ObserveSeconds}else{''}
     try{$bytes=[Text.Encoding]::ASCII.GetBytes("$armMode $($gameProcess.Id) $peer $localSlot$suiteArgs`n");$stream.Write($bytes,0,$bytes.Length)}finally{$stream.Dispose()}
-    if($TestSuite){Write-Host 'Wait for both scripts to connect, then start the private match. For ReferenceReplay or PredictionCorrection, stay idle until observing_suite_gameplay. Keep SC6 open until the suite finishes.'}
+    if($TestSuite -and $SuiteProfile -in @('CombatCorrection','CombatCorrectionBaseline')){Write-Host 'Wait for both scripts to connect, then start the match and play normally from FIGHT. Keep SC6 open until the suite finishes.'}
+    elseif($TestSuite){Write-Host 'Wait for both scripts to connect, then start the private match. For any replay/correction profile, stay idle until observing_suite_gameplay. Keep SC6 open until the suite finishes.'}
     elseif($Continuous){Write-Host 'Start the private match and play normally. Activation follows boundary agreement. If either script stops or the game freezes, close BOTH games and share the report ZIPs.'}
     elseif($StartupPreparation){Write-Host 'Start a private match within four minutes. No idle inputs or round change are required. Startup preparation ends once the live clock is observed, at least ten seconds after attachment.'}
     else{Write-Host 'Return to SC6. You have 10 minutes to start the match. Recording waits for a NEW round-start event, then captures 7,200 frames (about 2 minutes). Allow up to 4 more minutes for capture and delivery. If already in a match, finish the current round.'}
@@ -79,7 +82,7 @@ try {
                 $currentStatus=$Matches[1]
                 if($currentStatus -ne $lastStatus){Write-Host "Status: $currentStatus";$lastStatus=$currentStatus}
                 if(($NativeReplay -or $WindowReuse) -and $text -match '(?m)^native_restart_required=1\r?$'){$finalText=$text;break}
-                if($currentStatus -notin @('running','continuous_running','waiting_for_local_round_marker','waiting_for_combat_clock','waiting_for_combat_resources','waiting_for_resource_retirement','waiting_for_boundary_agreement','waiting_for_boundary_hold','waiting_for_boundary_snapshots','observing_suite_gameplay','waiting_for_suite_peer_result','waiting_for_reference_replay','waiting_for_prediction_correction','waiting_for_continuous_activation')){$finalText=$text;break}
+                if($currentStatus -notin @('running','continuous_running','waiting_for_local_round_marker','waiting_for_combat_clock','waiting_for_combat_resources','waiting_for_resource_retirement','waiting_for_boundary_agreement','waiting_for_boundary_hold','waiting_for_boundary_snapshots','observing_suite_gameplay','waiting_for_suite_peer_result','waiting_for_reference_replay','waiting_for_prediction_correction','waiting_for_repeated_correction','waiting_for_continuous_activation')){$finalText=$text;break}
             }
         }
     }while((Get-Date) -lt $deadline)
@@ -94,6 +97,7 @@ try {
         }
         if($TestSuite){
             & (Join-Path $PSScriptRoot 'Summarize-TestSuite.ps1') -Report $report
+            if($finalText -match '(?m)^status=SUITE_NO_SUITABLE_WINDOW\r?$'){Write-Host 'No suitable window observed. Neutral windows were cleaned up; no correction was verified. Restart before another suite.';return}
             if($finalText -notmatch '(?m)^status=SUITE_COMPLETE\r?$'){throw 'Suite did not pass all selected stages on both PCs. Read the summary; restart before another run.'}
             Write-Host 'Selected stages passed on both PCs. Rollback remains inactive. Restart before another suite.'
             exit 0
