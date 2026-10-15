@@ -7,6 +7,7 @@ namespace sc6::research {
 // No native publication; the observer's allocation event alone cannot pin memory.
 template<std::size_t Capacity=128,unsigned Slots=16> class EffectObjectRegistry {
 public:
+    bool contains(uintptr_t address)const noexcept {for(const auto& e:entries_)if(e.address==address)return true;return false;}
     using Window=EffectRetentionWindow<Capacity,Slots>;
     using Token=typename Window::Token;
 private:

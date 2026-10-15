@@ -7,6 +7,9 @@
 #include <latch>
 #include <memory>
 #include "../src/EffectRetentionRuntime.hpp"
+#include "../src/EffectLifecycleWindow.hpp"
+#include "../src/NativeEffectSession.hpp"
+#include "../src/NativeSnapshotPool.hpp"
 #include "../src/NativeRangeCompatibility.hpp"
 #include "../src/NativeRangeImage.hpp"
 #include "../src/NativeRangeCaptureBridge.hpp"
@@ -288,6 +291,156 @@ static void failed_image_write_test(){
     assert(runtime.restart_required() && runtime.stopped() && runtime.write_exception());
     assert(!runtime.collect() && !runtime.expire(snapshot) && !runtime.finish(true));
     DWORD ignored{};assert(VirtualProtect(manager,4096,previous,&ignored));assert(VirtualFree(manager,0,MEM_RELEASE));
+}
+static void wind_lifecycle_window_tests(){
+    using Lifecycle=sc6::research::EffectLifecycleWindow<4,4>;
+    using Image=Lifecycle::Image;
+    Lifecycle::Runtime runtime;
+    std::array<std::byte,0x1E0> original{},created{},recreated{};
+    const auto old_address=reinterpret_cast<uintptr_t>(original.data()),new_address=reinterpret_cast<uintptr_t>(created.data()),replay_address=reinterpret_cast<uintptr_t>(recreated.data());
+    uintptr_t wind_head=old_address;const auto manager=reinterpret_cast<uintptr_t>(&wind_head);
+    const uintptr_t type=alloc::base+0x3E88CE8;
+    auto construct=[&](auto& bytes,uintptr_t next,uintptr_t previous){
+        bytes.fill(std::byte{});std::memcpy(bytes.data(),&type,8);
+        std::memcpy(bytes.data()+0x10,&next,8);std::memcpy(bytes.data()+0x18,&previous,8);
+        std::memcpy(bytes.data()+0x28,&manager,8);
+    };
+    construct(original,0,0);image_frees=0;
+    assert(runtime.begin(alloc::base,7,9,&image_native_free,&fixture_environment));
+    assert(runtime.allocation(old_address,0x1E0,0x334A1E));
+    Lifecycle history(runtime);assert(history.capture(10,manager));
+    assert(runtime.allocation(new_address,0x1E0,0x334A1E));construct(created,old_address,0);
+    wind_head=new_address;std::memcpy(original.data()+0x18,&new_address,8);
+    assert(history.capture(11,manager));
+    release_bridge::route.store(runtime.route());
+    const auto references=[](const Image&,const Image&){return true;}; // Fixture has no external references.
+    assert(history.restore(0,references) && wind_head==old_address && image_frees==0);
+    assert(history.verify(0,100));
+    assert(runtime.collect() && image_frees==0); // B remains pinned by frame11.
+    assert(history.restore(1,references) && wind_head==new_address && image_frees==0);
+    assert(history.verify(1,101));
+    // Rewind again, then emulate native replay creating B at old_address fresh address.
+    assert(history.restore(0,references));
+    assert(runtime.allocation(replay_address,0x1E0,0x334A1E));construct(recreated,old_address,0);
+    wind_head=replay_address;std::memcpy(original.data()+0x18,&replay_address,8);
+    assert(history.verify(1,102)); // Link addresses differ; payload is identical.
+    assert(history.diagnostic.restores==3 && history.diagnostic.verified==3);
+    assert(history.diagnostic.removed==2 && history.diagnostic.added==1);
+    assert(history.retire() && image_frees==1 && last_image_free==new_address);
+    assert(history.retire() && image_frees==1);
+    release_bridge::route.store(nullptr);assert(runtime.finish(true));
+    // Exact payload differences must not be mistaken for address relocation.
+    Image expected,actual;assert(expected.capture(manager,alloc::base));actual=expected;
+    fixture_environment(alloc::base,expected.environment);actual.environment=expected.environment;
+    for(unsigned i=0;i<expected.count;++i)expected.objects[i].generation=actual.objects[i].generation=i+1;
+    actual.objects[0].bytes[0x30]=std::byte{1};unsigned object{},offset{};
+    assert(!Lifecycle::equivalent(expected,actual,object,offset) && object==0 && offset==0x30);
+    actual=expected;actual.count=5;assert(!Lifecycle::equivalent(expected,actual,object,offset));
+    actual=expected;uintptr_t bad_link=123;std::memcpy(actual.objects[0].bytes.data()+0x10,&bad_link,8);
+    assert(!Lifecycle::equivalent(expected,actual,object,offset)); // Never mask broken linkage.
+    // Refusing external ownership must leave both list and payload untouched.
+    Lifecycle::Runtime guarded_runtime;wind_head=old_address;construct(original,0,0);
+    assert(guarded_runtime.begin(alloc::base,8,1,&image_native_free,&fixture_environment));
+    assert(guarded_runtime.allocation(old_address,0x1E0,0x334A1E));
+    Lifecycle guarded(guarded_runtime);assert(guarded.capture(1,manager));
+    original[0x30]=std::byte{77};
+    assert(!guarded.restore(0,[](const Image&,const Image&){return false;}));
+    assert(guarded.diagnostic.failure==Lifecycle::Failure::dependencies && !guarded.diagnostic.mutated);
+    assert(wind_head==old_address && original[0x30]==std::byte{77});
+    assert(guarded.retire() && guarded_runtime.finish(true));
+    // A frame reset/rematch cannot silently enter the same lifecycle window.
+    Lifecycle::Runtime reset_runtime;
+    assert(reset_runtime.begin(alloc::base,9,1,&image_native_free,&fixture_environment));
+    assert(reset_runtime.allocation(old_address,0x1E0,0x334A1E));
+    Lifecycle reset(reset_runtime);assert(reset.capture(20,manager));
+    assert(!reset.capture(1,manager) && reset.diagnostic.failure==Lifecycle::Failure::identity);
+    assert(reset.retire() && reset_runtime.finish(true));
+    std::puts("PASS: wind creation, rewind, revival, replay relocation, exact payload comparison and retirement");
+}
+struct ExternalFixture {
+    std::array<sc6::research::EffectOwnedRange,3> ranges{};unsigned count{};bool owned=true;
+    static bool provide(void* context,std::array<sc6::research::EffectOwnedRange,3>& out,unsigned& size){
+        auto& f=*static_cast<ExternalFixture*>(context);out=f.ranges;size=f.count;return f.owned;
+    }
+};
+static void native_wind_binding_tests(){
+    auto* memory=static_cast<std::byte*>(VirtualAlloc(nullptr,0x4860000,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));assert(memory);
+    const auto module=reinterpret_cast<uintptr_t>(memory),query=module+0x4844DD0,manager=module+0x4100B60;
+    auto put=[](uintptr_t at,uintptr_t value){std::memcpy(reinterpret_cast<void*>(at),&value,8);};
+    std::array<std::byte,64> descriptor{};std::array<std::byte,256> table{};
+    const auto desc=reinterpret_cast<uintptr_t>(descriptor.data()),data=reinterpret_cast<uintptr_t>(table.data());
+    put(module+0x470E038,manager);put(module+0x40FBC38,module+0x4100C00);put(module+0x40F7688,module+0x4100C10);
+    put(query,desc);memory[0x4844DD0+0x410]=std::byte{1};descriptor[0x28]=std::byte{1};
+    put(query+8,data);put(data,data+16);table[8]=std::byte{1};
+    put(data+16,data+32);table[40]=std::byte{1};put(data+48,data+64);
+    ExternalFixture fixture;fixture.count=2;fixture.ranges[0]={desc,descriptor.size(),11};fixture.ranges[1]={data,table.size(),22};
+    sc6::research::EffectExternalSource external{&fixture,ExternalFixture::provide};
+    sc6::research::EffectExternalReferences references;assert(references.capture(module,external));
+    table[100]=std::byte{1};assert(!references.validate());table[100]=std::byte{};assert(references.validate());
+    put(query+8,1);assert(!references.validate());put(query+8,data);
+    fixture.owned=false;assert(!references.validate());fixture.owned=true;assert(references.validate());
+    put(data+48,data+240);assert(!references.capture(module,external)); // Full candidate extent exceeds ownership.
+    put(data+48,data+64);assert(references.capture(module,external));
+    // Dense shared stage references exceed the former 8192-visit cap.
+    std::array<std::byte,4096> dense{};const auto dense_address=reinterpret_cast<uintptr_t>(dense.data());
+    const auto old_range=fixture.ranges[1];fixture.ranges[1]={dense_address,dense.size(),22};
+    descriptor[0x28]=std::byte{64};
+    for(unsigned i=0;i<64;++i)put(query+8+i*8,dense_address);
+    put(dense_address,dense_address+16);dense[8]=std::byte{30};
+    for(unsigned j=0;j<30;++j)put(dense_address+16+j*8,dense_address+512);
+    dense[520]=std::byte{8};
+    for(unsigned j=0;j<8;++j)put(dense_address+528+j*8,dense_address+1024);
+    assert(references.capture(module,external) && references.diagnostic.visits==17280);
+    put(dense_address+528,dense_address+dense.size()-16);
+    assert(!references.capture(module,external) && references.diagnostic.check==11);
+    put(dense_address+528,dense_address+1024);
+    dense[520]=std::byte{40};
+    for(unsigned j=0;j<40;++j)put(dense_address+528+j*8,dense_address+1024);
+    assert(!references.capture(module,external) && references.diagnostic.visits==65537);
+    assert(references.diagnostic.check==7 || references.diagnostic.check==10);
+    // The native query explicitly accepts an active root without a descriptor.
+    put(query,0);assert(references.capture(module,external));put(query,desc);
+    fixture.ranges[1]=old_range;descriptor[0x28]=std::byte{1};
+    for(unsigned i=0;i<64;++i)put(query+8+i*8,0);
+    put(query+8,data);assert(references.capture(module,external));
+    std::array<std::byte,0x1E0> old_node{},new_node{};
+    const auto old_address=reinterpret_cast<uintptr_t>(old_node.data()),new_address=reinterpret_cast<uintptr_t>(new_node.data());
+    auto node=[&](auto& bytes,uintptr_t next,uintptr_t previous){
+        const auto address=reinterpret_cast<uintptr_t>(bytes.data());
+        put(address,module+0x3E88CE8);put(address+0x10,next);put(address+0x18,previous);put(address+0x28,manager);
+    };
+    node(old_node,0,0);put(manager,old_address);
+    sc6::research::NativeEffectSession session;session.configure(image_native_free);
+    assert(session.begin(module,17,2,external));
+    sc6::research::NativeEffectSession::Binding before,after;
+    assert(session.capture(before));
+    // Use the real allocation callback route, with a fixture allocator result.
+    const auto old_base=alloc::base;alloc::base=module;
+    // A known allocation born and freed before any snapshot is not a dangling
+    // retained object and must not stop later captures.
+    std::array<std::byte,0x1E0> transient{};
+    allocation_result=reinterpret_cast<uintptr_t>(transient.data());
+    alloc::observe_allocate(0x1E0,module+0x334A1E,allocate_mock);
+    const auto* route=release_bridge::route.load();assert(route);
+    route->before_native(route->context,allocation_result);
+    allocation_result=new_address;
+    assert(alloc::observe_allocate(0x1E0,module+0x334A1E,allocate_mock)==new_address);
+    node(new_node,old_address,0);put(old_address+0x18,new_address);put(manager,new_address);
+    assert(session.capture(after));assert(session.restore(before));
+    assert(session.compare(before) && session.removed==1);
+    assert(session.restore(after) && session.compare(after) && session.added==1);
+    // The native pool must retire the lifecycle pin before releasing resources.
+    sc6::research::NativeSnapshotPool<1> pool;
+    auto handle=pool.acquire(17,2,50);assert(handle);
+    assert(pool.visit(*handle,[&](sc6::research::NativeBoundarySnapshot& snapshot){
+        snapshot.effects=std::make_unique<sc6::research::NativeEffectSession::Binding>();
+        return session.capture(*snapshot.effects);
+    }));
+    assert(pool.release_dependencies(*handle));
+    assert(session.release(before) && session.release(after));assert(session.finish());
+    assert(!release_bridge::route.load());alloc::base=old_base;
+    assert(VirtualFree(memory,0,MEM_RELEASE));
+    std::puts("PASS: owned stage graph, native wind snapshot bindings, list restore, replay comparison and pool retirement");
 }
 #include "../src/ResourceDescriptorObserver.hpp"
 namespace ro=sc6::research::resource_observer;
@@ -673,6 +826,8 @@ int main(){
     effect_image_tests();
     restore_plan_tests();
     apply_image_tests();
+    wind_lifecycle_window_tests();
+    native_wind_binding_tests();
     failed_image_write_test();
     {
         for(const auto& site:sc6::research::effect_allocation_sites){
@@ -694,6 +849,17 @@ int main(){
         assert(registry.constructed(4096,alloc::base+0x3E88C88,true,window).generation);
         assert(registry.allocation(8192,0x130,0x3345B4,alloc::base));
         assert(registry.constructed(8192,alloc::base+0x3E88CB8,true,window).generation);
+    }
+    {
+        auto image=std::make_unique<sc6::research::TransformSnapshot>();
+        image->valid=true;image->count=3;
+        auto& manager=image->records[0];manager.side=2;manager.kind=3;manager.address=0x1000;manager.size=16;manager.parent=UINT32_MAX;
+        manager.bytes[8]=std::byte{42};
+        auto& wind=image->records[1];wind.side=2;wind.kind=4;wind.parent=0;
+        auto& player=image->records[2];player.side=0;player.kind=1;player.parent=UINT32_MAX;player.address=0x2000;
+        assert(image->separate_effects() && image->count==2);
+        assert(image->records[0].address==0x1008 && image->records[0].size==8 && image->records[0].bytes[0]==std::byte{42});
+        assert(image->records[1].address==0x2000 && image->records[1].side==0);
     }
     auto before=o::sample(reinterpret_cast<uintptr_t>(&head));
     assert(before.valid && before.count==1);

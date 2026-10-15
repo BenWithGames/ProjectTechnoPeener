@@ -15,9 +15,14 @@ public:
     enum State:unsigned {idle,queued,holding,released,rejected,restart_required};
     enum Reason:unsigned {none,invalid_context,identity_changed,clock_passed,battle_mismatch,time_overflow,bind_failed,neutral_cancel,frontier_invalid,service_failed};
     std::atomic<unsigned> state{},services{},reason{},observed_identity{},observed_clock{},observed_battle{};
+    std::atomic<unsigned> context_mask{};
+    static bool clean_cancel(bool stop,unsigned stage,bool restored,bool injected,bool restart) noexcept {
+        return stop && stage==0 && !restored && !injected && !restart;
+    }
     std::atomic<uint64_t> held_ms{};
     uint64_t started_at_{};
     template<class Stream> void write_diagnostics(Stream& out,const std::string& prefix)const{
+        out<<prefix<<"context_mask="<<context_mask.load()<<'\n';
         out<<prefix<<"reason="<<reason.load()<<'\n'<<prefix<<"observed_identity="<<observed_identity.load()<<'\n'
            <<prefix<<"observed_clock="<<observed_clock.load()<<'\n'<<prefix<<"observed_battle="<<observed_battle.load()<<'\n'
            <<prefix<<"target_identity="<<identity_<<'\n'<<prefix<<"target_clock="<<target_<<'\n'

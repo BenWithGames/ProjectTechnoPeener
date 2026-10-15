@@ -149,6 +149,7 @@ inline void poll() {
                    <<"\nsuite_confirmation_hold_services="<<resources->confirmation_hold.services.load()<<'\n';
             }
             if(resources->cycles_enabled.load()){resources->cycles->write_report(out);resources->cycles->write_evidence(out,report_path);}
+            resources->wind_report(out);
             if(resources->replay_enabled.load(std::memory_order_acquire)){
                 const auto& replay=*resources->replay;
                 out<<"suite_reference_captured="<<replay.captured.load()<<"\nsuite_reference_stage="<<replay.stage.load()
@@ -417,7 +418,7 @@ inline void poll() {
         if(prepare_mode)protocol.expected_signature=0x003053433648534bULL;
         if(continuous_mode)protocol.expected_signature=0x004753433648534bULL;
         if(suite_mode)protocol.expected_signature=0x004253433648534bULL^(uint64_t(suite.profile)<<40)^(uint64_t(suite.seconds)<<48);
-        if(suite_mode && suite.profile>=9)protocol.expected_signature^=0x0000000400000000ULL; // guarded animation timer restoration; reject older builds
+        if(suite_mode && suite.profile>=9)protocol.expected_signature^=0x0000001500000000ULL; // reference-first methodology; reject older builds
         HMODULE api=GetModuleHandleW(L"steam_api64.dll");if(!api){report("steam_missing");return;}
         using Handle=int(*)();using Factory=void*(*)(const char*);using Network=void*(*)(void*,int,int,const char*);
         auto user=reinterpret_cast<Handle>(GetProcAddress(api,"SteamAPI_GetHSteamUser"));

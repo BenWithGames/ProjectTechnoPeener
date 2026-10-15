@@ -46,8 +46,11 @@ public:
         // retired before publishing 1/3; retry together without claiming PASS.
         const bool retry=combat && (local[n-1]==3 || peer[n-1]==3);
         if(local[n-1]!=peer[n-1] && !retry){failed=true;return;}
-        if(combat && !retry){complete=true;return;}
-        if(n==limit){exhausted=retry;complete=exhausted || bank.all_verified();if(!complete)failed=true;return;}
+        if(combat && !retry){
+            unsigned bilateral=0;for(unsigned i=0;i<n;++i)if(local[i]==1 && peer[i]==1)++bilateral;
+            if(bilateral>=3){complete=true;return;}
+        }
+        if(n==limit){exhausted=combat;complete=exhausted || bank.all_verified();if(!complete)failed=true;return;}
         const auto next_clock=first_clock+n*spacing;
         if(clock>=next_clock || !bank.arm(n+1,identity,next_clock,first_battle+n*spacing,slot))failed=true;
         else active_cycle=n+1;

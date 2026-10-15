@@ -19,11 +19,13 @@ inline bool installed{};
 inline uintptr_t installed_base{};
 inline NativeClockDiscovery discovery;
 inline void bridge(uintptr_t object) {
-    if(installed_base)discovery.observe(installed_base,object,GetTickCount64());
+    const auto now=GetTickCount64();
+    // Owner-thread consumers use this entry's inspection, even when a reader
+    // prevents publication to the optional cross-thread discovery cache.
+    const auto observed=installed_base?discovery.observe(installed_base,object,now):NativeClockDiscovery::Observation{};
     if(auto* resources=combat_resource_preparation.load(std::memory_order_acquire)){
         if(resources->replay_restart())return;
-        NativeClockDiscovery::Observation observed;const auto now=GetTickCount64();
-        if(discovery.read(now,observed))resources->clock_entry(observed,object,now);
+        resources->clock_entry(observed,object,now);
         if(!combat_routes.load() && !start_hold.load() && !route.load() &&
             !startup_poll.load() && !preparation_poll.load() && resources->run_hold(observed,object,now))return;
     }

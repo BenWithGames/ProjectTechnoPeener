@@ -51,7 +51,7 @@ inline void run(){
         assert(rs.begin(retry,1,100,200,1));
         for(unsigned i=1;i<=retry.limit;++i){
             auto* c=retry.current();const auto tick=100+(i-1)*180+4;
-            if(!exhaust && i==3){c->runner.verified=true;c->runner.retired=true;}
+            if(!exhaust && i>=3){c->runner.verified=true;c->runner.retired=true;}
             else {
                 c->runner.exchange.failed=true;c->runner.exchange.input_rejection=2;
                 c->confirmation.state=4;
@@ -59,9 +59,9 @@ inline void run(){
                 c->runner.failed=true;c->runner.retired=true;
             }
             rs.update(retry,1,tick);assert(retry.active()==i && !rs.failed);
-            Bank::Words result{};result[0]=(!exhaust && i==3)?1:3;result[1]=200+(i-1)*180;result[2]=2;
+            Bank::Words result{};result[0]=(!exhaust && i>=3)?1:3;result[1]=200+(i-1)*180;result[2]=2;
             assert(rs.receive(i,result));rs.update(retry,1,tick);
-            if(!exhaust && i==3)break;
+            if(!exhaust && i==5)break;
         }
         assert(rs.complete && !rs.failed && rs.exhausted==exhaust);
         assert(retry.all_verified()!=exhaust);

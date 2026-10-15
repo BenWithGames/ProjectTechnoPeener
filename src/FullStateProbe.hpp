@@ -7,6 +7,8 @@
 #include "CombatBlend.hpp"
 namespace sc6::research {
 struct FullStateProbe {
+    bool external_wind_lifecycle{};
+    bool defer_inactive_animation_weights{};
     struct BlendPairDiagnostic {unsigned reason{},side{},offset{UINT32_MAX},changed{},saved{},next{};uintptr_t saved_owner{},next_owner{};} blend_pair_diagnostic;
     struct BlendPairEvidence {bool valid{};std::array<std::byte,1372> saved{},next{};} blend_pair_evidence;
     FullRestoreStream saved,after_save;
@@ -18,7 +20,7 @@ struct FullStateProbe {
         bool valid{};
     };
     std::array<Measurement,7> measurements{};
-    // Evidence only: never restored or used to admit/reject a replay.
+    // Timer snapshots retain slot identity; only the validated cursor is restored.
     struct BlendTimerSample {
         std::uint32_t phase{},valid_mask{};
         std::array<std::array<std::array<std::byte,128>,3>,2> slots{};
@@ -26,28 +28,55 @@ struct FullStateProbe {
     std::array<BlendTimerSample,32> blend_timer_history{};
     unsigned blend_timer_count{},blend_timer_dropped{};
     BlendTimerSample blend_timer_expected{};
-    BlendTimerSample blend_timer_source{};
-    bool blend_timer_restore_requested{},blend_timer_restored{};
-    static bool timer_pair(const BlendTimerSample& saved,const BlendTimerSample& live) noexcept {
-        if(saved.valid_mask!=63 || live.valid_mask!=63)return false;
+    BlendTimerSample blend_timer_source{},blend_timer_next{},blend_timer_live{};
+    struct TimerDiagnostic {unsigned phase{},reason{},side{},slot{},offset{UINT32_MAX},expected{},actual{};} timer_diagnostic;
+    static bool timer_compatible(const BlendTimerSample& saved,const BlendTimerSample& live,TimerDiagnostic& d,unsigned phase) noexcept {
+        d={};d.phase=phase;d.offset=UINT32_MAX;
+        if(saved.valid_mask!=63 || live.valid_mask!=63){d.reason=1;d.expected=saved.valid_mask;d.actual=live.valid_mask;return false;}
         for(unsigned side=0;side<2;++side)for(unsigned slot=0;slot<3;++slot){
-            const auto& a=saved.slots[side][slot];const auto& c=live.slots[side][slot];
-            for(unsigned i=0;i<128;++i)if((i<0x40 || i>=0x44) && a[i]!=c[i])return false;
-            auto x=CombatBlend::word(a.data()+0x40),y=CombatBlend::word(c.data()+0x40);
-            if(x>=0x7F800000u || y>=0x7F800000u)return false;
-            if(x!=y && CombatBlend::word(a.data()+0x48)!=2)return false;
+            d.side=side;d.slot=slot;
+            const auto& a=saved.slots[side][slot];const auto& b=live.slots[side][slot];
+            // Native completion clears the cursor and changes active 2 to inactive 1.
+            // Permit only the observed null-callback completion; all ownership bytes stay exact.
+            const auto cursor=CombatBlend::word(a.data()+0x40),rate=CombatBlend::word(a.data()+0x44);
+            const bool completed=phase!=2 && CombatBlend::word(a.data()+0x48)==2 &&
+                CombatBlend::word(b.data()+0x48)==1 && cursor>0 && cursor<0x7F800000u &&
+                rate>0 && rate<0x7F800000u && CombatBlend::word(b.data()+0x40)==0 &&
+                CombatBlend::word(a.data()+0x58)==0 && CombatBlend::word(a.data()+0x5C)==0;
+            for(unsigned i=0;i<128;++i)if((i<0x40 || i>=0x44) &&
+                !(completed && i>=0x48 && i<0x4C) && a[i]!=b[i]){
+                d.reason=2;d.offset=i;d.expected=std::to_integer<unsigned>(a[i]);d.actual=std::to_integer<unsigned>(b[i]);return false;
+            }
+            auto x=CombatBlend::word(a.data()+0x40),y=CombatBlend::word(b.data()+0x40);
+            if(x>=0x7F800000u || y>=0x7F800000u || (x!=y && CombatBlend::word(a.data()+0x48)!=2)){
+                d.reason=3;d.offset=0x40;d.expected=x;d.actual=y;return false;
+            }
         }
         return true;
     }
+    bool timer_transition_ready() noexcept {
+        return timer_compatible(blend_timer_source,blend_timer_next,timer_diagnostic,1);
+    }
+    bool timer_endpoint_ready() noexcept {
+        read_blend_timers(blend_timer_live,measurements[2],7);
+        // At load entry the live state belongs to the newer endpoint.
+        return timer_compatible(blend_timer_next,blend_timer_live,timer_diagnostic,2);
+    }
+    bool blend_timer_restore_requested{},blend_timer_restored{};
+    static bool timer_pair(const BlendTimerSample& saved,const BlendTimerSample& live) noexcept {
+        TimerDiagnostic d{};return timer_compatible(saved,live,d,0);
+    }
     bool timer_live_ready() noexcept {
-        BlendTimerSample live{};read_blend_timers(live,measurements[0],7);
-        return timer_pair(blend_timer_source,live);
+        read_blend_timers(blend_timer_live,measurements[0],7);
+        return timer_compatible(blend_timer_source,blend_timer_live,timer_diagnostic,3);
     }
     bool restore_blend_timers() noexcept {
         if(!timer_live_ready())return false;
         __try {
-            for(unsigned side=0;side<2;++side)for(unsigned slot=0;slot<3;++slot)
+            for(unsigned side=0;side<2;++side)for(unsigned slot=0;slot<3;++slot){
                 std::memcpy(reinterpret_cast<void*>(measurements[0].players[side]+0x972A8+slot*128),blend_timer_source.slots[side][slot].data()+0x40,4);
+                std::memcpy(reinterpret_cast<void*>(measurements[0].players[side]+0x972B0+slot*128),blend_timer_source.slots[side][slot].data()+0x48,4);
+            }
         } __except(EXCEPTION_EXECUTE_HANDLER) { return false; }
         BlendTimerSample live{};read_blend_timers(live,measurements[0],8);
         blend_timer_restored=live.valid_mask==63 && live.slots==blend_timer_source.slots;
@@ -420,11 +449,11 @@ struct FullStateProbe {
                input_checkpoints[0].bytes==input_checkpoints[1].bytes)combat_preflight_pass_mask|=2;
             if(combat_blend_ready())combat_preflight_pass_mask|=4;
             if(transforms[0].combat_groups_ready(transforms[1],transforms[1]))combat_preflight_pass_mask|=8;
-            if(transforms[0].restore_wind(transforms[1],transforms[1],b,true))combat_preflight_pass_mask|=16;
+            if(transforms[0].restore_wind(transforms[1],transforms[1],b,true,&wind_preflight_diagnostic))combat_preflight_pass_mask|=16;
             if(transforms[0].restore_sway(transforms[1],transforms[1],b,true))combat_preflight_pass_mask|=32;
             if(transforms[0].restore_constraints(transforms[1],transforms[1],b,true))combat_preflight_pass_mask|=64;
             general_idle_camera=general_combat_requested && cameras[0].adjacent_idle_ready(cameras[1],b);
-            if(general_idle_camera || cameras[0].adjacent_combat_ready(cameras[1],b,camera_rising_requested(),&camera_readiness))combat_preflight_pass_mask|=128;
+            if(general_idle_camera || cameras[0].adjacent_combat_ready(cameras[1],b,camera_rising_requested(),&camera_readiness,false,general_combat_requested))combat_preflight_pass_mask|=128;
         }__except(EXCEPTION_EXECUTE_HANDLER){return;}
     }
     FullRestoreStream replay,restored;
@@ -439,7 +468,8 @@ struct FullStateProbe {
     std::array<TransformSnapshot,10> transforms{};
     static constexpr const char* blend_names[]={"original_a","original_b","restored","restored_after_save","replay","weights_corrected","blocks_corrected","wind_corrected","sway_corrected","constraints_corrected"};
     bool wind_restore_verified{},sway_restore_verified{},constraint_restore_verified{};
-    TransformSnapshot::WindDiagnostic wind_diagnostic;
+    TransformSnapshot::WindDiagnostic wind_diagnostic,wind_preflight_diagnostic;
+    mutable std::array<uint64_t,5> motion_zero_evidence{}; // count, record, offset, expected bits, actual bits
     CameraSnapshot::RestoreDiagnostic camera_diagnostic;
     bool blend_blocks_applied{},blend_blocks_verified{};
     struct BlendBlockDiagnostic {
@@ -607,6 +637,7 @@ struct FullStateProbe {
                 if(ptr(player+0x971F8)!=owner || ptr(b+0x470DE90+side*8)!=player)return false;
             }
             if(!transforms[checkpoint].capture(out.owners,b))return false;
+            if(external_wind_lifecycle && !transforms[checkpoint].separate_effects())return false;
             if(checkpoint && !transforms[checkpoint].same_topology(transforms[0]))
                 return transforms[checkpoint].reject(9,out.owners[0]);
             out.valid=true;return true;
@@ -726,7 +757,7 @@ struct FullStateProbe {
                     delayed_guard_ok=delayed_guard_ok &&
                         (combat_preflight_pass_mask | (recorded_input_replay && delayed_inputs_equal?2u:0u))==combat_preflight_required_mask;
                 }
-                if(blend_timer_restore_requested && !timer_live_ready())delayed_guard_ok=false;
+                if(blend_timer_restore_requested && (!timer_transition_ready() || !timer_endpoint_ready()))delayed_guard_ok=false;
                 if(!delayed_guard_ok){delayed_failure_line=__LINE__;fault=true;__leave;}
                 // Loader side effects start from the live seed, not the older
                 // snapshot's seed. Check drift before any restoration writes.
@@ -753,7 +784,7 @@ struct FullStateProbe {
                             transforms[0].restore_sway(transforms[1],transforms[2],b,true) && ((combat_postload_pass_mask|=16),true) &&
                             transforms[0].restore_constraints(transforms[1],transforms[2],b,true) && ((combat_postload_pass_mask|=32),true) &&
                             cameras[2].capture(saved,b) && ((combat_postload_pass_mask|=64),true) &&
-                            cameras[0].restore_smoothing(cameras[1],cameras[2],b,false,!general_idle_camera,true,camera_rising_requested()) && ((combat_postload_pass_mask|=128),true);
+                            cameras[0].restore_smoothing(cameras[1],cameras[2],b,false,!general_idle_camera,true,camera_rising_requested(),&camera_diagnostic,general_combat_requested) && ((combat_postload_pass_mask|=128),true);
                         if(!combat_postload_ready){delayed_failure_line=__LINE__;fault=true;__leave;}
                         if(!CombatBlend::restore(blends[0].bytes,blends[1].bytes,blends[2].bytes,blends[0].owners,throw_requested,general_combat_requested,combat_reset_tables.data(),combat_reset_resources.data())){delayed_failure_line=__LINE__;fault=true;__leave;}
                         blend_weights_applied=blend_weights_verified=blend_blocks_applied=blend_blocks_verified=true;
@@ -781,7 +812,7 @@ struct FullStateProbe {
                     restored_save_unchanged=restored_save_unchanged && blends[6].bytes==blends[3].bytes;
                     if(!restored_valid || !restored_save_unchanged){delayed_failure_line=__LINE__;fault=true;__leave;}
                     if(camera_restore_requested){
-                        camera_restore_verified=cameras[0].restore_smoothing(cameras[1],cameras[2],b,false,(combat_replay_requested && !general_idle_camera) || direction_restore_requested || a_restore_requested,false,camera_rising_requested() || direction_restore_requested || a_restore_requested,&camera_diagnostic);
+                        camera_restore_verified=cameras[0].restore_smoothing(cameras[1],cameras[2],b,false,(combat_replay_requested && !general_idle_camera) || direction_restore_requested || a_restore_requested,false,camera_rising_requested() || direction_restore_requested || a_restore_requested,&camera_diagnostic,general_combat_requested);
                         if(!camera_restore_verified || !cameras[4].capture(restored,b)){delayed_failure_line=__LINE__;fault=true;__leave;}
                     }
                     if(combat_replay_requested && !(general_combat_requested?throw_camera_flag.restore_general(saved,restored,b):throw_camera_flag.restore(saved,restored,b,attack_requested,edge_requested,reversal_requested))){delayed_failure_line=__LINE__;fault=true;__leave;}

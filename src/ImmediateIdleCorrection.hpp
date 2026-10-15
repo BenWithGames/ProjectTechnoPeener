@@ -88,12 +88,19 @@ struct ImmediateIdleCorrection {
                 // Separate observed base-camera object; smoothing camera has
                 // already been corrected by its existing dedicated restorer.
                 // Later-frame motion is irrelevant: copy only the saved finite
-                // reset scalar after all other saved/loaded bytes match exactly.
+                // reset scalars after all other saved/loaded bytes match exactly.
                 if(r.smoothing_valid || next.smoothing_valid || TransformSnapshot::pointer(r.bytes.data())!=base+0x3E881C8 ||
                    TransformSnapshot::pointer(next.bytes.data())!=base+0x3E881C8 || CameraSnapshot::word(live.bytes.data()+0x154)!=0 ||
-                   !finite(r.bytes.data()+0x154,4) || std::memcmp(r.bytes.data(),live.bytes.data(),0x154) ||
+                   !finite(r.bytes.data()+0x144,4) || !finite(r.bytes.data()+0x154,4) ||
+                   std::memcmp(r.bytes.data(),live.bytes.data(),0x144) ||
+                   std::memcmp(r.bytes.data()+0x148,live.bytes.data()+0x148,0xC) ||
                    std::memcmp(r.bytes.data()+0x158,live.bytes.data()+0x158,r.bytes.size()-0x158) ||
                    !add(r.owner+0x154,r.bytes.data()+0x154,4))return reject(__LINE__);
+                // Trust the archived finite smoothing offset, not a guessed range.
+                // Native reset may clear it; arbitrary loaded changes remain rejected.
+                if(std::memcmp(r.bytes.data()+0x144,live.bytes.data()+0x144,4) &&
+                   (CameraSnapshot::word(live.bytes.data()+0x144)!=0 ||
+                    !add(r.owner+0x144,r.bytes.data()+0x144,4)))return reject(__LINE__);
             }
             section=6;
             for(unsigned i=0;i<count;++i){const auto& p=patches[i];std::memcpy(reinterpret_cast<void*>(p.address),p.bytes,p.size);}

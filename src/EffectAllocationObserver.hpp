@@ -41,10 +41,13 @@ inline uintptr_t observe_allocate(uintptr_t bytes,uintptr_t caller,Allocate invo
     const auto result=invoke(bytes);const auto error=GetLastError();
     if(capture && (caller>=base && effect_allocation_site(caller-base)))
         record(capture,caller,result,bytes,1,allocation_type(caller,bytes));
+    {
+    std::shared_lock route_lock(effect_release::route_mutex);
     const auto* selected=effect_release::route.load(std::memory_order_acquire);
     if(result && selected && selected->allocation_return &&
        (caller>=base && effect_allocation_site(caller-base)))
         selected->allocation_return(selected->context,result,bytes,caller);
+    }
     SetLastError(error);return result;
 }
 inline uintptr_t observe_release(uintptr_t address,uintptr_t size_argument,uintptr_t caller,Release invoke){

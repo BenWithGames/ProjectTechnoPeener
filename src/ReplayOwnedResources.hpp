@@ -2,6 +2,8 @@
 #include "NativeRollbackWindow.hpp"
 #include "ResourceDescriptorObserver.hpp"
 #include "GeneratedOwnerObserver.hpp"
+#include "EffectAllocationObserver.hpp"
+#include "RngCallerHook.hpp"
 namespace sc6::research {
 // References originate only in synchronous native ownership callbacks.
 struct OwnershipCancellation {
@@ -41,6 +43,9 @@ private:
  struct Descriptor {ResourceReferenceLease lease;uintptr_t object{},control{},payload{};};
  std::array<Descriptor,2> descriptors_;unsigned count_{};
  DWORD owner_{};uintptr_t module_{};
+ std::atomic<bool> wind_requested_{};
+ std::unique_ptr<NativeEffectSession> wind_;
+ std::atomic<NativeEffectSession*> wind_report_{};
  inline static std::atomic<ReplayOwnedResources*> active_{};
  std::atomic<bool> cancelled_{},has_owned_{};
  bool accept_thread(unsigned actual,unsigned code){
@@ -89,6 +94,34 @@ private:
   return true;
  }
 public:
+ bool enable_wind(){if(!rng_trace::install(module_) || !effect_allocations::install(module_))return false;wind_requested_=true;return true;}
+ template<class Stream> void wind_report(Stream& out)const{
+  const auto* wind=wind_report_.load(std::memory_order_acquire);
+  out<<"suite_wind_native_integrated=1\nsuite_wind_requested="<<wind_requested_.load()<<'\n';
+  if(!wind){out<<"suite_wind_captures=0\nsuite_wind_loads=0\nsuite_wind_comparisons=0\n";return;}
+  out<<"suite_wind_failure="<<wind->failure.load()<<"\nsuite_wind_captures="<<wind->captures.load()
+     <<"\nsuite_wind_loads="<<wind->loads.load()<<"\nsuite_wind_comparisons="<<wind->comparisons.load()
+     <<"\nsuite_wind_retirements="<<wind->retirements.load()<<"\nsuite_wind_added="<<wind->added.load()
+     <<"\nsuite_wind_removed="<<wind->removed.load()<<"\nsuite_wind_mismatch_object="<<wind->mismatch_object.load()
+     <<"\nsuite_wind_external_check="<<wind->external_check.load()
+     <<"\nsuite_wind_external_visits="<<wind->external_visits.load()
+     <<"\nsuite_wind_external_column="<<wind->external_column.load()
+     <<"\nsuite_wind_external_interval="<<wind->external_interval.load()
+     <<"\nsuite_wind_external_candidate="<<wind->external_candidate.load()
+     <<"\nsuite_wind_external_address="<<wind->external_address.load()
+     <<"\nsuite_wind_external_extent="<<wind->external_extent.load()
+     <<"\nsuite_wind_mismatch_offset="<<wind->mismatch_offset.load()<<'\n';
+ }
+ static bool effect_ranges(void* context,std::array<EffectOwnedRange,3>& out,unsigned& count){
+  auto& self=*static_cast<ReplayOwnedResources*>(context);count=0;
+  if(!self.ready())return false;
+  for(unsigned i=0;i<self.count_;++i){const auto& entry=self.descriptors_[i];
+   const auto row=resource_observer::read(entry.object,entry.payload,self.module_);
+   if(!row.valid || !row.ready || row.size<=0 || row.payload!=entry.payload || !entry.lease.active())return false;
+   out[count++]={entry.payload,static_cast<uintptr_t>(row.size),entry.control};
+  }
+  out[count++]={self.generated.buffer,self.generated.size,self.generated.control};return true;
+ }
  void on_resource_clear(){if(has_owned_.load())cancel(7);}
  GeneratedSnapshotDependency generated;
  const OwnershipCancellation& cancellation()const{return cancellation_;}
@@ -100,7 +133,10 @@ public:
   first_boundary_verified=true;return true;
  }
  bool ready()const{return (!first_match_ || first_boundary_verified.load()) && !cancelled_ && owner_==GetCurrentThreadId() && count_ && generated.active();}
- ReplayDependencySource source(){return {this,seed,&generated,[](void* context){return static_cast<ReplayOwnedResources*>(context)->ready();}};}
+ ReplayDependencySource source(){
+  if(wind_requested_.load() && ready() && !wind_){wind_=std::make_unique<NativeEffectSession>();wind_->configure(effect_allocations::release_original);wind_report_.store(wind_.get(),std::memory_order_release);}
+  return {this,seed,&generated,[](void* context){return static_cast<ReplayOwnedResources*>(context)->ready();},wind_.get(),{this,effect_ranges}};
+ }
  bool start(uintptr_t module,bool first_match=false){
   if(active_.load() || dependency_events::owned.load() || dependency_events::clear.load() || generated_observer::owned_listener.load() || generated_observer::recording || resource_observer::recording)return false;
   if(!resource_observer::install(module) || !resource_clear::install(module) || !generated_observer::install(module))return false;
@@ -109,6 +145,7 @@ public:
  }
  bool stop(){
   if(owner_ && owner_!=GetCurrentThreadId())return false;
+  if(wind_ && !wind_->finish())return false;
   cancelled_=true;
   for(auto& entry:descriptors_)if(entry.lease.active())entry.lease.release(0,true);
   count_=0;generated.reset();

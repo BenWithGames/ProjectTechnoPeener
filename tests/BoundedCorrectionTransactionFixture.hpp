@@ -47,6 +47,15 @@ struct Window {
         std::memcpy(&value,pool_.states[i]->data->measurements[0].fields[0].data()+8,4);return true;
     }
     bool rewind(const RollbackBoundaryKey& live){return RollbackWindowPlan::execute(keys_,count_,live,*this)==RollbackWindowPlan::Result::restored;}
+    bool replay_reference(SingleUpdateCall::Routine){
+        for(unsigned i=0;i<3;++i){
+            if(!event(600+i))return false;
+            frame=keys_[i+1].frame;
+            std::memcpy(&value,pool_.states[i+1]->data->measurements[0].fields[0].data()+8,4);
+        }
+        return true;
+    }
+    bool prepare_prediction_after_reference(){return event(603);}
     bool release_owned_dependencies(){++releases[id];if(throw_release_mask&(1u<<id))throw id;return event(300+id);}
 };
 struct Update {
@@ -85,9 +94,9 @@ inline void run(){
         b->release();assert(releases[0] && releases[1]);
         if(failure==300 || failure==301)assert(!b->retired && b->restart_required);
     }
-    for(bool ineffective:{false,true})for(unsigned slot:{1u,2u}){
+    for(bool ineffective:{false,true})for(unsigned slot:{1u,2u})for(unsigned reference_failure:{9999u,600u,601u,602u,603u}){
         ineffective_input=ineffective;truth_values[1]=ineffective?1:11;truth_values[2]=ineffective?2:12;truth_values[3]=ineffective?3:23;
-        combat_fixture=true;attack_fixture=false;frame=103;value=23;next_window=updates=0;releases[0]=releases[1]=0;fail_at=9999;events.clear();
+        combat_fixture=true;attack_fixture=false;frame=103;value=23;next_window=updates=0;releases[0]=releases[1]=0;fail_at=reference_failure;events.clear();
         auto b=std::make_unique<Backend>();b->combat_inputs=true;Source source;typename Backend::Frames frames{};b->clean.count_=4;
         for(unsigned i=0;i<4;++i){
             b->clean.keys_[i]={1,2,3,1,4,100+i,slot,GetCurrentThreadId()};
@@ -98,7 +107,10 @@ inline void run(){
                 std::memcpy(b->clean.pool_.states[i]->data->delayed_inputs.data(),frames[i].local.data(),40);
             }
         }
-        assert(b->run_confirmed(frames,b->clean.keys_[3],1,source,original)==!ineffective);
+        const bool result=b->run_confirmed(frames,b->clean.keys_[3],1,source,original);
+        if(reference_failure!=9999){assert(!result && b->reference_attempted && !b->injected && b->predicted_updates==0 && b->restart_required);b->release();continue;}
+        assert(result==!ineffective);
+        assert(b->reference_attempted && b->reference_verified);
         assert(b->predicted_updates==3 && b->corrected_updates==3 && b->state_changed==!ineffective && value==truth_values[3] && b->retired && !b->restart_required);
     }
     combat_fixture=false;ineffective_input=false;

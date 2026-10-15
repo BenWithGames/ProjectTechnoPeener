@@ -22,8 +22,20 @@ struct CameraSnapshot {
         value=value+0.1f;if(value>1.0f)value=1.0f;
         unsigned expected{};std::memcpy(&expected,&value,4);return b==expected;
     }
+    // Pinned 31AC60 increments decision counters; reset/overflow is not admitted.
+    // Event nibble 391088/39108D admits 0..14; 15 means no update.
+    static bool camera_mode_pair(unsigned a,unsigned b) noexcept {return a<=14 && b<=14;}
+    static bool camera_mode_loaded(unsigned a,unsigned b,unsigned c) noexcept {
+        return camera_mode_pair(a,b) && (c==0 || c==a);
+    }
+    static bool decision_counter_pair(unsigned a,unsigned b) noexcept {
+        return a==b || (a<0x7FFFFFFFu && b==a+1);
+    }
+    static bool decision_counter_loaded(unsigned a,unsigned b,unsigned c) noexcept {
+        return decision_counter_pair(a,b) && (c==a || c==b);
+    }
     struct ReadinessDiagnostic {unsigned reason{},record{},section{},offset{},side{};uint64_t saved{},next{};};
-    bool adjacent_combat_ready(const CameraSnapshot& next,uintptr_t base,bool charge_rising=false,ReadinessDiagnostic* detail=nullptr,bool idle_camera=false)const noexcept {
+    bool adjacent_combat_ready(const CameraSnapshot& next,uintptr_t base,bool charge_rising=false,ReadinessDiagnostic* detail=nullptr,bool idle_camera=false,bool decision_counters=false)const noexcept {
         if(detail)*detail={};
         unsigned index=0,side=0;
         auto reject=[&](unsigned reason,unsigned section,unsigned offset,uint64_t a,uint64_t b){
@@ -57,6 +69,8 @@ struct CameraSnapshot {
                 if(charge_rising && (j==0x68 || j==0x6C)){
                     if(!rising_factor(av,bv))return reject(12,3,j,av,bv);
                 }else if(position){if((av&0x7F800000u)==0x7F800000u || (bv&0x7F800000u)==0x7F800000u)return reject(13,3,j,av,bv);}
+                else if(decision_counters && j==112){if(!camera_mode_pair(av,bv))return reject(17,3,j,av,bv);}
+                else if(decision_counters && (j==116 || j==120)){if(!decision_counter_pair(av,bv))return reject(16,3,j,av,bv);}
                 else if(av!=bv)return reject(14,3,j,av,bv);
             }
         }
@@ -77,11 +91,11 @@ struct CameraSnapshot {
     static bool restore_reject(RestoreDiagnostic* diagnostic,unsigned line) noexcept {
         if(diagnostic)diagnostic->failure_line=line;return false;
     }
-    bool restore_smoothing(const CameraSnapshot& next,const CameraSnapshot& current,uintptr_t base,bool immediate_throw=false,bool adjacent_throw=false,bool validate_only=false,bool adjacent_charge=false,RestoreDiagnostic* diagnostic=nullptr)const noexcept {
+    bool restore_smoothing(const CameraSnapshot& next,const CameraSnapshot& current,uintptr_t base,bool immediate_throw=false,bool adjacent_throw=false,bool validate_only=false,bool adjacent_charge=false,RestoreDiagnostic* diagnostic=nullptr,bool decision_counters=false)const noexcept {
         if(diagnostic)*diagnostic={};
         __try {
             if(immediate_throw && adjacent_throw)return restore_reject(diagnostic,__LINE__);
-            if(adjacent_charge && (immediate_throw || !adjacent_throw || !adjacent_combat_ready(next,base,true)))return restore_reject(diagnostic,__LINE__);
+            if(adjacent_charge && (immediate_throw || !adjacent_throw || !adjacent_combat_ready(next,base,true,nullptr,false,decision_counters)))return restore_reject(diagnostic,__LINE__);
             if(!valid || !next.valid || !current.valid || !count || count>records.size() || count!=next.count || count!=current.count)return restore_reject(diagnostic,__LINE__);
             unsigned selected=count;
             for(unsigned i=0;i<count;++i){auto& a=records[i];auto& b=next.records[i];auto& c=current.records[i];
@@ -100,9 +114,14 @@ struct CameraSnapshot {
                     if((j<0x154 || j>=0x158) && a.bytes[j]!=c.bytes[j])return restore_reject(diagnostic,__LINE__);
                 }
                 if(word(c.bytes.data()+0x154)!=0)return restore_reject(diagnostic,__LINE__);
-                for(unsigned j=0;j<8;j+=4)
+                for(unsigned j=0;j<8;j+=4){
+                    if(diagnostic){diagnostic->section=8;diagnostic->offset=j;diagnostic->a=word(a.smoothing.data()+j);diagnostic->b=word(b.smoothing.data()+j);diagnostic->c=word(c.smoothing.data()+j);}
                     if(word(a.smoothing.data()+j)!=0 || word(b.smoothing.data()+j)!=0 || word(c.smoothing.data()+j)!=1)return restore_reject(diagnostic,__LINE__);
-                for(unsigned j=8;j<80;++j)if(c.smoothing[j]!=std::byte{})return restore_reject(diagnostic,__LINE__);
+                }
+                for(unsigned j=8;j<80;++j){
+                    if(diagnostic){diagnostic->section=9;diagnostic->offset=j;diagnostic->a=std::to_integer<unsigned>(a.smoothing[j]);diagnostic->b=std::to_integer<unsigned>(b.smoothing[j]);diagnostic->c=std::to_integer<unsigned>(c.smoothing[j]);}
+                    if(c.smoothing[j]!=std::byte{})return restore_reject(diagnostic,__LINE__);
+                }
                 for(auto* source:{&a,&b}){
                     if((word(source->bytes.data()+0x154)&0x7F800000u)==0x7F800000u)return restore_reject(diagnostic,__LINE__);
                     for(unsigned j=8;j<72;j+=4)if((word(source->smoothing.data()+j)&0x7F800000u)==0x7F800000u)return restore_reject(diagnostic,__LINE__);
@@ -111,7 +130,7 @@ struct CameraSnapshot {
                 // Idle-only target correction: stable A/B, observed load reset, live identity.
                 for(unsigned j=0;!adjacent_throw && j<128;j+=4){
                     const auto av=word(a.targets.data()+j),bv=word(b.targets.data()+j);
-                    if(av!=bv){
+                    if(av!=bv && !(decision_counters && ((j==112 && camera_mode_pair(av,bv)) || ((j==116 || j==120) && decision_counter_pair(av,bv))))){
                         if(diagnostic){diagnostic->section=4;diagnostic->offset=j;diagnostic->a=av;diagnostic->b=bv;diagnostic->c=word(c.targets.data()+j);diagnostic->live=0;}
                         return restore_reject(diagnostic,__LINE__);
                     }
@@ -129,6 +148,14 @@ struct CameraSnapshot {
                     const bool factor=j==0x68 || j==0x6C;
                     auto av=word(a.targets.data()+j),bv=word(b.targets.data()+j),cv=word(c.targets.data()+j);
                     if(diagnostic){diagnostic->section=2;diagnostic->offset=j;diagnostic->a=av;diagnostic->b=bv;diagnostic->c=cv;}
+                    if(decision_counters && j==112){
+                        if(!camera_mode_loaded(av,bv,cv))return restore_reject(diagnostic,__LINE__);
+                        continue;
+                    }
+                    if(decision_counters && (j==116 || j==120)){
+                        if(!decision_counter_loaded(av,bv,cv))return restore_reject(diagnostic,__LINE__);
+                        continue;
+                    }
                     if(adjacent_throw && !position && !(adjacent_charge && factor) && av!=bv)return restore_reject(diagnostic,__LINE__);
                     if(position){
                         if((av&0x7F800000u)==0x7F800000u || (bv&0x7F800000u)==0x7F800000u || cv!=0)return restore_reject(diagnostic,__LINE__);
@@ -162,13 +189,20 @@ struct CameraSnapshot {
                     else if(av!=0)return restore_reject(diagnostic,__LINE__);
                 }
                 auto old_count=word(a.smoothing.data()+72);
-                if(!immediate_throw && (word(b.smoothing.data()+72)!=(old_count==0x7FFFFFFFu?old_count:old_count+1) ||
-                   word(b.smoothing.data()+76)!=(word(a.smoothing.data()+76)+1)%16))return restore_reject(diagnostic,__LINE__);
+                if(!immediate_throw)for(unsigned j:{72u,76u}){
+                    if(diagnostic){diagnostic->section=10;diagnostic->offset=j;diagnostic->a=word(a.smoothing.data()+j);diagnostic->b=word(b.smoothing.data()+j);diagnostic->c=word(c.smoothing.data()+j);}
+                    const auto expected=j==72?(old_count==0x7FFFFFFFu?old_count:old_count+1):(word(a.smoothing.data()+76)+1)%16;
+                    if(word(b.smoothing.data()+j)!=expected)return restore_reject(diagnostic,__LINE__);
+                }
             }
             if(selected==count)return restore_reject(diagnostic,__LINE__);
             if(validate_only)return true;
             auto& a=records[selected];
             // All guards above passed; preserve the captured selector as well.
+            if(decision_counters){
+                std::memcpy(reinterpret_cast<void*>(a.owner+0x2A4),a.targets.data()+116,8);
+                std::memcpy(reinterpret_cast<void*>(a.owner+0x258),a.targets.data()+112,4);
+            }
             std::memcpy(reinterpret_cast<void*>(a.owner+0x1E8),a.targets.data(),4);
             std::memcpy(reinterpret_cast<void*>(a.owner+0x154),a.bytes.data()+0x154,4);
             std::memcpy(reinterpret_cast<void*>(a.owner+0x1E0),a.smoothing.data(),8);

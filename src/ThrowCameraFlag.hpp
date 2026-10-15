@@ -4,6 +4,22 @@ namespace sc6::research {
 struct ThrowCameraFlag {
     bool attempted{},verified{},unchanged_verified{};
     uintptr_t address{};
+    // Revalidate corrected live memory without rewriting the pre-correction evidence.
+    bool corrected_record_matches(const std::byte* saved,const std::byte* loaded,
+                                  uintptr_t source,uint64_t size,uintptr_t writer,uintptr_t base)const noexcept {
+        if(!attempted || !verified || unchanged_verified || size!=0x41E0 ||
+           writer!=base+0x324942 || source<0x10000 || source>UINTPTR_MAX-size ||
+           address!=source+0x1350)return false;
+        __try {
+            uintptr_t vt{};unsigned before{},after{};
+            std::memcpy(&vt,saved+0xF80,8);
+            std::memcpy(&before,saved+0x1350,4);std::memcpy(&after,loaded+0x1350,4);
+            if(vt!=base+0x3E88858 || before!=0 || after!=1)return false;
+            for(unsigned j=0;j<size;++j)
+                if((j<0x1350 || j>=0x1354) && saved[j]!=loaded[j])return false;
+            return !std::memcmp(reinterpret_cast<const void*>(source),saved,size);
+        }__except(EXCEPTION_EXECUTE_HANDLER){return false;}
+    }
     // General path: absent flag records need no patch. An unchanged record
     // must be byte-exact in live memory; known loader normalization still uses
     // the audited dedicated restore below. Never infer a move from an ID.

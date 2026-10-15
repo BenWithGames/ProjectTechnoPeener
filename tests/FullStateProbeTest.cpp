@@ -143,6 +143,22 @@ void source_identity_audit(){
 }
 int main(){
     {
+        namespace rt=sc6::research::rng_trace;
+        unsigned seed=10,counter=42,calls=0;
+        {rt::Scope phase(2);
+            const auto value=rt::observe([&](){++calls;seed=20;SetLastError(123);return 0.625f;},&seed,&counter,0xABC);
+            require(value==0.625f && calls==1 && seed==20 && counter==42 && GetLastError()==123);
+            {rt::Scope inner(1);require(rt::phase==1);}require(rt::phase==2);
+        }
+        require(rt::phase==0);
+        auto snapshot=std::make_unique<rt::Snapshot>();rt::snapshot(*snapshot);
+        require(snapshot->count==1 && snapshot->events[0].phase==2 && snapshot->events[0].before==10 && snapshot->events[0].after==20 && snapshot->events[0].caller==0xABC && snapshot->events[0].frame==42);
+        AcquireSRWLockExclusive(&rt::trace_lock);rt::record(0,0,0,0);ReleaseSRWLockExclusive(&rt::trace_lock);
+        for(unsigned i=0;i<8200;++i)rt::record(i,1,2,3);
+        rt::snapshot(*snapshot);require(snapshot->count==8192 && snapshot->total==8201 && snapshot->dropped==1);
+    }
+
+    {
         auto player=std::make_unique<std::array<std::byte,0x973E8>>();
         (*player)[0x97268+0x40]=std::byte{123};
         P::Measurement m{};m.valid=true;
@@ -162,6 +178,15 @@ int main(){
         }
         unsigned active=2,cursor=0x40A00000;std::memcpy(player->data()+0x972B0,&active,4);
         std::memcpy(player->data()+0x972A8,&cursor,4);
+        probe->measurements[2]=m;
+        P::read_blend_timers(probe->blend_timer_next,m,0);
+        assert(probe->timer_transition_ready() && probe->timer_endpoint_ready());
+        auto transition=probe->blend_timer_next;
+        transition.slots[0][0][8]=std::byte{9};
+        probe->blend_timer_next=transition;
+        assert(!probe->timer_transition_ready() && probe->timer_diagnostic.reason==2 && probe->timer_diagnostic.offset==8);
+        assert(!probe->timer_endpoint_ready() && probe->timer_diagnostic.phase==2);
+        P::read_blend_timers(probe->blend_timer_next,m,0);
         assert(probe->restore_blend_timers() && probe->blend_timer_restored);
         assert((*player)[0x972A8]==std::byte{123});
         (*player)[0x97268+8]=std::byte{1};
@@ -175,6 +200,48 @@ int main(){
         assert(!P::timer_pair(invalid,probe->blend_timer_source));
         m.valid=false;P::read_blend_timers(sample,m,6);
         assert(sample.valid_mask==0 && sample.phase==6);
+    }
+    {
+        auto p=std::make_unique<P>();
+        auto players=std::make_unique<std::array<std::array<std::byte,0x973E8>,2>>();
+        p->measurements[0].valid=p->measurements[2].valid=true;
+        for(unsigned side=0;side<2;++side){
+            p->measurements[0].players[side]=p->measurements[2].players[side]=reinterpret_cast<uintptr_t>((*players)[side].data());
+        }
+        auto put=[](auto& slot,unsigned offset,unsigned value){std::memcpy(slot.data()+offset,&value,4);};
+        p->blend_timer_source.valid_mask=63;
+        auto& slot=p->blend_timer_source.slots[1][0];
+        put(slot,0x40,0x42600000);put(slot,0x44,0x3F800000);put(slot,0x48,2);
+        auto next=p->blend_timer_source;put(next.slots[1][0],0x40,0);put(next.slots[1][0],0x48,1);
+        p->blend_timer_next=next;
+        assert(p->timer_transition_ready());
+        P::TimerDiagnostic d{};
+        assert(!P::timer_compatible(p->blend_timer_source,next,d,2)); // endpoint may not complete again
+        assert(!P::timer_pair(next,p->blend_timer_source)); // no arbitrary activation
+        for(unsigned offset:{8u,0x10u,0x38u,0x44u,0x4Cu,0x58u,0x68u}){
+            auto bad=next;bad.slots[1][0][offset]^=std::byte{1};
+            assert(!P::timer_pair(p->blend_timer_source,bad));
+        }
+        for(unsigned value:{1u,0x80000000u,0x7F800000u,0x7FC00000u}){
+            auto bad=next;put(bad.slots[1][0],0x40,value);assert(!P::timer_pair(p->blend_timer_source,bad));
+        }
+        for(unsigned value:{0u,0x80000000u,0x7F800000u,0x7FC00000u}){
+            auto bad=p->blend_timer_source;put(bad.slots[1][0],0x40,value);assert(!P::timer_pair(bad,next));
+        }
+        for(unsigned offset:{0x58u,0x5Cu}){
+            auto a=p->blend_timer_source,b=next;put(a.slots[1][0],offset,1);put(b.slots[1][0],offset,1);
+            assert(!P::timer_pair(a,b));
+        }
+        for(unsigned side=0;side<2;++side)for(unsigned i=0;i<3;++i)
+            std::memcpy((*players)[side].data()+0x97268+i*128,next.slots[side][i].data(),128);
+        assert(p->timer_endpoint_ready());
+        (*players)[1][0x97268+2*128+8]=std::byte{1}; // validate every slot before any write
+        assert(!p->restore_blend_timers());
+        assert(sc6::research::CombatBlend::word((*players)[1].data()+0x972B0)==1);
+        (*players)[1][0x97268+2*128+8]=std::byte{};
+        assert(p->restore_blend_timers());
+        assert(sc6::research::CombatBlend::word((*players)[1].data()+0x972A8)==0x42600000);
+        assert(sc6::research::CombatBlend::word((*players)[1].data()+0x972B0)==2);
     }
     {
         using R=sc6::research::NativeAdjacentRestore;
@@ -193,6 +260,71 @@ int main(){
         y.lengths[19]=3;require(!R::native_equal(*a,*b,0,&d) && d.structural==1);
         y.lengths[19]=4;x.stream.write_position=y.stream.write_position=79;
         require(!R::native_equal(*a,*b,0,&d) && d.structural==3);
+    }
+
+    {
+        using R=sc6::research::NativeAdjacentRestore;
+        auto a=std::make_unique<P>(),b=std::make_unique<P>();R::PayloadDiagnostic d;
+        constexpr uintptr_t image_base=0x10000000,player=0x20000000;
+        auto& x=a->saved;auto& y=b->restored;
+        x.writes=y.writes=2;x.sealed=y.sealed=true;
+        x.lengths[0]=y.lengths[0]=0x3510;x.lengths[1]=y.lengths[1]=0x11F0;
+        x.stream.write_position=y.stream.write_position=0x4700;
+        a->before_players[0]=player;
+        x.traces[0].source=y.traces[0].source=player+0x90;
+        x.traces[0].writer=y.traces[0].writer=image_base+0x30A9CE;
+        x.traces[1].source=y.traces[1].source=player+0x95FA0;
+        x.traces[1].writer=y.traces[1].writer=image_base+0x30AA96;
+        b->saved.writes=2;b->saved.traces[1].reader=image_base+0x30AFD8;
+        b->restore_completed=b->general_combat_requested=true;
+        unsigned tiny=0x34AEB852;int16_t slot=20;
+        for(auto* stream:{&x,&y}){
+            std::memcpy(stream->stream.payload.data()+0x2020-0x90,&slot,2);
+            std::memcpy(stream->stream.payload.data()+0x2030-0x90,&tiny,4);
+        }
+        for(unsigned j=0;j<15;++j)std::memcpy(x.stream.payload.data()+0x3510+0x1120+j*4,&tiny,4);
+        require(!R::native_equal(*a,*b,image_base,&d) && d.bytes==60 && !d.deferred_bytes);
+        b->defer_inactive_animation_weights=true;
+        require(R::native_equal(*a,*b,image_base,&d) && d.deferred_bytes==60 && !d.records);
+        // Active masks, unknown writes, changed control, and unrelated bytes remain failures.
+        y.stream.payload[0x3510+0x1118]=std::byte{1};require(!R::native_equal(*a,*b,image_base,&d));
+        y.stream.payload[0x3510+0x1118]=std::byte{};
+        y.stream.payload[0x2030-0x90]=std::byte{};require(!R::native_equal(*a,*b,image_base,&d));
+        std::memcpy(y.stream.payload.data()+0x2030-0x90,&tiny,4);
+        y.stream.payload[0x3510+0x115c]=std::byte{1};require(!R::native_equal(*a,*b,image_base,&d) && d.bytes==1 && d.deferred_bytes==60);
+        y.stream.payload[0x3510+0x115c]=std::byte{};
+        b->saved.traces[1].reader++;require(!R::native_equal(*a,*b,image_base,&d));
+    }
+    {
+        using R=sc6::research::NativeAdjacentRestore;
+        auto a=std::make_unique<sc6::research::FullStateProbe>();
+        auto b=std::make_unique<sc6::research::FullStateProbe>();
+        std::array<std::byte,0x41E0> live{};
+        const uintptr_t flag_base=0x140000000,source=reinterpret_cast<uintptr_t>(live.data());
+        auto& x=a->saved;auto& y=b->restored;
+        x.sealed=y.sealed=true;x.writes=y.writes=1;
+        x.lengths[0]=y.lengths[0]=live.size();
+        x.stream.write_position=y.stream.write_position=live.size();
+        x.traces[0].writer=y.traces[0].writer=flag_base+0x324942;
+        x.traces[0].source=y.traces[0].source=source;
+        uintptr_t vt=flag_base+0x3E88858;
+        std::memcpy(x.stream.payload.data()+0xF80,&vt,8);
+        std::memcpy(y.stream.payload.data(),x.stream.payload.data(),live.size());
+        y.stream.payload[0x1350]=std::byte{1};
+        std::memcpy(live.data(),y.stream.payload.data(),live.size());
+        b->restore_completed=true;
+        R::PayloadDiagnostic d;
+        require(!R::native_equal(*a,*b,flag_base,&d));
+        require(b->throw_camera_flag.restore_general(x,y,flag_base));
+        require(R::native_equal(*a,*b,flag_base,&d));
+        require(y.stream.payload[0x1350]==std::byte{1}); // raw evidence preserved
+        live[0x1350]=std::byte{1};require(!R::native_equal(*a,*b,flag_base,&d));
+        live[0x1350]=std::byte{0};
+        live[12]=std::byte{1};require(!R::native_equal(*a,*b,flag_base,&d));
+        live[12]=std::byte{0};
+        y.stream.payload[12]=std::byte{1};require(!R::native_equal(*a,*b,flag_base,&d));
+        y.stream.payload[12]=std::byte{0};
+        b->throw_camera_flag.verified=false;require(!R::native_equal(*a,*b,flag_base,&d));
     }
 
     {
@@ -332,7 +464,78 @@ int main(){
         require(*reinterpret_cast<unsigned*>(owner+0x154)==0);
         std::memcpy(camera.records[0].targets.data(),&zero_selector,4);
         *reinterpret_cast<unsigned*>(owner+0x1E8)=0;
-        require(ca->restore_smoothing(*cb,camera,base));
+        for(unsigned j:{116u,120u}){
+            unsigned old=26,next=27,bad=28;
+            std::memcpy(ca->records[0].targets.data()+j,&old,4);
+            std::memcpy(cb->records[0].targets.data()+j,&next,4);
+            std::memcpy(camera.records[0].targets.data()+j,&bad,4);
+            *reinterpret_cast<unsigned*>(owner+0x2A4+j-116)=bad;
+            require(!ca->restore_smoothing(*cb,camera,base,false,false,false,false,nullptr,true));
+            require(*reinterpret_cast<unsigned*>(owner+0x154)==0);
+            std::memcpy(camera.records[0].targets.data()+j,&next,4);
+            *reinterpret_cast<unsigned*>(owner+0x2A4+j-116)=next;
+        }
+        // Exercise actual validation/restoration for every camera mode transition.
+        {
+            std::array<std::byte,0x2B0> live_before{};
+            std::memcpy(live_before.data(),reinterpret_cast<void*>(owner),live_before.size());
+            for(unsigned saved=0;saved<=14;++saved)for(unsigned next=0;next<=14;++next){
+                using Camera=sc6::research::CameraSnapshot;
+                require(Camera::camera_mode_loaded(saved,next,0));
+                require(Camera::camera_mode_loaded(saved,next,saved));
+                for(unsigned loaded=0;loaded<=15;++loaded)
+                    require(Camera::camera_mode_loaded(saved,next,loaded)==(loaded==0 || loaded==saved));
+                std::memcpy(reinterpret_cast<void*>(owner),live_before.data(),live_before.size());
+                std::memcpy(ca->records[0].targets.data()+112,&saved,4);
+                std::memcpy(cb->records[0].targets.data()+112,&next,4);
+                require(ca->restore_smoothing(*cb,camera,base,false,false,true,false,nullptr,true));
+                require(!std::memcmp(live_before.data(),reinterpret_cast<void*>(owner),live_before.size()));
+                require(ca->restore_smoothing(*cb,camera,base,false,false,false,false,nullptr,true));
+                require(*reinterpret_cast<unsigned*>(owner+0x258)==saved);
+            }
+            for(unsigned invalid:{15u,16u,0x7FFFFFFFu,0x80000000u,0xFFFFFFFFu}){
+                std::memcpy(reinterpret_cast<void*>(owner),live_before.data(),live_before.size());
+                unsigned good=2;
+                for(bool bad_saved:{false,true}){
+                    std::memcpy(ca->records[0].targets.data()+112,bad_saved?&invalid:&good,4);
+                    std::memcpy(cb->records[0].targets.data()+112,bad_saved?&good:&invalid,4);
+                    sc6::research::CameraSnapshot::RestoreDiagnostic detail{};
+                    require(!ca->restore_smoothing(*cb,camera,base,false,false,false,false,&detail,true));
+                    require(detail.failure_line && detail.offset==112);
+                    require(!std::memcmp(live_before.data(),reinterpret_cast<void*>(owner),live_before.size()));
+                }
+            }
+            std::memcpy(reinterpret_cast<void*>(owner),live_before.data(),live_before.size());
+            std::memset(ca->records[0].targets.data()+112,0,4);std::memset(cb->records[0].targets.data()+112,0,4);
+            std::puts("PASS: all 225 camera mode pairs restore saved value; invalid domains reject without writes");
+        }
+        // Camera +258: known stable saved value reset by native load.
+        ca->records[0].targets[112]=cb->records[0].targets[112]=std::byte{1};
+        require(!ca->restore_smoothing(*cb,camera,base));
+        require(ca->restore_smoothing(*cb,camera,base,false,false,true,false,nullptr,true));
+        require(*reinterpret_cast<unsigned*>(owner+0x258)==0); // validate-only
+        cb->records[0].targets[112]=std::byte{15};
+        require(!ca->restore_smoothing(*cb,camera,base,false,false,true,false,nullptr,true));
+        cb->records[0].targets[112]=std::byte{1};
+        camera.records[0].targets[112]=std::byte{2};
+        *reinterpret_cast<unsigned*>(owner+0x258)=2;
+        require(!ca->restore_smoothing(*cb,camera,base,false,false,true,false,nullptr,true));
+        camera.records[0].targets[112]=std::byte{0};
+        *reinterpret_cast<unsigned*>(owner+0x258)=0;
+        require(!ca->restore_smoothing(*cb,camera,base)); // opt-in required
+        require(ca->restore_smoothing(*cb,camera,base,false,false,true,false,nullptr,true));
+        require(*reinterpret_cast<unsigned*>(owner+0x2A8)==27); // validation never writes
+        require(ca->restore_smoothing(*cb,camera,base,false,false,false,false,nullptr,true));
+        require(*reinterpret_cast<unsigned*>(owner+0x2A4)==26 && *reinterpret_cast<unsigned*>(owner+0x2A8)==26);
+        require(*reinterpret_cast<unsigned*>(owner+0x258)==1);
+        for(auto* r:{&ca->records[0],&cb->records[0],&camera.records[0]})r->targets[112]=std::byte{0};
+        *reinterpret_cast<unsigned*>(owner+0x258)=0;
+        for(auto* r:{&ca->records[0],&cb->records[0],&camera.records[0]})
+            std::memset(r->targets.data()+116,0,8);
+        std::memset(reinterpret_cast<void*>(owner+0x2A4),0,8);
+        require(!sc6::research::CameraSnapshot::decision_counter_pair(26,0xFFFFFFFFu));
+        require(!sc6::research::CameraSnapshot::decision_counter_pair(0x7FFFFFFFu,0x80000000u));
+        require(!sc6::research::CameraSnapshot::decision_counter_pair(26,28));
         require(*reinterpret_cast<unsigned*>(owner+0x1E8)==0xFFFFFFFFu);
         require(*reinterpret_cast<float*>(owner+0x1D0)==0 && *reinterpret_cast<float*>(owner+0x1D8)==0);
         require(*reinterpret_cast<float*>(owner+0x1D4)==0.375f);
@@ -471,7 +674,11 @@ int main(){
         require(*reinterpret_cast<unsigned*>(owner+0x154)==0);
         cb->records[0].targets[0]^=std::byte{1};
         n=22;std::memcpy(cb->records[0].smoothing.data()+72,&n,4);
-        require(!ca->restore_smoothing(*cb,camera,base,false,true));
+        sc6::research::CameraSnapshot::RestoreDiagnostic camera_detail{};
+        require(!ca->restore_smoothing(*cb,camera,base,false,true,true,false,&camera_detail));
+        require(camera_detail.failure_line && camera_detail.section==10 && camera_detail.offset==72);
+        require(camera_detail.a==20 && camera_detail.b==22 && camera_detail.c==0);
+        require(*reinterpret_cast<unsigned*>(owner+0x154)==0);
         n=21;std::memcpy(cb->records[0].smoothing.data()+72,&n,4);
         require(ca->restore_smoothing(*cb,camera,base,false,true));
         require(*reinterpret_cast<float*>(owner+0x1D0)==0.24f);
@@ -837,7 +1044,20 @@ int main(){
         *reinterpret_cast<unsigned*>(base+0x470E2B0)=456;
         require(wind_b->capture(owners,base) && t->capture(owners,base));
         *reinterpret_cast<unsigned*>(base+0x470E2B0)=789;
-        require(!wind_a->restore_wind(*wind_b,*t,base));
+        TS::WindDiagnostic shared_diag{};
+        static_assert(sizeof(TS::SharedStateDetail)==2080);
+        require(!wind_a->restore_wind(*wind_b,*t,base,true,&shared_diag));
+        require(shared_diag.shared.reason==3 && shared_diag.shared.kind==11 && shared_diag.shared.live_valid==1);
+        require(shared_diag.shared.address==base+0x470E2B0 && shared_diag.shared.offset==0);
+        unsigned shared_live{},shared_current{};
+        std::memcpy(&shared_live,shared_diag.shared.live.data(),4);
+        std::memcpy(&shared_current,shared_diag.shared.current.data(),4);
+        require(shared_live==789 && shared_current==456 && shared_diag.failure_line!=0);
+        auto shared_record=shared_diag.shared.record;
+        t->records[shared_record].bytes[0]^=std::byte{1};
+        require(!wind_a->restore_wind(*wind_b,*t,base,true,&shared_diag));
+        require(shared_diag.shared.reason==2 && shared_diag.shared.record==shared_record && !shared_diag.shared.live_valid);
+        t->records[shared_record].bytes[0]^=std::byte{1};
         require(*reinterpret_cast<unsigned*>(global_nodes+0x70)==0x3f000000);
         *reinterpret_cast<unsigned*>(base+0x470E2B0)=456;
         require(wind_a->restore_wind(*wind_b,*t,base));
@@ -1789,6 +2009,28 @@ int main(){
             require(partial->fault && loads==1 && partial->completed_restores==0 && !partial->hops[0]->restore_invoked);
             partial->step(base,argument,trajectory_save,load,check);require(loads==1);
             loads=0;
+            // Signed zero is allowed only in the observed motion W field.
+            {
+                auto z=std::make_unique<sc6::research::FullStateProbe>();auto& a=z->after_save;auto& b=z->replay;
+                a.writes=b.writes=1;a.sealed=b.sealed=true;
+                a.stream.write_position=b.stream.write_position=0x370;a.lengths[0]=b.lengths[0]=0x370;
+                z->after_players[0]=0x100000;z->general_combat_requested=true;z->restore_completed=true;
+                a.traces[0].writer=b.traces[0].writer=base+0x30AA80;
+                a.traces[0].source=b.traces[0].source=0x145230;
+                std::memset(a.stream.payload.data(),0,0x370);std::memset(b.stream.payload.data(),0,0x370);
+                a.stream.payload[0x1CF]=std::byte{0x80};
+                require(Two::native_equal(*z,base) && z->motion_zero_evidence[0]==1);
+                require(a.stream.payload[0x1CF]==std::byte{0x80} && b.stream.payload[0x1CF]==std::byte{0});
+                b.stream.payload[0x1CC]=std::byte{1};require(!Two::native_equal(*z,base));b.stream.payload[0x1CC]=std::byte{};
+                b.stream.payload[0x1D0]=std::byte{1};require(!Two::native_equal(*z,base));b.stream.payload[0x1D0]=std::byte{};
+                ++b.traces[0].source;require(!Two::native_equal(*z,base));--b.traces[0].source;
+                ++a.traces[0].writer;++b.traces[0].writer;require(!Two::native_equal(*z,base));--a.traces[0].writer;--b.traces[0].writer;
+                z->general_combat_requested=false;require(!Two::native_equal(*z,base));z->general_combat_requested=true;
+                z->restore_completed=false;require(!Two::native_equal(*z,base));z->restore_completed=true;
+                a.stream.payload[0x1CF]=std::byte{};b.stream.payload[0x1CF]=std::byte{0x80};require(Two::native_equal(*z,base));
+                // A later nonzero divergence is still rejected after an accepted zero.
+                b.stream.payload[0x1CF]=std::byte{0x3f};require(!Two::native_equal(*z,base));
+            }
             // The native-byte exception is restricted to a verified rebuilt self pointer.
             auto& native_probe=*two->hops[0];
             auto& original=native_probe.after_save;auto& replay=native_probe.replay;
@@ -2445,7 +2687,7 @@ int main(){
     }
     // Immediate completion: retained roots/groups/matrices, ring aliases and
     // the separate camera reset. Late validation failure must write nothing.
-    for(unsigned failure=0;failure<23;++failure){
+    for(unsigned failure=0;failure<39;++failure){
         auto a=std::make_unique<P>(),b=std::make_unique<P>(),c=std::make_unique<P>();
         auto& x=a->transforms[0];x.valid=true;x.count=4;
         auto root=base+0x700000,group=base+0x701000,link=base+0x702000,target=base+0x703000;
@@ -2520,14 +2762,32 @@ int main(){
                 c->transforms[3].records[1].bytes[64]^=std::byte{1};
                 *reinterpret_cast<unsigned char*>(group+64)^=1;}
         }
+        const unsigned cameraValues[]={0x3DF439C0u,0xBF800000u,0x80000000u,1u,0x007FFFFFu,0x00800000u,0x7F7FFFFFu,0xFF7FFFFFu};
+        unsigned archived144=0;
+        if(failure>=23){
+            archived144=cameraValues[(failure-23)%8];
+            if(failure==31)archived144=0x7F800000;
+            if(failure==32)archived144=0xFF800000;
+            if(failure==33)archived144=0x7FC00000;
+            if(failure==34)archived144=0x7F800001;
+            std::memcpy(ca.records[0].bytes.data()+0x144,&archived144,4);
+            if(failure==35){unsigned other=0x3F000000;std::memcpy(c->cameras[4].records[0].bytes.data()+0x144,&other,4);}
+            if(failure==36)c->cameras[4].records[0].bytes[0x148]^=std::byte{1};
+            if(failure==37)ca.records[0].owner+=8;
+            if(failure==38)c->cameras[4].records[0].smoothing_valid=true;
+            std::memcpy(reinterpret_cast<void*>(camera),c->cameras[4].records[0].bytes.data(),456);
+        }
         auto correction=std::make_unique<sc6::research::ImmediateIdleCorrection>();
         bool ok=correction->apply(*a,*b,*c,base);
-        require(ok==(failure==0 || (failure>=6 && failure<=16) || failure==20) && correction->verified==ok);
+        require(ok==(failure==0 || (failure>=6 && failure<=16) || failure==20 || (failure>=23 && failure<=30)) && correction->verified==ok);
         require(ok ? correction->failure_line==0 : correction->failure_line!=0);
         require(*reinterpret_cast<float*>(root+0x1F0)==(ok?0.0f:newer));
         require(*reinterpret_cast<float*>(group)==(ok?0.0f:newer));
         require(*reinterpret_cast<float*>(camera+0x154)==(ok?newer:0.0f));
-        if(ok)require(*reinterpret_cast<float*>(target+0x80)==0.0f && correction->count==6);
+        if(ok){
+            require(*reinterpret_cast<float*>(target+0x80)==0.0f && correction->count==(failure>=23?7u:6u));
+            require(*reinterpret_cast<unsigned*>(camera+0x144)==archived144);
+        } else if(failure>=23 && failure!=35)require(*reinterpret_cast<unsigned*>(camera+0x144)==0);
     }
     {
         sc6::research::IdleBlendSettle settle;

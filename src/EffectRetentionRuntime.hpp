@@ -55,6 +55,10 @@ private:
     }
     static void before_native(void* context,uintptr_t address) noexcept {
         auto& self=*static_cast<EffectRetentionRuntime*>(context);
+        // Created and destroyed between captures: no snapshot ever pinned it.
+        if(self.owner() && self.registry_.contains(address) && !self.registry_.lookup(address).generation){
+            self.registry_.released(address);self.forget_address(address);return;
+        }
         self.notices_.before_native(address);
     }
     static void allocation_return(void* context,uintptr_t address,uintptr_t bytes,uintptr_t caller) {
@@ -72,6 +76,27 @@ public:
     }
     // External hook owner may publish only after all lifetime coverage checks.
     const effect_release::Route* route()const noexcept{return active_?&route_:nullptr;}
+    // Seed only a freshly validated complete native list before publishing the
+    // route. This adopts existing live allocations, never retired/raw addresses.
+    bool adopt_live(uintptr_t manager){
+        if(!owner() || !active_ || effect_release::route.load())return false;
+        bool ok=false;
+        gate_.try_access(notices_.stopped,[&]{
+            NativeEffectImage<Capacity> image;if(!image.capture(manager,module_))return;
+            for(unsigned i=0;i<image.count;++i){const auto& object=image.objects[i];
+                const EffectAllocationSite* site=nullptr;
+                for(const auto& candidate:effect_allocation_sites)if(module_+candidate.vtable==object.vtable && candidate.bytes==object.size)site=&candidate;
+                if(!site)return;
+                if(!registry_.contains(object.address)){
+                    uintptr_t* empty=nullptr;for(auto& slot:notices_.addresses)if(!slot){empty=&slot;break;}
+                    if(!empty || !registry_.allocation(object.address,object.size,site->caller,module_))return;
+                    *empty=object.address;
+                }
+                if(!registry_.constructed(object.address,object.vtable,true,window_).generation)return;
+            }
+            ok=true;
+        });return ok;
+    }
     bool allocation(uintptr_t address,std::size_t bytes,uintptr_t caller_rva){
         if(!owner() || !active_ || restart_required_)return false;
         bool accepted=false;

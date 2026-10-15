@@ -78,3 +78,45 @@ $result=Get-Content -LiteralPath (Join-Path $dir 'fixture-summary.json') -Raw | 
 if(@($result.stages | Where-Object {$_.Result -eq 'Not observed: no suitable input window'}).Count -ne 8){throw 'Neutral exhaustion must remain unobserved on both sides'}
 if(@($result.stages | Where-Object {$_.Result -eq 'Failed'}).Count){throw 'Neutral exhaustion mislabeled as failure'}
 Write-Output 'PASS: neutral exhaustion is not a correction failure or success'
+@'
+suite_cycle_1_topology_added_nodes=1
+suite_cycle_1_topology_removed_nodes=0
+suite_cycle_1_topology_added_vtable_rva=65572072
+suite_cycle_1_topology_before_count=2053
+suite_cycle_1_topology_after_count=2055
+'@ | Add-Content -LiteralPath $report
+& (Join-Path $PSScriptRoot 'Summarize-TestSuite.ps1') -Report $report | Out-Null
+$result=Get-Content -LiteralPath (Join-Path $dir 'fixture-summary.json') -Raw | ConvertFrom-Json
+if($result.windLifecycleEvents.Count -ne 1 -or $result.windLifecycleEvents[0].added -ne 1 -or $result.windLifecycleEvents[0].removed -ne 0){throw 'Wind creation evidence lost'}
+if(@($result.stages | Where-Object {$_.Stage -eq 'Wind object lifecycle' -and $_.Result -eq 'Passed'}).Count){throw 'Unconnected wind restoration must not pass'}
+Write-Output 'PASS: wind lifecycle evidence retained without claiming native restoration or peer success'
+@'
+suite_wind_native_integrated=1
+suite_wind_failure=0
+suite_wind_captures=4
+suite_wind_retirements=4
+suite_wind_loads=3
+suite_wind_comparisons=3
+suite_wind_added=0
+suite_wind_removed=0
+'@ | Add-Content -LiteralPath $report
+& (Join-Path $PSScriptRoot 'Summarize-TestSuite.ps1') -Report $report | Out-Null
+$result=Get-Content -LiteralPath (Join-Path $dir 'fixture-summary.json') -Raw | ConvertFrom-Json
+if(@($result.stages | Where-Object {$_.Stage -eq 'Wind object lifecycle' -and $_.Result -eq 'Passed'}).Count){throw 'No-change wind run must not prove lifecycle restoration'}
+'suite_wind_removed=1' | Add-Content -LiteralPath $report
+& (Join-Path $PSScriptRoot 'Summarize-TestSuite.ps1') -Report $report | Out-Null
+$result=Get-Content -LiteralPath (Join-Path $dir 'fixture-summary.json') -Raw | ConvertFrom-Json
+if(@($result.stages | Where-Object {$_.Stage -eq 'Wind object lifecycle' -and $_.Result -eq 'Passed'}).Count -ne 1){throw 'Restored and retired local lifecycle event missing'}
+'suite_wind_failure=3' | Add-Content -LiteralPath $report
+& (Join-Path $PSScriptRoot 'Summarize-TestSuite.ps1') -Report $report | Out-Null
+$result=Get-Content -LiteralPath (Join-Path $dir 'fixture-summary.json') -Raw | ConvertFrom-Json
+if(@($result.stages | Where-Object {$_.Stage -eq 'Wind object lifecycle' -and $_.Result -eq 'Passed'}).Count){throw 'Wind failure must override successful earlier comparisons'}
+Write-Output 'PASS: native wind lifecycle requires list change, comparison, cleanup and no failure'
+
+@('suite_method_schema=2','suite_cycles_active=1','suite_cycle_1_reference_attempted=1','suite_cycle_1_reference_verified=0','suite_cycle_1_predicted=0','suite_cycle_1_stop_outcome=3') | Add-Content -LiteralPath $report
+& (Join-Path $PSScriptRoot 'Summarize-TestSuite.ps1') -Report $report | Out-Null
+$result=Get-Content -LiteralPath (Join-Path $dir 'fixture-summary.json') -Raw | ConvertFrom-Json
+if(@($result.stages | Where-Object {$_.Stage -eq 'Attempt 1 original-input replay' -and $_.Result -eq 'Failed'}).Count -ne 1){throw 'Reference prerequisite failure lost'}
+if(@($result.stages | Where-Object {$_.Stage -eq 'Attempt 1 prediction correction' -and $_.Result -eq 'Not exercised'}).Count -ne 1){throw 'Unrun prediction misclassified'}
+if(@($result.stages | Where-Object {$_.Stage -eq 'Attempt 1 stop/recovery' -and $_.Result -like 'FAILED*'}).Count -ne 1){throw 'Unsafe stop must be a separate failure'}
+Write-Output 'PASS: reference-first results distinguish unrun prediction and unsafe stopping'

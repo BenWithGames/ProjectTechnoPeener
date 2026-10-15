@@ -14,6 +14,7 @@ template<class Resources=ReplayOwnedResources> class CombatResourcePreparation {
     Resources resources_;
     std::atomic<bool> stop_{};
 public:
+    template<class Stream> void wind_report(Stream& out)const{if constexpr(requires {resources_.wind_report(out);})resources_.wind_report(out);}
     StartupBoundaryPairs pairs;
     NativeHoldRehearsal<> hold_test;
     StartupSnapshotCapture<> snapshots;
@@ -25,7 +26,10 @@ public:
     std::unique_ptr<CorrectionCycleBank<>> cycles;
     std::atomic<bool> cycles_enabled{};
     RollbackBoundaryKey cycle_identity_; // owner thread only
-    void enable_cycles(bool attack=false,bool combat=false,unsigned hold_ms=0){if(!cycles_enabled.load()){cycles=std::make_unique<CorrectionCycleBank<>>(attack,combat,hold_ms);cycles_enabled.store(true,std::memory_order_release);}}
+    void enable_cycles(bool attack=false,bool combat=false,unsigned hold_ms=0){if(!cycles_enabled.load()){
+        if(combat){if constexpr(requires {resources_.enable_wind();})if(!resources_.enable_wind()){failed=true;return;}}
+        cycles=std::make_unique<CorrectionCycleBank<>>(attack,combat,hold_ms);cycles_enabled.store(true,std::memory_order_release);
+    }}
     NativeHoldRehearsal<> confirmation_hold;
     void enable_correction(bool attack=false,bool combat=false){if(!correction_enabled.load()){correction=std::make_unique<StartupPredictionCorrection>();if(attack)correction->configure_attack();if(combat)correction->configure_combat();correction_enabled.store(true,std::memory_order_release);}}
     bool request_confirmation_hold(unsigned identity,unsigned clock,unsigned battle,unsigned slot){
@@ -72,13 +76,20 @@ public:
         auto source=resources_.source();snapshots.capture(key,base,argument,source);
     }
     bool run_hold(const NativeClockDiscovery::Observation& observed,uintptr_t object,uint64_t now){
-        const bool valid=observed.valid && observed.object==object && observed.thread==GetCurrentThreadId() &&
-            observed.thread==owner_thread.load() && now>=observed.tick && now-observed.tick<=250 &&
-            !stop_.load() && !retired.load() && !failed.load() && !resources_.cancelled() && resources_.ready();
+        const unsigned context_mask=(!observed.valid?1u:0u) | (observed.object!=object?2u:0u) |
+            (observed.thread!=GetCurrentThreadId()?4u:0u) | (observed.thread!=owner_thread.load()?8u:0u) |
+            (now<observed.tick || now-observed.tick>250?16u:0u) | (retired.load()?32u:0u) |
+            (failed.load()?64u:0u) | (resources_.cancelled()?128u:0u) | (!resources_.ready()?256u:0u);
+        const bool core_valid=context_mask==0;
+        const bool valid=core_valid && !stop_.load();
         if(cycles_enabled.load(std::memory_order_acquire)){
             auto* c=cycles->current();if(!c)return false;
+            const bool clean_stop=NativeHoldRehearsal<>::clean_cancel(
+                stop_.load() || c->runner.failed.load() || c->runner.exchange.failed.load(),
+                c->runner.stage.load(),c->runner.restored.load(),c->runner.injected.load(),c->runner.restart.load());
+            if(c->entry.state.load()==NativeHoldRehearsal<>::queued || c->entry.state.load()==NativeHoldRehearsal<>::holding)c->entry.context_mask=context_mask | (stop_.load()?512u:0u);
             if(c->entry.run(observed.base,object,GetCurrentThreadId(),observed.clock.identity,
-                observed.clock.frame,boundary_frame.load(),now,valid))return true;
+                observed.clock.frame,boundary_frame.load(),now,clean_stop?core_valid:valid,true,clean_stop))return true;
             // A hold cannot produce a missing local battle record. Reject
             // before touching the clock instead of waiting for ourselves.
             if(c->confirmation.state.load(std::memory_order_acquire)==NativeHoldRehearsal<>::queued &&
@@ -87,9 +98,14 @@ public:
             }
             const bool neutral=c->runner.exchange.input_rejection.load()==2 && c->runner.stage.load()==0 &&
                 !c->runner.restored.load() && !c->runner.injected.load() && !c->runner.restart.load();
+            const bool cancel=neutral || NativeHoldRehearsal<>::clean_cancel(
+                stop_.load() || c->runner.failed.load() || c->runner.exchange.failed.load(),
+                c->runner.stage.load(),c->runner.restored.load(),c->runner.injected.load(),c->runner.restart.load());
+            if(c->confirmation.state.load()==NativeHoldRehearsal<>::queued || c->confirmation.state.load()==NativeHoldRehearsal<>::holding)c->confirmation.context_mask=context_mask | (stop_.load()?512u:0u) |
+                (c->runner.failed.load()?1024u:0u) | (c->runner.exchange.failed.load()?2048u:0u);
             return c->confirmation.run(observed.base,object,GetCurrentThreadId(),observed.clock.identity,
-                observed.clock.frame,boundary_frame.load(),now,valid && (neutral || (!c->runner.failed.load() && !c->runner.exchange.failed.load())),
-                c->runner.exchange.ready.load(),neutral);
+                observed.clock.frame,boundary_frame.load(),now,cancel?core_valid:(valid && !c->runner.failed.load() && !c->runner.exchange.failed.load()),
+                c->runner.exchange.ready.load(),cancel);
         }
         if(hold_test.run(observed.base,object,GetCurrentThreadId(),observed.clock.identity,
             observed.clock.frame,boundary_frame.load(),now,valid))return true;

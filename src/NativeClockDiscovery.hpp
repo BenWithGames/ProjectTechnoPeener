@@ -11,14 +11,16 @@ public:
         bool valid{};
     };
 private:
+    friend struct NativeClockDiscoveryTestAccess;
     SRWLOCK lock_=SRWLOCK_INIT;
     Observation latest_{};
 public:
-    void observe(uintptr_t base,uintptr_t object,uint64_t now){
+    Observation observe(uintptr_t base,uintptr_t object,uint64_t now){
         Observation next;next.base=base;next.object=object;next.thread=GetCurrentThreadId();next.tick=now;
         next.valid=NativeClockAccess<>::inspect(base,object,next.clock);
-        if(!TryAcquireSRWLockExclusive(&lock_))return;
+        if(!TryAcquireSRWLockExclusive(&lock_))return next;
         latest_=next;ReleaseSRWLockExclusive(&lock_);
+        return next;
     }
     bool read(uint64_t now,Observation& out){
         out={};if(!TryAcquireSRWLockShared(&lock_))return false;

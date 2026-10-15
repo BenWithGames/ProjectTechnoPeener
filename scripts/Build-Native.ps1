@@ -36,6 +36,7 @@ if (!$vs) { throw 'MSVC x64 tools not found.' }
 & (Join-Path $PSScriptRoot 'Test-SteamInputExchange.ps1')
 & (Join-Path $PSScriptRoot 'Test-SteamPing.ps1')
 & (Join-Path $PSScriptRoot 'Test-SingleUpdateCall.ps1')
+& (Join-Path $PSScriptRoot 'Test-RngCallerBridge.ps1')
 & (Join-Path $PSScriptRoot 'Test-LiveShadowPrediction.ps1')
 & (Join-Path $PSScriptRoot 'Test-NetworkInputComposer.ps1')
 & (Join-Path $PSScriptRoot 'Test-LiveInputComposition.ps1')
@@ -73,7 +74,7 @@ if (!$exports) { throw 'No runtime exports found.' }
 @('LIBRARY UE4SS.dll','EXPORTS') + $exports | Set-Content "$build\UE4SS.def" -Encoding ascii
 Invoke-DeveloperCommands @(
     "lib /nologo /def:`"$build\UE4SS.def`" /out:`"$build\UE4SS.lib`" /machine:x64",
-    "link /nologo /dll /out:`"$dllDir\main.dll`" /implib:`"$build\main.lib`" `"$build\Mod.obj`" `"$build\FrameRecorder.obj`" `"$build\StatusOverlay.obj`" `"$project\build-recorder\RecorderHook.lib`" `"$build\UE4SS.lib`" bcrypt.lib user32.lib gdi32.lib gdiplus.lib",
+    "link /nologo /dll /out:`"$dllDir\main.dll`" /implib:`"$build\main.lib`" `"$build\Mod.obj`" `"$build\FrameRecorder.obj`" `"$build\StatusOverlay.obj`" `"$project\build-rng-bridge\RngCallerBridge.obj`" `"$project\build-recorder\RecorderHook.lib`" `"$build\UE4SS.lib`" bcrypt.lib user32.lib gdi32.lib gdiplus.lib",
     "dumpbin /exports `"$dllDir\main.dll`""
 )
 Write-Host 'DLL staged locally. This does not install or launch the game.'

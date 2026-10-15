@@ -426,6 +426,7 @@ int main(){
         detail.probe->replay_rings.bytes[12]=std::byte{7};
         detail.replay_native_difference.reason=4;detail.replay_native_difference.record=19;
         detail.replay_native_difference.writer=0x100000001ULL;
+        detail.probe->camera_diagnostic={101,2,10,72,20,22,0,0};
         const auto diagnosis=correction->diagnostics();
         assert(diagnosis[291]==2 && diagnosis[292]==3 && diagnosis[295]==12 && diagnosis[298]==7);
         assert(diagnosis[301]==4 && diagnosis[302]==19 && diagnosis[305]==0x100000001ULL);
@@ -433,7 +434,8 @@ int main(){
         assert(evidence.state==1 && evidence.bytes.size()>RingSnapshot::byte_count*2);
         const auto evidence_size=evidence.bytes.size();evidence.capture(*detail.probe);assert(evidence.bytes.size()==evidence_size);
         ReplayFailureEvidence bounded;bool rejected=false;try{bounded.append(nullptr,ReplayFailureEvidence::limit+1);}catch(...){rejected=true;}assert(rejected);
-        assert(diagnosis.size()==313 && diagnosis[0]==0 && diagnosis[91]==31);
+        assert(diagnosis[313]==101 && diagnosis[315]==10 && diagnosis[316]==72 && diagnosis[318]==22);
+        assert(diagnosis.size()==327 && diagnosis[0]==0 && diagnosis[91]==31);
         const std::array<uint64_t,15> expectedDetail={4,17,16,100,200,300,321,2,9,24,12,42,1,43,7};
         for(unsigned i=0;i<expectedDetail.size();++i)assert(diagnosis[23+i]==expectedDetail[i]);
         const std::array<uint64_t,7> expectedCamera={9,7,3,104,1,0,1065353216};
@@ -532,6 +534,20 @@ int main(){
         assert(!cancelled.run(1,2,3,0,604,663,101,true,false,true));
         assert(cancelled.state==H::rejected && cancelled.services==1);
         assert(!cancelled.run(1,2,3,0,605,664,102,true,false));
+        assert(H::clean_cancel(true,0,false,false,false));
+        assert(!H::clean_cancel(false,0,false,false,false));
+        assert(!H::clean_cancel(true,1,false,false,false));
+        assert(!H::clean_cancel(true,0,true,false,false));
+        assert(!H::clean_cancel(true,0,false,true,false));
+        assert(!H::clean_cancel(true,0,false,false,true));
+        H peer_stop;assert(peer_stop.request(0,604,664,2000));
+        assert(peer_stop.run(1,2,3,0,604,663,100,true,false));
+        assert(!peer_stop.run(1,2,3,0,604,663,110,true,false,H::clean_cancel(true,0,false,false,false)));
+        assert(peer_stop.state==H::rejected && peer_stop.reason==H::neutral_cancel);
+        H stale_stop;assert(stale_stop.request(0,604,664,2000));
+        assert(stale_stop.run(1,2,3,0,604,663,100,true,false));
+        assert(stale_stop.run(1,2,3,0,604,663,110,false,false,true));
+        assert(stale_stop.state==H::restart_required); // cancellation never overrides invalid native context
         H invalid_cancel;assert(invalid_cancel.request(0,604,664,2000));
         assert(invalid_cancel.run(1,2,3,0,604,663,100,true,false));
         assert(invalid_cancel.run(1,2,3,1,604,663,101,true,false,true));

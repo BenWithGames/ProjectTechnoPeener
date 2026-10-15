@@ -1,3 +1,4 @@
+#include "RngCallerTrace.hpp"
 #pragma once
 #include "ConfirmedReplayWindow.hpp"
 #include "SingleUpdateCall.hpp"
@@ -30,12 +31,12 @@ public:
         "topology_removed_1_address","topology_removed_1_vtable_rva","topology_removed_1_next","topology_removed_1_parent","topology_removed_1_child_count","topology_removed_1_child_address","topology_removed_1_child_kind","topology_removed_1_child_size","topology_removed_1_child_bytes",
         "topology_added_0_address","topology_added_0_vtable_rva","topology_added_0_next","topology_added_0_parent","topology_added_0_child_count","topology_added_0_child_address","topology_added_0_child_kind","topology_added_0_child_size","topology_added_0_child_bytes",
         "topology_added_1_address","topology_added_1_vtable_rva","topology_added_1_next","topology_added_1_parent","topology_added_1_child_count","topology_added_1_child_address","topology_added_1_child_kind","topology_added_1_child_size","topology_added_1_child_bytes",
-        "payload_structural","payload_records","payload_bytes","payload_retained","payload_overflow","payload_0_record","payload_0_length","payload_0_writer","payload_0_source_saved","payload_0_source_loaded","payload_0_first","payload_0_last","payload_0_expected","payload_0_actual","payload_1_record","payload_1_length","payload_1_writer","payload_1_source_saved","payload_1_source_loaded","payload_1_first","payload_1_last","payload_1_expected","payload_1_actual","payload_2_record","payload_2_length","payload_2_writer","payload_2_source_saved","payload_2_source_loaded","payload_2_first","payload_2_last","payload_2_expected","payload_2_actual","payload_3_record","payload_3_length","payload_3_writer","payload_3_source_saved","payload_3_source_loaded","payload_3_first","payload_3_last","payload_3_expected","payload_3_actual","payload_4_record","payload_4_length","payload_4_writer","payload_4_source_saved","payload_4_source_loaded","payload_4_first","payload_4_last","payload_4_expected","payload_4_actual","payload_5_record","payload_5_length","payload_5_writer","payload_5_source_saved","payload_5_source_loaded","payload_5_first","payload_5_last","payload_5_expected","payload_5_actual","payload_6_record","payload_6_length","payload_6_writer","payload_6_source_saved","payload_6_source_loaded","payload_6_first","payload_6_last","payload_6_expected","payload_6_actual","payload_7_record","payload_7_length","payload_7_writer","payload_7_source_saved","payload_7_source_loaded","payload_7_first","payload_7_last","payload_7_expected","payload_7_actual","payload_8_record","payload_8_length","payload_8_writer","payload_8_source_saved","payload_8_source_loaded","payload_8_first","payload_8_last","payload_8_expected","payload_8_actual","payload_9_record","payload_9_length","payload_9_writer","payload_9_source_saved","payload_9_source_loaded","payload_9_first","payload_9_last","payload_9_expected","payload_9_actual","payload_10_record","payload_10_length","payload_10_writer","payload_10_source_saved","payload_10_source_loaded","payload_10_first","payload_10_last","payload_10_expected","payload_10_actual","payload_11_record","payload_11_length","payload_11_writer","payload_11_source_saved","payload_11_source_loaded","payload_11_first","payload_11_last","payload_11_expected","payload_11_actual","payload_12_record","payload_12_length","payload_12_writer","payload_12_source_saved","payload_12_source_loaded","payload_12_first","payload_12_last","payload_12_expected","payload_12_actual","payload_13_record","payload_13_length","payload_13_writer","payload_13_source_saved","payload_13_source_loaded","payload_13_first","payload_13_last","payload_13_expected","payload_13_actual","payload_14_record","payload_14_length","payload_14_writer","payload_14_source_saved","payload_14_source_loaded","payload_14_first","payload_14_last","payload_14_expected","payload_14_actual","payload_15_record","payload_15_length","payload_15_writer","payload_15_source_saved","payload_15_source_loaded","payload_15_first","payload_15_last","payload_15_expected","payload_15_actual","replay_ring_status","replay_ring_validity","replay_ring_group","replay_ring_slot","replay_ring_offset","replay_ring_field","replay_ring_expected","replay_ring_actual","replay_ring_expected_word","replay_ring_actual_word","replay_native_reason","replay_native_record","replay_native_offset","replay_native_length","replay_native_writer","replay_native_source","replay_native_expected","replay_native_actual","replay_native_word_offset","replay_native_expected_word","replay_native_actual_word","replay_native_changed_bytes"};
+        "payload_structural","payload_records","payload_bytes","payload_retained","payload_overflow","payload_0_record","payload_0_length","payload_0_writer","payload_0_source_saved","payload_0_source_loaded","payload_0_first","payload_0_last","payload_0_expected","payload_0_actual","payload_1_record","payload_1_length","payload_1_writer","payload_1_source_saved","payload_1_source_loaded","payload_1_first","payload_1_last","payload_1_expected","payload_1_actual","payload_2_record","payload_2_length","payload_2_writer","payload_2_source_saved","payload_2_source_loaded","payload_2_first","payload_2_last","payload_2_expected","payload_2_actual","payload_3_record","payload_3_length","payload_3_writer","payload_3_source_saved","payload_3_source_loaded","payload_3_first","payload_3_last","payload_3_expected","payload_3_actual","payload_4_record","payload_4_length","payload_4_writer","payload_4_source_saved","payload_4_source_loaded","payload_4_first","payload_4_last","payload_4_expected","payload_4_actual","payload_5_record","payload_5_length","payload_5_writer","payload_5_source_saved","payload_5_source_loaded","payload_5_first","payload_5_last","payload_5_expected","payload_5_actual","payload_6_record","payload_6_length","payload_6_writer","payload_6_source_saved","payload_6_source_loaded","payload_6_first","payload_6_last","payload_6_expected","payload_6_actual","payload_7_record","payload_7_length","payload_7_writer","payload_7_source_saved","payload_7_source_loaded","payload_7_first","payload_7_last","payload_7_expected","payload_7_actual","payload_8_record","payload_8_length","payload_8_writer","payload_8_source_saved","payload_8_source_loaded","payload_8_first","payload_8_last","payload_8_expected","payload_8_actual","payload_9_record","payload_9_length","payload_9_writer","payload_9_source_saved","payload_9_source_loaded","payload_9_first","payload_9_last","payload_9_expected","payload_9_actual","payload_10_record","payload_10_length","payload_10_writer","payload_10_source_saved","payload_10_source_loaded","payload_10_first","payload_10_last","payload_10_expected","payload_10_actual","payload_11_record","payload_11_length","payload_11_writer","payload_11_source_saved","payload_11_source_loaded","payload_11_first","payload_11_last","payload_11_expected","payload_11_actual","payload_12_record","payload_12_length","payload_12_writer","payload_12_source_saved","payload_12_source_loaded","payload_12_first","payload_12_last","payload_12_expected","payload_12_actual","payload_13_record","payload_13_length","payload_13_writer","payload_13_source_saved","payload_13_source_loaded","payload_13_first","payload_13_last","payload_13_expected","payload_13_actual","payload_14_record","payload_14_length","payload_14_writer","payload_14_source_saved","payload_14_source_loaded","payload_14_first","payload_14_last","payload_14_expected","payload_14_actual","payload_15_record","payload_15_length","payload_15_writer","payload_15_source_saved","payload_15_source_loaded","payload_15_first","payload_15_last","payload_15_expected","payload_15_actual","replay_ring_status","replay_ring_validity","replay_ring_group","replay_ring_slot","replay_ring_offset","replay_ring_field","replay_ring_expected","replay_ring_actual","replay_ring_expected_word","replay_ring_actual_word","replay_native_reason","replay_native_record","replay_native_offset","replay_native_length","replay_native_writer","replay_native_source","replay_native_expected","replay_native_actual","replay_native_word_offset","replay_native_expected_word","replay_native_actual_word","replay_native_changed_bytes","camera_restore_line","camera_restore_record","camera_restore_section","camera_restore_offset","camera_restore_saved","camera_restore_next","camera_restore_loaded","camera_restore_live","deferred_animation_bytes","motion_zero_count","motion_zero_record","motion_zero_offset","motion_zero_expected_bits","motion_zero_actual_bits"};
     using Diagnostics=std::array<uint64_t,std::size(diagnostic_names)>;
     Diagnostics diagnostics(){
-        auto& window=stage==Stage::clean_rewind?clean:predicted_;
+        auto& window=(stage==Stage::clean_rewind || stage==Stage::reference_replay)?clean:predicted_;
         auto& hop=window.diagnostic();const auto& p=*hop.probe;const auto& w=p.wind_diagnostic;
-        Diagnostics result{stage==Stage::clean_rewind?0u:1u,window.plan_result,window.prepare_stage,window.last_hop,
+        Diagnostics result{(stage==Stage::clean_rewind || stage==Stage::reference_replay)?0u:1u,window.plan_result,window.prepare_stage,window.last_hop,
             static_cast<unsigned>(hop.rejection),hop.diagnostic_stage,p.restore_invoked,hop.verified,
             p.delayed_failure_line,p.exception,p.fault,hop.replay_stage,hop.replay_comparison_mask,
             w.failure_line,w.record,w.kind,w.size,w.offset,w.saved_word,w.next_word,window.topology.mask,
@@ -75,16 +76,32 @@ public:
                 nd.reason,nd.record,nd.offset,nd.length,nd.writer,nd.source,nd.expected,nd.actual,nd.word_offset,nd.expected_word,nd.actual_word,nd.changed_bytes};
             for(auto value:values)result[payload_index++]=value;
         }
+        const auto& camera=p.camera_diagnostic;
+        const uint64_t camera_values[]={camera.failure_line,camera.record,camera.section,camera.offset,camera.a,camera.b,camera.c,camera.live};
+        std::copy(std::begin(camera_values),std::end(camera_values),result.begin()+313);
+        result[321]=hop.payload_diagnostic.deferred_bytes;
+        std::copy(p.motion_zero_evidence.begin(),p.motion_zero_evidence.end(),result.begin()+322);
+        if constexpr(requires {clean.motion_zero_summary;}){
+            if(clean.motion_zero_summary[0])std::copy(clean.motion_zero_summary.begin(),clean.motion_zero_summary.end(),result.begin()+322);
+        }
         return result;
     }
-    void capture_failure_evidence(ReplayFailureEvidence& evidence){evidence.capture(*(stage==Stage::clean_rewind?clean:predicted_).diagnostic().probe,evidence_inputs_.data(),sizeof(evidence_inputs_),clean.base_);}
-    const auto& blend_evidence(){return (stage==Stage::clean_rewind?clean:predicted_).diagnostic().probe->blend_pair_evidence;}
+    void capture_failure_evidence(ReplayFailureEvidence& evidence){
+        auto& window=(stage==Stage::clean_rewind || stage==Stage::reference_replay)?clean:predicted_;
+        const void* wind=nullptr;size_t wind_size=0;
+        if constexpr(requires {window.effect_session_;}){
+            if(window.effect_session_){wind=&window.effect_session_->evidence;wind_size=sizeof(window.effect_session_->evidence);}
+        }
+        evidence.capture(*window.diagnostic().probe,evidence_inputs_.data(),sizeof(evidence_inputs_),clean.base_,wind,wind_size);
+    }
+    const auto& blend_evidence(){return ((stage==Stage::clean_rewind || stage==Stage::reference_replay)?clean:predicted_).diagnostic().probe->blend_pair_evidence;}
     using Input=std::array<std::byte,40>;
     using Frames=std::array<CorrectedHistoryReplay::Frame,3>;
     std::array<std::array<Input,3>,3> evidence_inputs_{};
-    enum class Stage {unused,confirmation,clean_rewind,prediction,capture,divergence,correction_rewind,replay,complete};
+    enum class Stage {unused,confirmation,clean_rewind,prediction,capture,divergence,correction_rewind,replay,complete,reference_replay};
     Stage stage{Stage::unused};
     unsigned predicted_updates{},corrected_updates{},capture_detail{};
+    bool reference_attempted{},reference_verified{};
     bool attempted{},injected{},state_changed{},verified{},restart_required{},retired{};
     Window clean;
     bool attack_fixture{},combat_inputs{};
@@ -143,10 +160,19 @@ public:
         for(unsigned i=0;i<3;++i)if(!clean.pool_.visit(clean.handles_[i],[&](NativeBoundarySnapshot& s){reference[i]=s.data->delayed_inputs;return true;}))return false;
         if(!inputs(frames,clean.keys_,reference,actual,wrong,attack_fixture,combat_inputs))return false;
         evidence_inputs_={reference,actual,wrong};
+        if constexpr(requires {clean.defer_derived;})clean.defer_derived=predicted_.defer_derived=combat_inputs;
         try {
             stage=Stage::clean_rewind;
             if(!clean.rewind(live)){restart_required=clean.rewind_started() || clean.any_restore_invoked();return false;}
             restart_required=true;
+            if(combat_inputs){
+                stage=Stage::reference_replay;reference_attempted=true;
+                if(!clean.replay_reference(original))return false;
+                reference_verified=true;
+                if(!clean.prepare_prediction_after_reference())return false;
+                stage=Stage::clean_rewind;
+                if(!clean.rewind(live))return false;
+            }
             // Preserve owned references for the whole predicted branch; use
             // the same capture entry for its initial and advanced snapshots.
             for(unsigned i=0;i<4;++i){
@@ -158,7 +184,7 @@ public:
                     capture_detail=predicted_.capture_stage;return false;
                 }
                 if(i==3)break;
-                stage=Stage::prediction;Update call;
+                stage=Stage::prediction;rng_trace::Scope rng_phase(3);Update call;
                 const bool ok=call.run(original,delivery_.assign(wrong[i]),reinterpret_cast<volatile uint32_t*>(base+0x470D0C4),clean.keys_[i].frame,live.thread);
                 injected=injected||call.invoked;if(!ok)return false;++predicted_updates;
             }
@@ -180,10 +206,12 @@ public:
                     if(ref.blend_timer_count)q.blend_timer_expected=ref.blend_timer_history[0];
                     std::memcpy(q.after_players,ref.before_players,sizeof(q.after_players));
                     q.original_next=ref.measurements[0];q.rings[2]=ref.rings[0];q.blends[1]=ref.blends[0];q.transforms[1]=ref.transforms[0];q.cameras[1]=ref.cameras[0];
-                    Update call;
+                    rng_trace::Scope rng_phase(4);Update call;
                     if(!call.run(original,delivery_.assign(actual[i]),reinterpret_cast<volatile uint32_t*>(base+0x470D0C4),clean.keys_[i].frame,live.thread))return false;
                     hop.replay_delivered=true;
-                    return hop.replay_step(a,base,guard_.assign(combat_inputs?actual[i]:ref.delayed_inputs),true);
+                    const bool matched=hop.replay_step(a,base,guard_.assign(combat_inputs?actual[i]:ref.delayed_inputs),true);
+                    if constexpr(requires {Window::verify_effects(b);})return matched && Window::verify_effects(b);
+                    else return matched;
                 });});
                 if(!ok)return false;++corrected_updates;
             }

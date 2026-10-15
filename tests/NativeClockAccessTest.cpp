@@ -6,6 +6,15 @@
 #include "../src/CombatRouteBundle.hpp"
 #include "../src/NativeStartHold.hpp"
 #include "../src/NativeClockDiscovery.hpp"
+#include "../src/StartupBoundaryPairs.hpp"
+#include <thread>
+#include <atomic>
+namespace sc6::research {
+struct NativeClockDiscoveryTestAccess {
+    static void lock(NativeClockDiscovery& d){AcquireSRWLockShared(&d.lock_);}
+    static void unlock(NativeClockDiscovery& d){ReleaseSRWLockShared(&d.lock_);}
+};
+}
 #include <cassert>
 #include <cstring>
 #include <iostream>
@@ -51,6 +60,32 @@ struct Fixture {
     bool bind(Clock& clock){return clock.bind(base,reinterpret_cast<uintptr_t>(object.data()),GetCurrentThreadId(),true,true,true);}
 };
 int main(){
+    {
+        Fixture f;sc6::research::NativeClockDiscovery discovery;
+        sc6::research::StartupBoundaryPairs pairs;
+        const auto object=reinterpret_cast<uintptr_t>(f.object.data());
+        f.put(0x3A4,117);auto first=discovery.observe(f.base,object,1000);
+        pairs.clock(first.clock.identity,first.clock.frame);pairs.battle(174);
+        std::atomic<bool> held{},release{};
+        std::thread reader([&]{sc6::research::NativeClockDiscoveryTestAccess::lock(discovery);held=true;
+            while(!release.load())std::this_thread::yield();
+            sc6::research::NativeClockDiscoveryTestAccess::unlock(discovery);});
+        while(!held.load())std::this_thread::yield();
+        f.put(0x3A4,118);const auto fresh=discovery.observe(f.base,object,1001);
+        release=true;reader.join();
+        sc6::research::NativeClockDiscovery::Observation cached;
+        assert(discovery.read(1001,cached) && cached.clock.frame==117);
+        assert(fresh.valid && fresh.clock.frame==118 && fresh.tick==1001 && fresh.thread==GetCurrentThreadId());
+        pairs.clock(fresh.clock.identity,fresh.clock.frame);pairs.battle(175);
+        f.put(0x3A4,119);const auto next=discovery.observe(f.base,object,1002);
+        pairs.clock(next.clock.identity,next.clock.frame);pairs.battle(176);
+        assert(pairs.count==3 && pairs.discontinuities==0);
+        pairs.clock(next.clock.identity,119);pairs.battle(177);
+        assert(pairs.discontinuities==1); // Real repeated clock is still rejected.
+        assert(!discovery.observe(f.base,1,1003).valid);
+        assert(services==0 && waits==0 && advances==0);
+        std::cout<<"PASS: fresh startup clock survives contended publication; genuine discontinuity retained\n";
+    }
     {
         Fixture f;sc6::research::NativeClockDiscovery discovery;
         sc6::research::NativeClockDiscovery::Observation out;

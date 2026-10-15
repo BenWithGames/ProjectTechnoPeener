@@ -129,6 +129,28 @@ struct TransformSnapshot {
         }
         return true;
     }
+    // Dynamic global wind lists are owned/compared separately only when a
+    // NativeEffectSession binding exists. Keep all player transforms and global
+    // RNG/settings records; their existing comparisons and writers still run.
+    bool separate_effects(){
+        if(!valid || count>records.size())return false;
+        std::array<unsigned,std::tuple_size_v<decltype(records)>> map{};
+        unsigned kept=0;
+        for(unsigned i=0;i<count;++i){const auto& r=records[i];
+            const bool dynamic=r.side==2 && (r.kind==4 || (r.kind>=7 && r.kind<=9) || r.kind==23 || r.kind==24);
+            map[i]=dynamic?UINT32_MAX:kept++;
+        }
+        for(unsigned i=0;i<count;++i)if(map[i]!=UINT32_MAX){
+            auto value=records[i];
+            if(value.side==2 && value.kind==3){
+                if(value.size!=16 || value.address>UINTPTR_MAX-16)return false;
+                value.address+=8;value.size=8;std::memmove(value.bytes.data(),value.bytes.data()+8,8);
+            }
+            if(value.parent<count){if(map[value.parent]==UINT32_MAX)return false;value.parent=map[value.parent];}
+            records[map[i]]=value;
+        }
+        count=kept;return true;
+    }
     struct TopologyDifference {
         unsigned mask{},index{UINT32_MAX},before_count{},after_count{};
         // address, side, kind, list, parent index, size; no live dereference.
@@ -340,7 +362,12 @@ struct TransformSnapshot {
             (offset>=0x120 && offset<0x144) || (offset>=0x148 && offset<0x14C) ||
             (offset>=0x160 && offset<0x1A0) || (offset>=0x1D0 && offset<0x1E0);
     }
-    struct WindDiagnostic {unsigned failure_line{},record{UINT32_MAX},kind{},size{},offset{},saved_word{},next_word{},control_saved{},control_next{};uintptr_t vtable_rva{};};
+    struct SharedStateDetail {
+        unsigned reason{},record{UINT32_MAX},kind{},size{},offset{UINT32_MAX},live_valid{};
+        uint64_t address{};
+        std::array<std::byte,512> saved{},next{},current{},live{};
+    };
+    struct WindDiagnostic { SharedStateDetail shared{};unsigned failure_line{},record{UINT32_MAX},kind{},size{},offset{},saved_word{},next_word{},control_saved{},control_next{};uintptr_t vtable_rva{};};
     static bool wind_reject(WindDiagnostic* diagnostic,unsigned line) noexcept {
         if(diagnostic)diagnostic->failure_line=line;
         return false;
@@ -383,15 +410,28 @@ struct TransformSnapshot {
     bool restore_wind(const TransformSnapshot& next,const TransformSnapshot& current,uintptr_t module_base,bool validate_only=false,WindDiagnostic* diagnostic=nullptr)const noexcept {
         if(diagnostic)*diagnostic={};
         __try {
-            if(!same_topology(next) || !same_topology(current))return wind_reject(diagnostic,__LINE__);
+            if(!same_topology(next) || !same_topology(current)){if(diagnostic)diagnostic->shared.reason=1;return wind_reject(diagnostic,__LINE__);}
             unsigned rng_records=0;
             // Validate all shared records before writing any wind or RNG data.
             for(unsigned i=0;i<count;++i){auto& a=records[i];auto& b=next.records[i];auto& c=current.records[i];
                 if(a.side!=2)continue;
-                if(diagnostic){diagnostic->record=i;diagnostic->kind=a.kind;}
-                if(std::memcmp(b.bytes.data(),c.bytes.data(),a.size))return wind_reject(diagnostic,__LINE__);
-                if(std::memcmp(c.bytes.data(),reinterpret_cast<void*>(a.address),a.size))return wind_reject(diagnostic,__LINE__);
-                if(!wind_field(a.kind) && std::memcmp(a.bytes.data(),b.bytes.data(),a.size))return wind_reject(diagnostic,__LINE__);
+                if(diagnostic){
+                    diagnostic->record=i;diagnostic->kind=a.kind;diagnostic->size=a.size;
+                    auto& d=diagnostic->shared;d={};d.reason=8;d.record=i;d.kind=a.kind;d.size=a.size;d.address=a.address;
+                    d.saved=a.bytes;d.next=b.bytes;d.current=c.bytes;
+                }
+                const auto mismatch=[&](unsigned reason,const std::byte* x,const std::byte* y){
+                    if(diagnostic){auto& d=diagnostic->shared;d.reason=reason;
+                        for(unsigned j=0;j<a.size;++j)if(x[j]!=y[j]){d.offset=j;break;}}
+                    return wind_reject(diagnostic,__LINE__);
+                };
+                if(std::memcmp(b.bytes.data(),c.bytes.data(),a.size))return mismatch(2,b.bytes.data(),c.bytes.data());
+                if(diagnostic){
+                    std::memcpy(diagnostic->shared.live.data(),reinterpret_cast<void*>(a.address),a.size);
+                    diagnostic->shared.live_valid=1;
+                    if(std::memcmp(c.bytes.data(),diagnostic->shared.live.data(),a.size))return mismatch(3,c.bytes.data(),diagnostic->shared.live.data());
+                }else if(std::memcmp(c.bytes.data(),reinterpret_cast<void*>(a.address),a.size))return wind_reject(diagnostic,__LINE__);
+                if(!wind_field(a.kind) && std::memcmp(a.bytes.data(),b.bytes.data(),a.size))return mismatch(4,a.bytes.data(),b.bytes.data());
                 if(a.kind==4){auto vt=pointer(a.bytes.data());
                     if(diagnostic){diagnostic->size=a.size;diagnostic->vtable_rva=vt>=module_base?vt-module_base:0;}
                     if(vt!=module_base+0x3E88CB8 && vt!=module_base+0x3E88C88 && vt!=module_base+0x3E88D18 && vt!=module_base+0x3E88CE8)return wind_reject(diagnostic,__LINE__);
@@ -443,7 +483,7 @@ struct TransformSnapshot {
                 if(a.kind==11){if(a.address!=module_base+0x470E2B0 || a.size!=24)return wind_reject(diagnostic,__LINE__);++rng_records;}
             }
             if(rng_records!=2)return wind_reject(diagnostic,__LINE__);
-            if(validate_only)return true;
+            if(validate_only){if(diagnostic)diagnostic->shared.reason=0;return true;}
             for(unsigned i=0;i<count;++i){auto& a=records[i];
                 if(a.side==2 && a.kind==24){
                     for(unsigned j=0;j<a.size;j+=4)if(stage_wind_byte(j+0x18))
@@ -457,8 +497,9 @@ struct TransformSnapshot {
                 if(diagnostic){diagnostic->record=i;diagnostic->kind=a.kind;}
                 if(a.side==2 && std::memcmp(reinterpret_cast<void*>(a.address),a.bytes.data(),a.size))return wind_reject(diagnostic,__LINE__);
             }
+            if(diagnostic)diagnostic->shared.reason=0;
             return true;
-        }__except(EXCEPTION_EXECUTE_HANDLER){return wind_reject(diagnostic,__LINE__);}
+        }__except(EXCEPTION_EXECUTE_HANDLER){if(diagnostic)diagnostic->shared.reason=7;return wind_reject(diagnostic,__LINE__);}
     }
 };
 }

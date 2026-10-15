@@ -14,6 +14,8 @@ struct ReplayDependencySource {
  bool (*seed)(void*,uint32_t){};
  GeneratedSnapshotDependency* generated{};
  bool (*ready)(void*){};
+ NativeEffectSession* effects{};
+ EffectExternalSource effect_references{};
  bool available()const{return context && seed && generated && generated->active() && (!ready || ready(context));}
 };
 struct RollbackBoundaryKey {
@@ -52,6 +54,8 @@ class NativeRollbackWindow {
     std::array<RollbackBoundaryKey,4> keys_{};
     std::array<std::unique_ptr<NativeAdjacentRestore>,3> hops_;
     RecordedInput guard_;
+    bool effect_rewind_started_{};
+    NativeEffectSession* effect_session_{};
     struct DependencyGuard {bool enabled{};uintptr_t root{},control{},module{};std::array<uintptr_t,2> descriptors{};GeneratedBufferFingerprint fingerprint;};
     std::array<DependencyGuard,4> dependency_guards_{};
     static bool dependency_valid(const DependencyGuard& guard){
@@ -77,10 +81,12 @@ class NativeRollbackWindow {
         __except(EXCEPTION_EXECUTE_HANDLER){return false;}
     }
 public:
+    bool defer_derived{};
     unsigned last_hop{},capture_stage{},capture_exception{};
     unsigned captured_rng{},captured_rng_after_save{};
     TransformSnapshot::TopologyDifference topology;
     unsigned plan_result{},prepare_stage{},source_frame{},next_frame{},workspace_flags{};
+    std::array<uint64_t,5> motion_zero_summary{}; // retained across workspace recycling
     NativeAdjacentRestore& diagnostic(){return *hops_[last_hop];}
     NativeRollbackWindow(){for(auto& hop:hops_)hop=std::make_unique<NativeAdjacentRestore>();}
     bool release_owned_dependencies(){
@@ -89,7 +95,7 @@ public:
         return true;
     }
     bool fault()const{return fault_;}
-    bool rewind_started()const{return rewind_attempted_;}
+    bool rewind_started()const{return rewind_attempted_ || effect_rewind_started_;}
     bool rewound()const{return rewound_;}
     // Missing confirmation is retryable only before any preparation or load.
     bool discard_unmodified(){
@@ -117,6 +123,8 @@ public:
         return 1;
     }
     bool any_restore_invoked()const{for(const auto& hop:hops_)if(hop->probe->restore_invoked)return true;return false;}
+    static bool verify_effects(NativeBoundarySnapshot& snapshot){return !snapshot.effects ||
+        (snapshot.effects->owner && snapshot.effects->owner->compare(*snapshot.effects));}
     // Reference replay only: no new authoritative input or prediction is
     // introduced. This closes the native lifecycle before live integration.
     bool replay_reference(SingleUpdateCall::Routine original){
@@ -131,19 +139,31 @@ public:
                 return pool_.visit(handles_[i+1],[&](NativeBoundarySnapshot& reference){
                     auto& hop=*hops_[i];auto& q=*hop.probe;const auto& b=*reference.data;
                     q.after_save=b.saved;q.after_keys=b.before_keys;
+                    if(b.blend_timer_count)q.blend_timer_expected=b.blend_timer_history[0];
                     std::memcpy(q.after_players,b.before_players,sizeof(q.after_players));
                     q.original_next=b.measurements[0];q.rings[2]=b.rings[0];
                     q.blends[1]=b.blends[0];q.transforms[1]=b.transforms[0];q.cameras[1]=b.cameras[0];
+                    rng_trace::Scope rng_phase(2);
                     SingleUpdateCall call;RecordedInput delivery;
                     if(!call.run(original,delivery.assign(source.data->delayed_inputs),
                         reinterpret_cast<volatile uint32_t*>(base_+0x470D0C4),keys_[i].frame,keys_[i].thread))return false;
                     hop.replay_delivered=true;
-                    return hop.replay_step(source,base_,guard_.assign(reference.data->delayed_inputs),true);
+                    const bool matched=hop.replay_step(source,base_,guard_.assign(source.mode==NativeBoundarySnapshot::Mode::general_combat?source.data->delayed_inputs:reference.data->delayed_inputs),true);
+                    if(q.motion_zero_evidence[0]){auto total=motion_zero_summary[0]+q.motion_zero_evidence[0];motion_zero_summary=q.motion_zero_evidence;motion_zero_summary[0]=total;}
+                    return matched && verify_effects(reference);
                 });
             });
             if(!ok){fault_=true;return false;}
         }
         replayed_=true;return true;
+    }
+    // Keep the immutable oracle and its ownership after a successful reference
+    // replay. Fresh workspaces are required before rewinding it a second time.
+    bool prepare_prediction_after_reference(){
+        if(fault_ || !replayed_ || keys_[0].thread!=GetCurrentThreadId() || !dependencies_valid())return false;
+        for(unsigned i=0;i<count_-1;++i)if(!hops_[i]->recycle_after_replay()){fault_=true;return false;}
+        rewind_attempted_=effect_rewind_started_=rewound_=replayed_=false;
+        return true;
     }
     bool recycle(){
         if(fault_ || !replayed_ || keys_[0].thread!=GetCurrentThreadId())return false;
@@ -177,10 +197,17 @@ public:
             }
         }
         const bool ok=pool_.visit(*handle,[&](NativeBoundarySnapshot& snapshot){
+            if(mode==NativeBoundarySnapshot::Mode::general_combat && ownership && ownership->effects){
+                effect_session_=ownership->effects;
+                snapshot.effects=std::make_unique<NativeEffectSession::Binding>();
+                if(!ownership->effects->begin(base,key.session,key.round,ownership->effect_references) ||
+                   !ownership->effects->capture(*snapshot.effects))return false;
+                snapshot.data->external_wind_lifecycle=true;
+            }
             const bool captured=snapshot.capture(base,argument);
             capture_stage=snapshot.capture_stage;capture_exception=snapshot.exception;
             captured_rng=snapshot.data->measurements[0].rng;captured_rng_after_save=snapshot.data->measurements[1].rng;
-            return captured && snapshot.data->before_keys[0]==key.frame;
+            return captured && snapshot.data->before_keys[0]==key.frame && (!snapshot.effects || ownership->effects->compare(*snapshot.effects));
         });
         if(!ok){pool_.retire(*handle);fault_=true;return false;}
         if(dependencies && (!descriptor_identity(base,descriptor_after) || descriptor_before!=descriptor_after ||
@@ -212,6 +239,8 @@ private:
             prepare_stage=2;
             return pool_.visit(handles_[i+1],[&](NativeBoundarySnapshot& next){
                 prepare_stage=3;
+                if(source.effects && (!source.effects->owner->validate(*source.effects) || !next.effects ||
+                    next.effects->owner!=source.effects->owner || !next.effects->owner->validate(*next.effects)))return false;
                 if(!OwnedWindowRestorePreparation::preflight(*hops_[i],source,next)){
                     if(hops_[i]->rejection==NativeBoundarySnapshot::Rejection::transforms)
                         topology=source.data->transforms[0].topology_difference(next.data->transforms[0],base_);
@@ -246,9 +275,16 @@ private:
         last_hop=i;
         return pool_.visit(handles_[i],[&](NativeBoundarySnapshot& source){
             return pool_.visit(handles_[i+1],[&](NativeBoundarySnapshot& next){
+                hops_[i]->probe->defer_inactive_animation_weights=defer_derived;
                 if(!OwnedWindowRestorePreparation::before_load(*hops_[i],source,next))return false;
+                if(source.effects){
+                    if(!source.effects->owner->restore(*source.effects)){
+                        effect_rewind_started_=source.effects->owner->mutated;return false;
+                    }
+                    effect_rewind_started_=true;
+                }
                 rewind_attempted_=true;
-                return hops_[i]->restore_captured(source,base_,guard_.assign(next.data->delayed_inputs));
+                return hops_[i]->restore_captured(source,base_,guard_.assign(next.data->delayed_inputs)) && verify_effects(source);
             });
         });
     }

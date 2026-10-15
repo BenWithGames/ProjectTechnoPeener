@@ -1,5 +1,6 @@
 #pragma once
 #include "IdleTrajectoryAudit.hpp"
+#include "NativeEffectSession.hpp"
 namespace sc6::research {
 // A single boundary, independent of a pre-recorded reference trajectory.
 // Capture on the owning simulation thread. Capture itself never invokes native loading.
@@ -40,6 +41,8 @@ struct NativeBoundarySnapshot {
         select_mode(Mode::general_combat);return capture(base,argument,writer,check);
     }
     std::unique_ptr<FullStateProbe> data=std::make_unique<FullStateProbe>();
+    std::unique_ptr<NativeEffectSession::Binding> effects;
+    bool release_effects(){return !effects || !effects->owner || effects->owner->release(*effects);}
     unsigned direction_bits{0x400},direction_slot{1};
     unsigned capture_stage{};bool mode_values_valid{};std::array<unsigned,6> mode_values{};
     Mode mode;uintptr_t module{};DWORD thread{};bool attempted{},valid{},fault{};unsigned exception{};
@@ -125,6 +128,7 @@ struct NativeBoundarySnapshot {
         if(module!=current.module)return Rejection::module;
         if(thread!=current.thread || thread!=GetCurrentThreadId())return Rejection::thread;
         const auto& a=*data;const auto& b=*current.data;
+        if(a.external_wind_lifecycle!=b.external_wind_lifecycle)return Rejection::transforms;
         if(a.before_keys[0]==UINT32_MAX || b.before_keys[0]!=a.before_keys[0]+1u)return Rejection::frame;
         if(std::memcmp(a.before_players,b.before_players,sizeof(a.before_players)))return Rejection::players;
         if(!IdleTrajectoryAudit::same_shape(a.saved,b.saved))return Rejection::shape;
@@ -197,8 +201,11 @@ struct NativeBoundarySnapshot {
         q.blends[0]=a.blends[0];q.blends[1]=b.blends[0];q.transforms[0]=a.transforms[0];q.transforms[1]=b.transforms[0];
         q.cameras[0]=a.cameras[0];q.cameras[1]=b.cameras[0];q.delayed_inputs=a.delayed_inputs;
         q.general_combat_requested=general_pair;
+        q.external_wind_lifecycle=a.external_wind_lifecycle;
         q.blend_timer_restore_requested=general_pair;
         if(a.blend_timer_count)q.blend_timer_source=a.blend_timer_history[0];
+        if(b.blend_timer_count)q.blend_timer_next=b.blend_timer_history[0];
+        if(general_pair && (!q.timer_transition_ready() || !q.timer_endpoint_ready()))return reject(Rejection::combat);
         q.throw_requested=a.throw_requested;q.charge_requested=a.charge_requested;q.attack_requested=a.attack_requested;
         q.edge_requested=a.edge_requested;q.reversal_requested=a.reversal_requested;
         q.attempted=q.preflight_ok=q.save_valid=q.post_save_valid=q.audit_started=q.audit_done=true;

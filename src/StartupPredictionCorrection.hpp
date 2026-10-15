@@ -15,6 +15,10 @@ public:
     void configure_attack(){attack_fixture=true;backend_.attack_fixture=true;}
     std::atomic<unsigned> captured{},stage{},predicted{},corrected{},capture_detail{},failure_reason{};
     std::atomic<bool> failed{},restored{},injected{},changed{},verified{},retired{},restart{};
+    std::atomic<bool> reference_attempted{},reference_verified{},safe_rejection{};
+    // 0 not exercised, 1 verified endpoint/cleanup, 2 clean pre-mutation stop,
+    // 3 unsafe stop: restart required, recovery is NOT claimed.
+    std::atomic<unsigned> stop_outcome{};
     std::atomic<bool> no_divergence{}; // Published only after verified endpoint and cleanup.
     std::array<std::atomic<uint64_t>,std::size(OwnedPredictionCorrection::diagnostic_names)> diagnostic{};
     std::atomic<bool> blend_evidence_valid{};
@@ -51,6 +55,9 @@ public:
             if(!confirmation_hold_released || !exchange.frames(frames)){failure_reason=confirmation_hold_released?5:4;failed=true;release();return;}
             const bool ok=backend_.run_confirmed(frames,key,base,source,original);
             publish_diagnostics();
+            if constexpr(requires {backend_.reference_attempted;}){
+                reference_attempted=backend_.reference_attempted;reference_verified=backend_.reference_verified;
+            }
             stage=static_cast<unsigned>(backend_.stage);predicted=backend_.predicted_updates;corrected=backend_.corrected_updates;
             capture_detail=backend_.capture_detail;restored=backend_.clean.any_restore_invoked();
             injected=backend_.injected;changed=backend_.state_changed;
@@ -64,11 +71,15 @@ public:
             restart=needs_restart || !cleaned;
             failed=(!ok && !unchanged) || !cleaned;verified=ok && cleaned;
             no_divergence=unchanged && cleaned && !restart.load();
+            // Only a pre-mutation failure with verified ownership retirement is retryable.
+            safe_rejection=combat_inputs && !ok && !unchanged && cleaned && !needs_restart && !injected.load() && !restored.load();
+            if(safe_rejection.load())failed=false;
+            stop_outcome=restart.load()?3u:(safe_rejection.load()?2u:((ok || unchanged)&&cleaned?1u:0u));
         }catch(...){
             failure_reason=7;publish_diagnostics();restored=backend_.clean.any_restore_invoked();
             const bool needs_restart=backend_.clean.rewind_started() || restored.load();
             if constexpr(requires {backend_.capture_failure_evidence(failure_evidence);})backend_.capture_failure_evidence(failure_evidence);
-            const bool cleaned=release();restart=needs_restart || !cleaned;failed=true;
+            const bool cleaned=release();restart=needs_restart || !cleaned;failed=true;stop_outcome=restart.load()?3u:0u;
         }
     }
 };

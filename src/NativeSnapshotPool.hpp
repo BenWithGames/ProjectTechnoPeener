@@ -31,19 +31,26 @@ private:
         auto& s=*slots_[h.index];const auto& k=s.key;
         return s.occupied && k.serial==h.serial && k.session==h.session && k.round==h.round && k.frame==h.frame?&s:nullptr;
     }
-    void drain(Slot& s){
+    bool drain(Slot& s){
+        if(!s.snapshot.release_effects()){s.poisoned=true;return false;}
         s.borrowed=true;
         for(unsigned i=0;i<s.dependencies.size();++i){
             if(s.dependencies[i].active())s.dependencies[i].release(0,true);
             s.dependency_controls[i]=0;
         }
         s.borrowed=false;
+        return true;
     }
 public:
     NativeSnapshotPool(){for(auto& s:slots_)s=std::make_unique<Slot>();}
     ~NativeSnapshotPool(){
         // Native disposal must never migrate to an arbitrary destructor thread.
         // Production users must drain on the simulation thread before teardown.
+        for(auto& s:slots_){
+            if(s->snapshot.effects && s->snapshot.effects->snapshot.generation){
+                if(GetCurrentThreadId()!=owner_ || s->borrowed || !s->snapshot.release_effects())std::terminate();
+            }
+        }
         for(auto& s:slots_)for(auto& dependency:s->dependencies)if(dependency.active()){
             if(GetCurrentThreadId()!=owner_ || s->borrowed)std::terminate();
             s->borrowed=true;dependency.release(0,true);s->borrowed=false;
@@ -65,7 +72,7 @@ public:
         auto* s=find(h);if(!s || s->borrowed)return false;
         // Explicit teardown makes further visits impossible, even if a caller
         // keeps the handle. Normal retirement uses drain then reconstructs.
-        s->poisoned=true;s->snapshot.valid=false;drain(*s);return true;
+        s->poisoned=true;s->snapshot.valid=false;return drain(*s);
     }
     // One-time transfer of pristine storage from setup to simulation thread.
     bool bind_current_thread(){if(!serial_)owner_=GetCurrentThreadId();return owner_==GetCurrentThreadId();}
@@ -97,7 +104,7 @@ public:
         auto* s=find(h);if(!s || s->borrowed)return false;
         // Even poisoned snapshots relinquish their resource ownership. Their
         // capture storage remains quarantined under the existing policy.
-        drain(*s);
+        if(!drain(*s))return false;
         auto& snapshot=s->snapshot;auto& q=*snapshot.data;
         // A failed or loaded snapshot is not a clean reusable capture slot.
         if(snapshot.fault || snapshot.exception || q.fault || q.restore_invoked || q.saved.stream.failures || q.after_save.stream.failures){
@@ -109,6 +116,7 @@ public:
         snapshot.direction_bits=0x400;snapshot.direction_slot=1;snapshot.capture_stage=0;snapshot.mode_values_valid=false;snapshot.mode_values={};
         snapshot.mode=NativeBoundarySnapshot::Mode::idle;snapshot.module=0;snapshot.thread=0;
         snapshot.attempted=snapshot.valid=snapshot.fault=false;snapshot.exception=0;
+        snapshot.effects.reset();
         s->occupied=false;return true;
     }
 };

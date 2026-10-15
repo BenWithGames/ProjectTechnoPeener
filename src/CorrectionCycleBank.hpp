@@ -27,7 +27,9 @@ public:
     bool unchanged_skipped(unsigned i)const{const auto& r=at(i).runner;
         return combat && r.no_divergence.load() && r.retired.load() && !r.failed.load() && !r.restart.load();
     }
-    bool skipped(unsigned i)const{return neutral_skipped(i) || unchanged_skipped(i);}
+    bool skipped(unsigned i)const{const auto& r=at(i).runner;
+        if constexpr(requires {r.safe_rejection.load();})if(combat && r.safe_rejection.load() && r.retired.load() && !r.restart.load())return true;
+        return neutral_skipped(i) || unchanged_skipped(i);}
     unsigned neutral_count()const{unsigned n=0;for(unsigned i=0;i<active();++i)if(neutral_skipped(i))++n;return n;}
     unsigned unchanged_count()const{unsigned n=0;for(unsigned i=0;i<active();++i)if(unchanged_skipped(i))++n;return n;}
     unsigned skipped_count()const{unsigned n=0;for(unsigned i=0;i<active();++i)if(skipped(i))++n;return n;}
@@ -58,8 +60,8 @@ public:
         e.update();return ok;
     }
     bool all_verified()const{
-        if(combat){for(unsigned i=0;i<active();++i){const auto& r=at(i).runner;
-            if(r.verified.load() && r.retired.load() && !r.failed.load() && !r.restart.load())return true;}return false;}
+        if(combat){unsigned verified_count=0;for(unsigned i=0;i<active();++i){const auto& r=at(i).runner;
+            if(r.verified.load() && r.retired.load() && !r.failed.load() && !r.restart.load())++verified_count;}return verified_count>=3;}
         if(active()!=limit)return false;
         for(unsigned i=0;i<limit;++i){const auto& r=at(i).runner;
             if(!r.verified.load() || !r.retired.load() || r.failed.load() || r.restart.load())return false;}
@@ -73,7 +75,8 @@ public:
         }
     }
     template<class Stream> void write_report(Stream& out)const{
-        out<<"suite_cycles_target="<<(combat?1:3)<<"\nsuite_attempt_limit="<<limit<<"\nsuite_neutral_windows_skipped="<<neutral_count()<<"\nsuite_no_divergence_windows_skipped="<<unchanged_count()<<"\nsuite_cycles_active="<<active()<<"\nsuite_cycles_verified="<<all_verified()<<'\n';
+        out<<"suite_method_schema=2\nsuite_reference_gate=1\nsuite_unknown_mismatch_policy=reject\nsuite_unsafe_recovery_available=0\n";
+        out<<"suite_cycles_target="<<3<<"\nsuite_attempt_limit="<<limit<<"\nsuite_neutral_windows_skipped="<<neutral_count()<<"\nsuite_no_divergence_windows_skipped="<<unchanged_count()<<"\nsuite_cycles_active="<<active()<<"\nsuite_cycles_verified="<<all_verified()<<'\n';
         for(unsigned i=0;i<limit;++i){const auto& r=cycles_[i]->runner;
             const auto p="suite_cycle_"+std::to_string(i+1)+"_";
             out<<p<<"captured="<<r.captured.load()<<'\n'<<p<<"predicted="<<r.predicted.load()<<'\n'
@@ -85,6 +88,10 @@ public:
                <<p<<"confirmation_ready="<<r.exchange.ready.load()<<'\n'<<p<<"confirmation_failed="<<r.exchange.failed.load()<<'\n'
                <<p<<"entry_hold="<<cycles_[i]->entry.state.load()<<'\n'<<p<<"confirmation_hold="<<cycles_[i]->confirmation.state.load()<<'\n'
                <<p<<"confirmation_services="<<cycles_[i]->confirmation.services.load()<<'\n';
+            if constexpr(requires {r.reference_verified.load();}){
+                out<<p<<"reference_attempted="<<r.reference_attempted.load()<<'\n'<<p<<"reference_verified="<<r.reference_verified.load()<<'\n'
+                   <<p<<"safe_rejection="<<r.safe_rejection.load()<<'\n'<<p<<"stop_outcome="<<r.stop_outcome.load()<<'\n';
+            }
             cycles_[i]->entry.write_diagnostics(out,p+"entry_diagnostic_");
             cycles_[i]->confirmation.write_diagnostics(out,p+"confirmation_diagnostic_");
             for(unsigned j=0;j<r.diagnostic.size();++j)out<<p<<OwnedPredictionCorrection::diagnostic_names[j]<<'='<<r.diagnostic[j].load()<<'\n';
