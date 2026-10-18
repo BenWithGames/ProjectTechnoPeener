@@ -24,16 +24,35 @@ template<unsigned Capacity=4> class NativeRollingHistory {
     }
     unsigned count_{};
     bool failed_{};
+    NativeEffectSession* effects_{};
     std::optional<RollbackBoundaryKey> replay_next_;
     static bool descriptors(uintptr_t base,std::array<uintptr_t,2>& out) noexcept {
         __try {out={*reinterpret_cast<uintptr_t*>(base+0x470D0D0),*reinterpret_cast<uintptr_t*>(base+0x470D0F8)};return out[0]!=0;}
         __except(EXCEPTION_EXECUTE_HANDLER){return false;}
     }
+    bool compact_births(){
+        if(!effects_ || !count_)return true;
+        unsigned first=UINT_MAX;
+        for(unsigned i=0;i<count_;++i)if(!pool_.visit(handles_[i],[&](NativeBoundarySnapshot& s){
+            if(!s.effects || s.effects->owner!=effects_ || !s.effects->valid)return false;
+            first=(std::min)(first,s.effects->birth_cursor);return true;
+        }))return false;
+        if(!effects_->compact_birth_history(first,count_))return false;
+        for(unsigned i=0;i<count_;++i)if(!pool_.visit(handles_[i],[&](NativeBoundarySnapshot& s){
+            s.effects->birth_cursor-=first;return true;
+        }))return false;
+        return true;
+    }
 public:
     unsigned count()const{return count_;}
     bool failed()const{return failed_;}
     bool capture_owned(const RollbackBoundaryKey& key,unsigned oldest_required,uintptr_t base,uintptr_t argument,ReplayDependencySource& source,bool approved_profile=false,bool general_restore=false){
-        if(!base || !source.available())return false;
+        if(failed_ || !key.same_round(key) || key.thread!=GetCurrentThreadId() || !base || !source.available())return false;
+        if(effects_ && effects_!=source.effects)return false;
+        if(general_restore && source.effects){
+            if(!source.effects->begin(base,key.session,key.round,source.effect_references))return false;
+            effects_=source.effects;
+        }
         return append(key,oldest_required,[&](auto& pool,const auto& handle,const auto& boundary){
             std::array<uintptr_t,2> before{},after{};
             if(!descriptors(base,before))return false;
@@ -42,7 +61,13 @@ public:
             const auto fingerprint=GeneratedBufferFingerprint::read(source.generated->buffer,source.generated->size);
             if(!fingerprint.valid)return false;
             const bool captured=pool.visit(handle,[&](NativeBoundarySnapshot& snapshot){
-                return (general_restore?snapshot.capture_general(base,argument):snapshot.capture_supported(base,argument,approved_profile)) && snapshot.data->before_keys[0]==boundary.frame;
+                if(general_restore && effects_){
+                    snapshot.effects=std::make_unique<NativeEffectSession::Binding>();
+                    if(!effects_->capture(*snapshot.effects))return false;
+                    snapshot.data->external_wind_lifecycle=true;
+                }
+                const bool saved=(general_restore?snapshot.capture_general(base,argument):snapshot.capture_supported(base,argument,approved_profile)) && snapshot.data->before_keys[0]==boundary.frame;
+                return saved && (!snapshot.effects || effects_->compare(*snapshot.effects));
             });
             if(!captured || !descriptors(base,after) || before!=after || !references.covers(before[0],before[1]) ||
                 !fingerprint.matches(GeneratedBufferFingerprint::read(source.generated->buffer,source.generated->size)))return false;
@@ -66,6 +91,7 @@ public:
             for(unsigned i=1;i<count_;++i){handles_[i-1]=handles_[i];keys_[i-1]=keys_[i];guards_[i-1]=guards_[i];}
             --count_;
         }
+        if(!compact_births()){failed_=true;return false;}
         auto h=pool_.acquire(key.session,key.round,key.frame,NativeBoundarySnapshot::Mode::combat_capture_only,key.slot);
         if(!h){failed_=true;return false;}
         guards_[count_]={};handles_[count_]=*h;keys_[count_++]=key;
@@ -83,6 +109,11 @@ public:
         unsigned first=count_;
         for(unsigned i=0;i<count_;++i)if(keys_[i].same_round(key) && keys_[i].frame==key.frame){first=i;break;}
         if(first==count_)return false;
+        unsigned birth_cursor=0;
+        if(effects_ && !pool_.visit(handles_[first],[&](NativeBoundarySnapshot& s){
+            if(!s.effects || s.effects->owner!=effects_ || !s.effects->valid)return false;
+            birth_cursor=s.effects->birth_cursor;return true;
+        }))return false;
         bool restored=false;
         try {restored=pool_.visit(handles_[first],restore);}catch(...){failed_=true;return false;}
         if(!restored){failed_=true;return false;}
@@ -91,6 +122,7 @@ public:
             if(!pool_.retire(handles_[i])){failed_=true;return false;}
             handles_[i]={};keys_[i]={};guards_[i]={};--count_;
         }
+        if(effects_ && !effects_->branch_birth_history(birth_cursor,count_)){failed_=true;return false;}
         replay_next_=key;return true;
     }
     template<class Visitor> bool visit(const RollbackBoundaryKey& key,Visitor visitor){
@@ -106,9 +138,11 @@ public:
             return visit(next,[&](NativeBoundarySnapshot& b){reason=a.structural_readiness(b);return true;});
         });
     }
-    bool validate_owned(const RollbackBoundaryKey& key)const{
+    bool validate_owned(const RollbackBoundaryKey& key){
         if(failed_ || key.thread!=GetCurrentThreadId())return false;
-        for(unsigned i=0;i<count_;++i)if(keys_[i].same_round(key) && keys_[i].frame==key.frame)return valid_guard(guards_[i]);
+        for(unsigned i=0;i<count_;++i)if(keys_[i].same_round(key) && keys_[i].frame==key.frame)return valid_guard(guards_[i]) && pool_.visit(handles_[i],[&](NativeBoundarySnapshot& snapshot){
+            return !effects_ || (snapshot.effects && snapshot.effects->owner==effects_ && effects_->validate(*snapshot.effects));
+        });
         return false;
     }
     // Explicit owner-thread teardown, including a failed capture. No recovery
@@ -117,7 +151,7 @@ public:
         if(count_ && keys_[0].thread!=GetCurrentThreadId())return false;
         failed_=true;
         for(unsigned i=0;i<count_;++i)if(!pool_.release_dependencies(handles_[i]))return false;
-        return true;
+        return !effects_ || effects_->finish();
     }
 };
 }

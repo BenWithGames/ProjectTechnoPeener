@@ -378,3 +378,428 @@ bit-exactly. Tests reject infinities, quiet/signaling NaNs, arbitrary loaded cha
 neighboring changes, wrong owner and smoothing-class mismatch without writes.
 Protocol revision 0x15 requires both peers to install the new build. Live verification
 remains pending; tests establish patch behavior, not reachability of all tested floats.
+
+
+## 2026-10-15: retry scheduling after inconclusive windows
+
+12296 and peer 17824 each completed five reference/prediction/correction windows,
+all with no measurable divergence and verified cleanup. They already retried those
+windows. The actual stop was attempt 7 entering an invalid clock at round end
+(context mask 1, clock 0, both holds rejected); no restoration occurred in that
+attempt. Generic restart wording was misleading (restart_required=0).
+
+Combat suites now negotiate fresh clock/battle targets between attempts using owner-
+thread paired observations (four adjacent samples, age <=250ms), authenticated
+proposal/ack/commit messages, cycle-isolated packets, and both peers' retired results.
+Targets are 600 frames ahead of the proposing observation; no old round offset is
+reused. Unstarted rejected holds retire on the owner thread before publishing a safe
+skip. Each new cycle establishes its own round key; snapshots never cross rounds.
+Failed resources/cleanup or post-mutation failures still stop. Bounded 12-attempt
+and session time budgets remain: exhaustion is inconclusive, not correction PASS.
+Fresh-pair protocol is version 0x16. Live verification pending. New tests cover
+bilateral agreement across changed identity, no activation from stale samples,
+late/future-cycle packets, owner retirement, and unsafe restart rejection.
+
+
+## 2026-10-15: retired-cycle round guard; retry experiment paused
+
+Both reports 39612 and 40660 show attempt 2 reference replay and restoration passed,
+three predicted/corrected frames completed, stop_outcome=1 and retired=1. The later
+round change re-entered CombatResourcePreparation::replay_boundary and overwrote the
+terminal attempt with failure_reason=8. No unsafe restoration was reported.
+
+Return before round checks/resource access for retired, failed, or restart-latched
+cycle runners. Keep the same-round rejection for still-active runners. A regression
+test drives the actual dispatcher with a completed old-round runner and a new-round
+key, checks unchanged terminal evidence, then verifies an active old-round runner
+still rejects/cleans up before any resource access or native call.
+
+User requested moving away from this repeated synthetic prediction test; do not
+schedule another RoundRetry match as the next milestone. Preserve the suite and
+its evidence rather than deleting the research. Next-milestone clarification asked:
+targeted object retention discussed earlier versus continuous combat rollback.
+
+
+## 2026-10-15: targeted retention milestone selected
+
+User selected targeted object retention, not continuous combat rollback. Existing
+EffectRetentionRuntime/NativeEffectSession already support four pinned wind/effect
+allocation sites, snapshot pins, native unlink/free deferral, list/payload revival,
+and external stage-resource validation. Do not claim this is a new retention design
+or extend free suppression to unknown object types.
+
+Added thread-safe cumulative lifetime evidence to the existing reports:
+suite_retention_native_deferred, snapshot_protected, allocator_releases, revivals.
+These distinguish natural native release deferrals from replay's list-change counts.
+A snapshot-protected event requires an existing ledger pin at the actual native
+release interception. Revival counts only an object that was retired before the
+successful image/list restoration. Allocator releases count actual forwarded cleanup
+calls, not queued requests. Zero events means not exercised, never PASS.
+
+Local runtime tests verify a pinned native removal does not call the allocator,
+expiry releases once, duplicate expiry does not double-free, restoration revives
+original memory/list membership, and the replaced object is collected once. These
+are isolated native-memory fixtures, not a live combat lifetime proof.
+
+Next live runner must isolate snapshot retention/expiry and natural creation/removal
+from synthetic wrong-input prediction, with explicit lifecycle-event coverage and
+stage dependency validation. No retention-specific live runner was armed or installed
+in this change; the old RoundRetry procedure remains paused by user request.
+
+
+### 2026-10-15: dedicated TargetedRetention suite wired
+
+Profile 11 selects a capture/retire-only path. It uses NativeEffectSession bindings,
+not full combat serialization, prediction, native load, replay or RNG caller tracing.
+Up to 12 windows capture four effect images each across three frames, separated by
+60 frames. External stage references remain validated and owned by the existing
+resource session. A round identity change terminates the window and releases its
+bindings; terminal evidence remains immutable. No arbitrary classes are retained.
+
+The suite exchanges the retention lifecycle stage bilaterally. Passing requires
+at least one intercepted native removal while snapshot-pinned, successful owner
+cleanup, equal acquired/retired effect snapshots, and equal deferred/actual native
+frees. Missing events are SUITE_RETENTION_NOT_OBSERVED, not PASS or a correction
+failure. Revival is intentionally not exercised by this capture-only profile.
+
+Local coverage includes 12 bounded windows, capture failure cleanup, round-change
+cancellation, terminal immutability, profile separation and missing-event summaries.
+The earlier ledger/runtime fixtures cover delayed frees, revival and exact release.
+Live coverage remains pending. Warmup/lobby initialization is still required.
+
+
+### Targeted retention coverage revision 2
+Both first live reports (Ben 15452 / partner 2408) completed 12 windows and 48
+snapshots, with 23 deferred/final native releases and zero snapshot-protected
+removals each. User confirmed normal gameplay. This is cleanup evidence, not
+proof of survival past native unlink.
+
+Increase to 300 consecutive four-snapshot windows (1200 sampled frames, about
+20 seconds at 60 Hz), ending sooner on round change. Every window still releases
+all bindings at its fourth boundary: maximum hold remains three frame advances,
+with at most four bindings. The next window starts on the following frame; no
+reference spans windows. The old 60-frame wait is removed. No wall-object support,
+restoration or prediction is added. Coverage revision is included in reports and
+handshake signature so peers cannot silently mix old/new schedules. Local tests
+check every captured frame, every four-frame release and the finite stop budget.
+
+
+### Retained object reference-replay stage (profile 12)
+The coverage run passed bilaterally: Ben 29144 / partner 27836 each reported
+35 snapshot-protected removals, 44 deferred/final native frees, and 1200 captured
+and retired snapshots, with normal gameplay. Revival was deliberately not run.
+
+New separate suite profile captures at most 32 four-frame general-combat windows.
+An object present in an owned earlier effect image but absent at the recorded
+endpoint gates restoration; generation and dependency validation remain mandatory.
+No-removal windows are discarded before mutation and retried with fresh snapshots.
+A round identity change ends the attempt and releases bindings. On removal, native
+state/effect lists are rewound and the three ORIGINAL recorded-input frames replayed.
+PASS requires a positive revival counter delta, verified reference replay, and
+completed cleanup on both peers. No prediction/no false input injection is used.
+The existing full mismatch diagnostic array and failure binary evidence are emitted
+under suite_retained_replay_* and a report-stem retained-evidence.bin file.
+Unsafe restoration/replay failures request restart and stop further updates. This
+is not continuous rollback and does not add support for wall objects. Live proof
+of restored-object reference replay is pending; bounded retention alone is proven.
+
+## 2026-10-17: slot-1 sample and delta W signed zeros
+
+Live EndState reports 47160 and partner 45096 stopped after restoration succeeded,
+with endpoint mask 511 and native record 8 (0x370 bytes, writer RVA 0x30AA80).
+Ben differed only at sign bytes 0x11F and 0x12F; partner only at 0x11F.
+These are exact -0.0/+0.0 words at 0x11C and 0x12C, not nonzero drift.
+
+Focused Ghidra results are in workspace work/ghidra-sc6-focus/motion-zeros:
+306530 MotionUpdate, 2F54C0 MotionSample and 2FDB50 MotionBinding. The
+0xB0 slot stride maps 0x11C to slot 1 +0x6C (sample W), 0x12C to slot 1
++0x7C (weighted delta W), and the earlier 0x1CC to slot 2 +0x6C.
+The update subtracts previous sample W at 30687B, multiplies by the blend
+weight, and stores the delta W. Rotation and player-position/collision
+updates use XYZ separately. Sampling scales W numerically. The inactive
+branch clears XYZ but leaves W. These are floating-point values, not
+pointers, tags, or a discovered sign-bit branch.
+
+Aligned machine-code operand scan in readers.txt cross-checks the targeted
+animation region (0x2F0000..0x310000). This is supporting evidence, not an
+exhaustive proof of every indirect consumer in the executable. We do not
+claim W is padding or normalize all floats.
+
+TwoFrameIdleReplay now permits exact opposite zero signs only at the three
+observed words. It retains the general-combat/restoration, writer, record
+size and both player-relative source guards. No load/save bytes are changed.
+Existing motion_zero_evidence counts accepted words and records the last
+word; raw evidence retains every byte. All nonzero and other-byte endpoint
+comparisons, diagnostics, round and match-end guards remain in place.
+
+Regression coverage exercises both directions, all three simultaneous zero
+pairs, subnormal/nonzero rejection, neighboring-byte rejection and the
+existing serializer/source/mode/restoration guards. FullStateProbeTest passed.
+Live validation of the extended rule remains pending; the latest failures
+never reached match-end, so they do not validate the EndState change.
+
+Archived-payload cross-check: Ben47160 record8 differs at 0x11F/0x12F;
+partner45096 record8 differs at 0x11F. Applying only the exact signed-zero
+predicate at the allowed words leaves no other differences in either record.
+This checks the reported mismatch, not subsequent live replay behavior.
+`nFull Build-Native.ps1 completed successfully; DLL staged locally. See build-native/motion-zero-build.log. Not installed or live-validated in this change.
+
+## 2026-10-17: secondary resource path cleanup
+
+Reports Ben1264 and peer35372 both verified two original-input replay windows
+(826..829 and 2351..2354), then cancelled on scoped-clear reason5. No replay
+mismatch was reported. GameSet was recorded; this is not sufficient to infer
+whole-match completion. The match-end and round guards remain unchanged.
+
+Focused Ghidra exports (workspace work/ghidra-sc6-focus/secondary-ownership and
+secondary-strings) establish the secondary collection at container+0x150:
+- 8A1D20 copies a collection into it via 8638E0, then resolves copied paths.
+- 85B720 inserts a 32-byte entry: DWORD key at+0, copied path at+8,
+  hash-chain bookkeeping at+0x18/+0x1C.
+- 409440 reads the path count at+8 relative to its string argument, allocates
+  separate storage via 47C020, copies count*2 bytes, and constructs the path
+  via E64270. E64270 examines UTF-16 slash characters and normalizes/copies
+  the path; the resolved object is obtained separately via E62CA0.
+- 89A700 copies the secondary path before resolving it. The buffer is not
+  itself the loaded asset, a strong-reference control block, or a descriptor.
+- 716430 iterates allocated entries and passes entry+8 directly to D46A00
+  (allocator free), without traversing pointees or calling an asset destructor.
+- 47C020 stores capacity at string+0xC and allocates capacity*2 bytes.
+
+machine-code.txt cross-checks the actual entry+8 copy call at85B76D,
+count*2 copy at40948C/409492, free at71646F/716478 and capacity store47C07E.
+Ghidra's inferred names/types are research annotations, not original symbols.
+
+Fix: replace the unconditional secondary-pointer rejection with validation of
+this pinned path-string layout. Validate signed count/capacity, a conservative
+capacity limit, pointer alignment/range, readable committed allocation and the
+terminating UTF-16 zero for nonempty strings. Compare the entire capacity range
+with retained payloads, control blocks and known resource-object headers.
+Overlap remains related/cancellation; malformed or unsupported entries remain
+unknown/cancellation. Empty strings and unallocated sparse slots are handled.
+No game data is modified and native clear still executes exactly once under
+its existing lock. Primary resource checks, unknown-thread rejection, exact
+replay checks, diagnostics and round/match-end safety remain unchanged.
+
+Scoped-clear report schema2 adds validated count, last secondary buffer,
+allocation bytes, length, capacity and classification step (1 layout, 2 overlap,
+3 readability/terminator, 0 validated). Old fields/reason numbers are preserved.
+Tests cover valid strings, empty allocations, malformed lengths/capacities,
+terminators, unaligned/unreadable/overflowing pointers, retained payload/control/
+object overlap, sparse slots and the preexisting lock/exception guards.
+Focused ScopedResourceClearTest passed. Live validation is pending: the old
+reports did not retain the string header/content, so this investigation proves
+the native collection semantics, not the exact runtime buffer's contents.
+
+Full Build-Native.ps1 passed; see build-native/secondary-clear-build.log. DLL staged locally, not installed or live-validated.
+
+## 2026-10-17: repeated bounded combat replay milestone
+
+Bilateral SecondaryPaths run Ben39100 / peer44428 completed all three rounds
+with endpoint masks1023. Both reports classified11 clears unrelated; the last
+had9 validated path strings. User reported some stutter. Signed-zero exception
+was not exercised in the reported cycle endpoints; continuous rollback remains
+unimplemented.
+
+Existing suite profile15 now enables repeated_combat scheduling: three
+original-input three-frame replay cycles with120-frame spacing within a round.
+Every cycle still captures four snapshots, verifies all replay hops, and retires
+snapshots/dependencies before another capture. No prediction/injection is added.
+Fight readiness is required at every capture. Legal next-round changes discard
+unmodified partial windows and reset admission; rematches, session/peer/slot/
+thread changes and unsafe replay failures retain existing stop behavior.
+Between completed windows, clean End-state cleanup can report incomplete
+coverage; partial windows and GameSet alone cannot qualify as match completion.
+
+Per-cycle snapshots, native payloads, animation/RNG traces and all existing
+reports remain. Added suite_repeated_combat_replay; summaries describe cycles
+rather than claiming three distinct rounds. Compatibility signature changed
+for profile15 to reject older one-per-round peers. Timing baseline unchanged.
+
+NativeRollbackWindow tests passed for three spaced cycles within one round,
+no early capture, immutable cycle frame metadata, partial-window round discard,
+fresh fight gate and later replay failure stopping further work. Existing
+one-per-round policy regressions remain through explicit constructor selection.
+Test-TestSuite summary checks passed. Full build/live validation recorded below.
+
+Full Build-Native.ps1 passed (build-native/repeated-combat-build.log). DLL staged, not installed or live-validated.
+
+## 2026-10-17: repeated combat timing diagnostics
+
+ReplayTiming uses QPC wall-clock measurements and fixed-size atomic count,
+total/max tick aggregates for each of three cycles plus session cleanup/report
+work. Instrumented phases: game-thread replay-runner step, capture, snapshot
+archive copy, restoration, reference replay/verification, endpoint evidence
+copy, trace snapshot copy, recycle, final release, partial discard and round
+cleanup. Callback arrival gaps provide contextual cadence, not GPU/present
+frame time. Session report_io covers report processing and binary evidence I/O,
+not just device write latency or the outer launcher's text-file write.
+Nested step/child times must not be summed as independent costs.
+
+Reports include QPC frequency and per-phase aggregates; suite summary converts
+to milliseconds. No sleeps, scheduling changes, normal-game hooks or disk I/O
+were added to the timing scopes. Measurements are observational wall time and
+can include OS preemption. Three cycles give bounded samples, not a claim of
+continuous recording or definitive diagnosis of every stutter.
+
+Regression coverage verifies count/total/max aggregation, preservation of a
+false return and thrown exception, exactly-once invocation, out-of-range bucket
+routing, QPC availability and summary conversion without invented peer timing.
+All existing diagnostic evidence and round safety policies are retained.
+
+
+## 2026-10-17: bounded replay workspace buffer reuse
+
+The prior bilateral repeated-combat run verified all three cycles (120-frame
+spacing), but retirement took 23–24 ms locally and 55–56 ms remotely. Each cycle
+reconstructed ten 35,343,856-byte FullStateProbe objects: two workspaces per hop
+and four pool snapshots. The transform record arrays dominate this storage.
+
+Retirement now copies pristine defaults around those ten count-gated record
+arrays. Counts, validity, failures, all stream callbacks/cursors, and every
+other diagnostic/default field reset. Each appended record is fully overwritten
+before its count is published; stale inactive records cannot become active.
+A shared immutable defaults object is allocated/warmed during pool construction
+(about 33.7 MiB additional process memory), not on first retirement. This trades
+modest fixed memory for less game-thread memory clearing. Existing native
+ownership drain, failed-slot quarantine, replay verification, effect cleanup,
+thread/round/session guards and timing diagnostics are unchanged.
+
+A fresh read-only Ghidra SC6ResourceClear pass completed for RVA 899110,
+1C14E80, 29B9940 and 2DDA440. ResourceEntriesRelease decrements strong references
+and invokes native disposal at zero, then weak/control disposal. ContainerClear
+also frees secondary entries under its native lock. Therefore none of those
+release calls or native resource lifetimes were skipped or moved. This change
+only reuses C++ diagnostic storage, not native objects. Ghidra output is at
+work/ghidra-sc6-focus/buffer-reuse-ownership (workspace root).
+
+Regression coverage poisons every probe byte, verifies all non-buffer defaults,
+checks invalid/empty transform state, verifies complete record overwrite and
+zeroed unused record tail, then repeats reset. Existing retention, stale handle,
+quarantine and restore-reuse tests remain required by Build-Native.
+An optimized standalone benchmark with ten separate probes measured old resets
+28.1–30.3 ms and reuse 0.57–1.10 ms on this PC (while the build was running).
+This is not an end-to-end gameplay timing claim; restoration, evidence copying
+and native cleanup still cost time and must be measured in the next match.
+
+
+## 2026-10-17: buffer reuse live result and first-match suite wiring
+
+Ben report steam-inputs-43892 completed SUITE_COMPLETE with local/peer pass255,
+fail0, skip0, mutual result acknowledgement and three completed replay cycles.
+Retirement measured 0.6741, 0.6738, 0.6742 ms (previously 23–24 ms).
+Maximum step callbacks measured 40.6993, 39.6598, 41.1924 ms (previously61–62).
+Restoration remains20.69–21.07 ms and replay4.29–4.46 ms. User reported normal
+play and less stutter. Peer timing ZIP not yet received; peer result bits confirm
+stages, not her timing. Local archive is SC6Rollback-Report-steam-inputs-43892-8b34aed2.zip.
+
+Per the user's request, profile15 now selects the existing guarded first-match
+resource preparation path rather than requiring a prior game-frame observation.
+Loading callbacks nominate the owner; readiness remains blocked until a valid
+battle boundary confirms that thread. Unknown/foreign-thread checks, native
+reference ownership, fight readiness, round identity and cleanup remain intact.
+No continuous prediction or clock-advancement bypass is enabled. The profile15
+handshake signature changes to reject warmup-only peers. Launcher/README now
+require starting in the first private lobby before loading the match. First-match
+live validation is pending. All older suite profiles retain their startup policy.
+
+
+## 2026-10-17 first-match failure investigation: 51084 / partner34944
+
+Both first-match owners were verified; Ben cycle1 verified all1023 comparison
+bits, then cycle2 failed effect comparison at object0 offset8 after restoration.
+Partner34944 failed before restore: one effect capture, no completed cycles,
+check2, stopped/window_failed sampled0, no object mismatch indices, resources
+retired. Capture check2 brackets EffectMemoryGate::try_access: failure can be
+try-lock contention OR stopped becoming true after the pre-call diagnostic.
+The saved report cannot distinguish those causes. Every allocator release route
+acquires this mutex for bookkeeping, including unrelated addresses. Do not call
+this a proven resource corruption or make the gate block around native calls.
+Next diagnostic should record the actual gate outcome and owner/caller context;
+only proven clean pre-mutation contention is a candidate for bounded retry.
+
+Local raw wind.lifecycle evidence is two32912-byte images plus external-check
+field/padding. Object0: vtable RVA3E88D18, size384, expected address1E8247D0400
+(generation10), replay address1E825798080(generation11). Differences:8..B,24,
+34,3C,E4,E8,EA,110,114,115,118,11C,12C. JSON in
+work/first-match-effects/51084-object0.json (repository work folder).
+
+Fresh read-only Ghidra passes and PE disassembly reviewed allocator4A61C0,
+spawn fragment2FC713 (call return2FC720), setup331E90, initialization3322C0,
+field query332B60 and tick332400. Allocator delegates to an allocation interface;
+spawn/setup do not zero the full allocation or write offset8. Several differences
+are holes outside initialized fields. This supports allocator-residue mismatch,
+not a conclusion that all differences are safe to mask. Further field-use audit
+is needed before changing exact effect comparison. Initial research script names
+were corrected:332B60 is a field query, not a destructor;331180 is a noise step.
+Unwind entries may be function fragments; the decompiler's larger control flow
+and exact PE instruction bytes must be considered together.
+Ghidra outputs are under workspace work/ghidra-sc6-focus/effect-mismatch,
+effect-mismatch-verified and effect-mismatch-setup. No runtime changes, guards,
+comparisons, diagnostics or round safety were altered by this investigation.
+
+
+## Exact capture-gate diagnostics and effect-field audit
+
+EffectMemoryGate now optionally returns entered(1), contended(2), stopped(3),
+with0 meaning no attempt. Contention is checked first exactly as before; when
+both lock and stop are present it reports the immediate lock rejection, not a
+claim that stop is absent. Capture records that result, requester/owner threads,
+capture serial, cumulative attempts/contentions/stops and last rejection. Raw
+suite reports and summary include these; no blocking, retry or masking added.
+
+Ghidra audit for the 3E88D18 /384-byte effect: creation at2FC70E..2FC8DE,
+setup331E90, init3322C0, tick332400, spatial field query332B60, virtual getters
+331070/331080 and manager update/removal333FD0. PE instructions verify manager
+uses links10/18, manager28, status68/6C and virtual callbacks; not field08.
+The 17 differing bytes group into08..0B,24,34,3C,E4,E8,EA,110,114,115,118,11C,
+12C. No semantic reads/writes of those fields were found in the reviewed paths.
+Their containing gaps are08..0F,22..27,34..3F,E4..EF,110..12F. Init writes
+lifetime30, spawn writes a WORD at20, and active transform data starts130 after
+movement controls100..10F. Full-allocation snapshot/equality reads them anyway.
+This is strong evidence of comparison of allocation residue for this exact type;
+it is not a whole-program proof about external aliases or other effect types.
+No comparison exclusions are enabled. Ghidra artifacts:
+workspace work/ghidra-sc6-focus/effect-field-audit and effect-mismatch-setup.
+
+## Recorded-only workspace copy (2026-10-17)
+GateDiagnostic run 11724 and peer 15524 passed all three cycles without warmup. Restoration dominated measured work (~19.4â€“20.4 ms local, ~25.4 ms peer); peak callbacks ~37â€“39 / 49â€“51 ms. Gate contentions/stops were zero on both sides.
+
+Ghidra focused audit of native save RVA 3841E0 and load 384540 is saved under workspace work/ghidra-sc6-focus/replay-copy-audit. The loader passes the stream to native readers and invokes its read callback at vtable +30. It does not receive the auxiliary TransformSnapshot arrays. We keep native serialization, read ordering and game-state restoration unchanged. Mod-side consumers iterate count; append initializes each full record before publishing count.
+
+NativeAdjacentRestore preparation previously assigned a full 35,343,856-byte FullStateProbe for each hop. copy_recorded_from now copies all fields outside record arrays plus all count-published records, including their complete payload and metadata. No fields within a live record are excluded. Invalid counts reject before mutation; self-copy is supported. This is independent of the unresolved wind padding audit. Ownership retirement, round/fight gates, verification and all diagnostics remain intact.
+
+Optimized standalone microbenchmark, illustrative 2,100 records in one populated transform snapshot: 35,343,856 -> 5,113,776 bytes; 0.5405 -> 0.0730 ms per copy on this PC. This is not a live-game timing prediction; live DLL build configuration and memory contention differ. Full regression tests and next peer run must establish live improvement. No compiler optimization flags or hold timing were changed.
+
+## Additional copy/evidence optimization (2026-10-17)
+NativeBoundarySnapshot preparation now copies only count-published records for both adjacent transform snapshots, preserving all record bytes and all metadata. Invalid counts reject before copying, and source/target aliasing is handled. Tests cover valid entries, unused storage, self-copy, invalid count rejection and empty snapshots.
+ReplayFailureEvidence reserves its existing 32 MiB evidence budget once before capture. This avoids geometric vector growth and repeated moves of already-appended diagnostic sections. Section names, layout, contents, bounds and publication ordering remain unchanged; allocation failure still records state 2. Native restore and hold timing are unchanged. No threaded live-memory access was added. Expected benefit is lower game-thread copying/allocation cost, not elimination of all stutter; live timing is still required.
+
+## Wind emitter countdown integration (2026-10-17; runs 35316/23580)
+Both peers: restoration passed, replay matched frames 665->666 and 666->667. At natural frame667 inline site5 (RVA3330A4) advanced RNG281471009->881491317; replay667->668 made no corresponding store and kept281471009. No inline trace drops. Ben owned images show effect count5,5,5,6; the new final-image object matches RSI from the natural site5 event, type3E88CE8, size1E0. Previous snapshots did not include the emitter list or countdown.
+
+Ghidra focused outputs are workspace work/ghidra-sc6-focus/wind-rng-audit, wind-spawn-audit and wind-emitter-audit. 2DBC60 traverses list rooted at470F1C0, invoking334960 with node+10 object, before333FD0 effect dispatch. 334960 branches on float object+5C<=0: resets countdown from RNG and config58/A4, allocates1E0, links3E88CE8 object, calls333E80 then332D60 setup; that setup performs the observed inline RNG store3330A4. Otherwise countdown decreases by global48462FC. The loop consumes pending/count50/54 and clears both. Shared global48462D0..+58 is already native-serialized. Research name WindRngTick in the first output is inaccurate: the function is setup, not the ordinary tick.
+
+New WindEmitterSnapshot captures up to128 linked emitter nodes and their A8-byte data, preserving exact root/node/object identity and configuration. Restore validates the entire current list and all nonmutable bytes first, then writes only50..57 and5C..5F, and verifies an exact recapture. It does not recreate emitters or overwrite links/configuration. Changed roots/lists/configuration and unreadable memory reject. NativeEffectSession includes this state in binding capture, restoration and post-replay comparison. Existing strong resource and owner-thread/round guards remain. New wind.emitters binary sections retain source snapshots and failed expected/actual states; suite_emitter counters identify the stage. Protocol signature for first-match suite changed to reject older peers.
+
+Focused tests cover countdown/pending restore, unchanged configuration, mismatch rejection before writes, self-cycle, unreadable object and empty-list identity. Existing copy-reduction and evidence-reservation optimizations are retained; no RNG value is forced after replay and no comparisons are weakened. Live verification of emission recreation and RNG convergence remains outstanding. The old logs did not capture the countdown itself, so the missing emitter state is established by code audit plus the matching spawn/RNG event; runtime values will now be recorded.
+
+## Deferred diagnostic serialization (2026-10-17)
+ReplayFailureEvidence now supports a preallocated immutable arena plus bounded section descriptors. CombatResourcePreparation prepares four32MiB arenas (three cycle artifacts and the separate failure artifact), one shared trace scratch (~10MiB), and per-cycle animation/RNG trace outputs on the network/preparation thread before release-publishing retained_replay_enabled. Pages are touched during preparation. Capturing records raw bytes into each artifact's owned arena; no arena is reused during the suite. Shared scratch is only read/copied on the game owner and is never read by the report worker.
+
+The existing report worker reconstructs identical section headers and writes captured arena spans after acquire publication. It never reads game objects or recycled probe memory. All diagnostic sections, including wind emitter data, remain. Verification/timing/round rules are unchanged. Capture still incurs bounded memcpy and trace-lock cost; this is not zero-overhead diagnostics. Archive snapshot packaging and additional trace copies remain measurable future targets. Memory commitment moves earlier (~155MiB aggregate for this suite), rather than being silently unbounded.
+
+Regression captures both legacy and deferred representations, mutates original probe and trace scratch, writes from another thread, and compares the complete file byte-for-byte. Bounds and failure publication remain covered. The first implementation put descriptors inline and exceeded test stack budget; descriptors now allocate on heap during preparation and tests pass.
+
+
+## Full-match reference replay (2026-10-17)
+
+Added a separate profile 16, FullMatchReplay. Profile 15 retains the existing three-cycle behavior. Profile 16 runs the existing four-snapshot / three-frame verified reference window at the existing minimum 120-frame cadence until the pinned native match-end state. It does not predict remote inputs or bypass the native network wait.
+
+The three evidence slots are now a bounded producer/report-worker queue in this profile. The game publishes each immutable archive only after replay verification and ownership retirement. The report worker writes all snapshot, replay, animation, RNG and numeric cycle files, resets the existing evidence arena and publishes slot availability last. A busy slot skips capture and increments a counter; it never blocks the game or overwrites pending evidence. I/O failure is sticky and prevents PASS. Failure evidence remains a separate channel. Timing after cycle 3 aggregates in the session row; individual cycle diagnostics remain in numbered files.
+
+Match-end handling discards any unmodified partial window, finishes effect ownership cleanup and then retires. Between-round fight readiness, identity/generation checks, exact endpoint comparisons, scoped resource clear handling and restoration failure latches remain. Full-match success additionally requires confirmed match end, at least one verified window, clean resource retirement, all completed cycle evidence flushed and bilateral suite results. Cancellation/disconnect/timeout do not set match completion.
+
+Regression coverage includes more than three cycles with queue wraparound, writer backpressure, worker-thread file publication, round transition with a partial window, partial-window match end, empty-match non-PASS, failed retirement publication, explicit abort, evidence-write failure and deferred arena reuse. Live full-match validation is pending.
+
+Full build, full-match regression tests and summary tests passed. Installed and SHA256-verified A8349893C27EEFD904CE735FCCD883627A3B306553AC2E45BD9B2192A657F17B; partner package SC6Rollback-FullMatchReplay-Suite-20261017-164953.zip. Cleared leftover process 40080 with elevated taskkill. Both PCs must restart/install; first-lobby test has not run yet.

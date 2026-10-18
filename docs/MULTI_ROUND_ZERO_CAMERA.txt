@@ -1,0 +1,7 @@
+Camera zero plateau evidence and validation
+
+Both reports (78392 / 13908): round 1 replay655-658 passed; round2 pair2069-2070 rejected camera reason12, record1, packed target offset104, zero->zero. No native restore invoked in that second window.
+
+Pinned executable SHA256 F8904E4B04BCA3B47BC52A683F6190365D2EB89EE8F44F8072759E9C5E04A553. Existing disassembly work/charge-camera-factor-update.txt shows 31AADC/31AAE4 subtract0.0765, max with zero at31AAEF/31AAF6; rising alternate adds0.1 capped1; mode1 at31AB34 subtracts1 then clampszero before stores+250/+254. This proves zero->zero is reachable, not which branch ran in the recording.
+
+New replay_factor accepts exact positive-zero plateau or the existing exact rising transition. Same predicate used in preflight and post-load source pair checks. Native loaded reset must still be1.0, live owner/payload must match, and replay must match the captured oracle. No arbitrary stable nonzero, NaN, infinity, negative or decreasing pair acceptance. Existing diagnostics and all round/session/resource guards retained.

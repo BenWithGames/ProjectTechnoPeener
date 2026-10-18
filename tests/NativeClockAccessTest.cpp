@@ -19,13 +19,17 @@ struct NativeClockDiscoveryTestAccess {
 #include <cstring>
 #include <iostream>
 static unsigned services{},waits{},advances{},order{};
-static bool waiting{},bad_service{},bad_advance{};
+static bool waiting{},bad_service{},bad_advance{},stateful_wait{};
 struct Calls {
     static void service(uintptr_t,uintptr_t object){
         assert(order==0);order=1;++services;
         if(bad_service)++*reinterpret_cast<uint32_t*>(object+0x3A4);
     }
-    static bool waiting(uintptr_t,uintptr_t){assert(order==1);order=2;++waits;return ::waiting;}
+    static bool waiting(uintptr_t,uintptr_t object){
+        assert(order==1);order=2;++waits;
+        if(stateful_wait){*reinterpret_cast<unsigned char*>(object+0x4425)=0;++*reinterpret_cast<uint32_t*>(object+0x3A8);}
+        return ::waiting;
+    }
     static void advance(uintptr_t,uintptr_t object){
         assert(order==2);++advances;
         *reinterpret_cast<uint32_t*>(object+0x3A4)+=bad_advance?2:1;
@@ -54,12 +58,28 @@ struct Fixture {
         table[0x620/8]=base+0x3FDB80;table[0x628/8]=base+0x3E9EE0;table[0x630/8]=base+0x3E2000;
         put(0x398,2);put(0x39C,1);put(0x3A0,7);put(0x3A4,100);
         put(0x43FC,3);put(0x4400,2);object[0x4404]=1;object[0x4424]=2;
-        services=waits=advances=order=0;waiting=bad_service=bad_advance=false;
+        services=waits=advances=order=0;waiting=bad_service=bad_advance=stateful_wait=false;
     }
     void put(unsigned offset,uint32_t value){std::memcpy(object.data()+offset,&value,4);}
     bool bind(Clock& clock){return clock.bind(base,reinterpret_cast<uintptr_t>(object.data()),GetCurrentThreadId(),true,true,true);}
 };
 int main(){
+    {
+        Fixture f;Clock c;assert(f.bind(c));
+        f.object[0x4425]=2;f.put(0x3A8,6);f.put(0x3B0,100);stateful_wait=waiting=true;
+        assert(c.service()==R::native_wait);
+        assert(c.last_wait_state().wait_reason==2 && c.last_wait_state().wait_count==6);
+        assert(c.last_wait_state().published==100);
+        assert(c.last_serviced_state().wait_reason==0 && c.last_serviced_state().wait_count==7);
+        assert(c.finish(true)==R::native_wait && advances==0);
+    }
+    {
+        sc6::research::CombatBoundaryReservation r;
+        assert(!r.quiescent());assert(r.bind(1,2,3,4,5,6) && r.quiescent());
+        assert(r.reserve(1,2,3,4,5,true) && !r.quiescent());
+        assert(r.clock_completed(true) && !r.quiescent());
+        assert(r.consume(1,2,3,6) && r.quiescent());r.stop();assert(!r.quiescent());
+    }
     {
         Fixture f;sc6::research::NativeClockDiscovery discovery;
         sc6::research::StartupBoundaryPairs pairs;
@@ -119,6 +139,17 @@ int main(){
         Fixture f;sc6::research::NativeStartHold<Clock> hold;auto object=reinterpret_cast<uintptr_t>(f.object.data());
         assert(hold.bind(f.base,object,GetCurrentThreadId(),7,100,1000,100,true,true,true));
         f.put(0x3A4,101);assert(!hold.run(object,1001) && services==0 && advances==0);
+    }
+    {
+        Fixture f;sc6::research::NativeStartHold<Clock> old_hold,new_hold;
+        auto object=reinterpret_cast<uintptr_t>(f.object.data());
+        assert(old_hold.bind(f.base,object,GetCurrentThreadId(),7,100,1000,100,true,true,true));
+        assert(old_hold.matches(object) && old_hold.retire() && !old_hold.matches(object));
+        assert(!old_hold.ready(object,1001));
+        assert(new_hold.bind(f.base,object,GetCurrentThreadId(),7,100,1001,100,true,true,true));
+        assert(new_hold.matches(object) && new_hold.ready(object,1001));
+        order=0;waiting=false;assert(new_hold.run(object,1001));
+        assert(services==1 && advances==0);
     }
     {
         using namespace sc6::research;
@@ -203,10 +234,10 @@ int main(){
         const auto object=reinterpret_cast<uintptr_t>(f.object.data());
         assert(bridge.bind(f.base,object,GetCurrentThreadId(),true,true,true,1,2,7,100,500));
         auto& d=bridge.dispatch();waiting=true;d.run(object,original);
-        assert(services==1 && advances==0 && !bridge.restart_required());
+        assert(services==1 && advances==0 && drained==1 && !bridge.restart_required());
         order=0;waiting=false;d.run(object,original);
         assert(advances==1 && bridge.reservation().consume(1,2,GetCurrentThreadId(),500));
-        assert(drained==1);
+        assert(drained==2);
         order=0;d.run(object,original);assert(advances==2);
         // Deliberately omit the battle call. Next admission must stop BEFORE advance.
         order=0;d.run(object,original);assert(advances==2 && bridge.restart_required());

@@ -24,6 +24,7 @@ private:
         return nullptr;
     }
 public:
+    bool pinned(Token token) noexcept {auto* e=find(token);return e && e->pins!=0;}
     bool live(Token token) noexcept {
         auto* e=find(token);return e && !e->retired;
     }

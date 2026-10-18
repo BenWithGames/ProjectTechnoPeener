@@ -1,0 +1,79 @@
+31ac60: test r9, r9
+31ac63: je 0x31ada3
+31ac69: push rsi
+31ac6a: push r14
+31ac6c: sub rsp, 0x28
+31ac70: mov rsi, r9
+31ac73: mov r14, r8
+31ac76: mov r10, rcx
+31ac79: cmp edx, 1
+31ac7c: ja 0x31ad9c
+31ac82: mov qword ptr [rsp + 0x40], rbx
+31ac87: mov r9d, 1
+31ac8d: mov qword ptr [rsp + 0x48], rbp
+31ac92: lea rbp, [rip + 0x43f31f7]
+31ac99: mov qword ptr [rsp + 0x50], rdi
+31ac9e: movsxd rax, edx
+31aca1: mov qword ptr [rsp + 0x20], r15
+31aca6: xor r15d, r15d
+31aca9: mov edi, r15d
+31acac: mov ebx, r15d
+31acaf: mov r8, qword ptr [rbp + rax*8]
+31acb4: mov eax, r9d
+31acb7: sub eax, edx
+31acb9: movsxd rcx, eax
+31acbc: cmp byte ptr [r8 + 0x1733], dil
+31acc3: mov rbp, qword ptr [rbp + rcx*8]
+31acc8: cmovne edi, r9d
+31accc: cmp byte ptr [rbp + 0x1732], r15b
+31acd3: cmovne edi, r9d
+31acd7: cmp byte ptr [r8 + 0x1732], bl
+31acde: cmovne ebx, r9d
+31ace2: test edi, edi
+31ace4: je 0x31acf0
+31ace6: test ebx, ebx
+31ace8: je 0x31ad14
+31acea: mov edi, r15d
+31aced: mov ebx, r15d
+31acf0: mov dword ptr [r10 + 0x2a8], 0xffffffff
+31acfb: cmp dword ptr [r10 + 0x2a8], 6
+31ad03: cmovl edi, r15d
+31ad07: test ebx, ebx
+31ad09: je 0x31ad1d
+31ad0b: inc dword ptr [r10 + 0x2a4]
+31ad12: jmp 0x31ad28
+31ad14: inc dword ptr [r10 + 0x2a8]
+31ad1b: jmp 0x31acfb
+31ad1d: mov dword ptr [r10 + 0x2a4], 0xffffffff
+31ad28: cmp dword ptr [r10 + 0x2a4], 6
+31ad30: jge 0x31ad37
+31ad32: mov ebx, r15d
+31ad35: jmp 0x31ad5d
+31ad37: test ebx, ebx
+31ad39: je 0x31ad5d
+31ad3b: lea rcx, [r8 + 0x35a0]
+31ad42: mov edx, 3
+31ad47: mov rax, qword ptr [rcx]
+31ad4a: call qword ptr [rax + 0x28]
+31ad4d: movss xmm0, dword ptr [rip + 0x43f318b]
+31ad55: comiss xmm0, dword ptr [rax + 0x34]
+31ad59: cmova ebx, r15d
+31ad5d: test edi, edi
+31ad5f: je 0x31ad83
+31ad61: lea rcx, [rbp + 0x35a0]
+31ad68: mov edx, 3
+31ad6d: mov rax, qword ptr [rcx]
+31ad70: call qword ptr [rax + 0x28]
+31ad73: movss xmm0, dword ptr [rip + 0x43f3165]
+31ad7b: comiss xmm0, dword ptr [rax + 0x34]
+31ad7f: cmova edi, r15d
+31ad83: mov r15, qword ptr [rsp + 0x20]
+31ad88: mov rbp, qword ptr [rsp + 0x48]
+31ad8d: mov dword ptr [rsi], edi
+31ad8f: mov rdi, qword ptr [rsp + 0x50]
+31ad94: mov dword ptr [r14], ebx
+31ad97: mov rbx, qword ptr [rsp + 0x40]
+31ad9c: add rsp, 0x28
+31ada0: pop r14
+31ada2: pop rsi
+31ada3: ret 

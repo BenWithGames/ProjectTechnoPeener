@@ -13,8 +13,9 @@ public:
     bool began{},sealed{},peer_seen{},peer_ack{};
     Words local{},peer{};
     const char* reason="none";
-    bool configure(unsigned p,unsigned s){if(p<1 || p>10 || s>180)return false;profile=p;seconds=s;return true;}
-    unsigned mask()const{return profile>=5?255u:127u;}
+    bool configure(unsigned p,unsigned s){if(p<1 || p>16 || s>180)return false;profile=p;seconds=s;return true;}
+    bool first_match_start()const{return profile==15 || profile==16;}
+    unsigned mask()const{return profile>=5 && profile!=11?255u:127u;}
     void observe(uint64_t now,unsigned round,unsigned event){
         if(sealed)return;
         if(!began){began=true;observing=now;last_round=round;last_event=event;return;}

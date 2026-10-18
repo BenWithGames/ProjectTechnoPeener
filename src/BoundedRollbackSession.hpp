@@ -18,6 +18,7 @@ class BoundedRollbackSession {
     uint64_t session_{},round_{},head_{},settled_{};
     Input seed_{};
     std::optional<uint64_t> dirty_;
+    bool draining_{};
     RollbackJournal<>* journal_{};
     void event(unsigned kind,uint64_t frame,unsigned detail=0){
         if(journal_)journal_->push(session_,round_,frame,head_,kind,detail);
@@ -31,12 +32,29 @@ public:
     State state{State::idle};
     uint64_t corrections{},replayed{},stalls{};
     uint64_t head()const{return head_;}
+    // A round reset must not discard speculative state or an unapplied
+    // correction. Receipt alone is insufficient: reconcile must have retired
+    // the confirmed prefix on the simulation thread first.
+    bool settled()const{
+        return state!=State::idle && state!=State::restart_required && !dirty_ && settled_==head_;
+    }
+    // Request BEFORE native result/playback cleanup. Keep accepting old-round
+    // confirmations, but prohibit new speculative frames while settling.
+    bool request_handoff(uint64_t session,uint64_t round){
+        if(session!=session_ || round!=round_ || state==State::idle || state==State::restart_required)return false;
+        draining_=true;return true;
+    }
+    bool handoff_ready()const{return draining_ && settled();}
+    template<class Adapter> bool settle_handoff(Adapter& adapter){
+        return draining_ && reconcile(adapter) && settled();
+    }
     enum class Admission {ready,waiting,restart_required};
     // Read-only forecast of advance after reconcile. No native work belongs in
     // clock admission; confirmations arriving later can only free more space.
     Admission admission(uint64_t session,uint64_t round)const{
         if(session!=session_ || round!=round_ || state==State::idle || state==State::restart_required || head_==UINT64_MAX)
             return Admission::restart_required;
+        if(draining_)return Admission::waiting;
         if(dirty_){
             if(*dirty_>=head_ || head_-*dirty_>Limit)return Admission::restart_required;
             for(auto n=*dirty_;n<head_;++n){const auto& f=frames_[n%Capacity];
@@ -55,11 +73,18 @@ public:
     // Only at an independently established clean round boundary.
     bool begin(uint64_t session,uint64_t round,const Input& neutral={}){
         if(!session || !round || state==State::restart_required)return false;
-        frames_={};session_=session;round_=round;head_=settled_=0;seed_=neutral;dirty_.reset();
+        if(state!=State::idle && (!settled() || (session==session_ && round==round_)))return false;
+        frames_={};session_=session;round_=round;head_=settled_=0;seed_=neutral;dirty_.reset();draining_=false;
         state=State::running;event(RollbackEvent::begin,0);return true;
     }
     Arrival receive(uint64_t session,uint64_t round,uint64_t frame,const Input& input){
         if(state==State::idle || state==State::restart_required || session!=session_ || round!=round_)return Arrival::wrong_identity;
+        // Authenticated retransmissions of retained confirmed input are harmless,
+        // even after it has settled beyond the correction horizon. Compare the
+        // complete retained identity and input; never bless an aliased slot.
+        const auto& retained=frames_[frame%Capacity];
+        if(retained.valid && retained.number==frame && retained.confirmed && retained.actual==input)
+            return Arrival::duplicate;
         if(frame<head_ && head_-frame>Limit){
             // Never silently discard a correction to already simulated state.
             fail(frame,1);return Arrival::expired;
@@ -108,6 +133,7 @@ public:
     }
     template<class Adapter> bool advance(Adapter& adapter,const Input& local){
         if(!reconcile(adapter))return false;
+        if(draining_){state=State::waiting;return false;}
         // Stall BEFORE an unconfirmed frame could become four frames old.
         // A real adapter must coordinate both simulation clocks; do not sleep
         // or skip the original SC6 update based on this controller alone.

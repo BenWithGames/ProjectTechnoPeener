@@ -117,20 +117,27 @@ struct TwoFrameIdleReplay {
             const bool pointer_record_padding=length==16 && a.traces[i].writer==base+0x32AC76 &&
                 q.restore_completed && q.saved.sealed && i<q.saved.writes && q.saved.lengths[i]==16 &&
                 q.saved.traces[i].writer==base+0x32AC76 && q.saved.traces[i].reader==base+0x32AD1B;
-            // Experimental comparison-only exception: observed slot-2 motion W.
+            // Comparison-only signed-zero equivalence for observed motion W fields.
+            // 306530 uses +6C as sample W and +7C as delta W; XYZ drives position.
+            // Keep nonzero values and every other field byte-exact.
             // Pin serializer, both player-relative sources, record size and exact zeros.
-            bool motion_zero=false;
+            constexpr unsigned motion_words[]={0x11C,0x12C,0x1CC};
+            bool motion_zero[3]{};
             if(q.general_combat_requested && q.restore_completed && length==0x370 &&
                a.traces[i].writer==base+0x30AA80 && b.traces[i].writer==base+0x30AA80){
                 for(auto player:q.after_players)if(player && a.traces[i].source==player+0x45230 &&
                     b.traces[i].source==player+0x45230){
+                    for(unsigned field=0;field<3;++field){
+                    const auto word=motion_words[field];
                     uint32_t x{},y{};
-                    std::memcpy(&x,a.stream.payload.data()+offset+0x1CC,4);
-                    std::memcpy(&y,b.stream.payload.data()+offset+0x1CC,4);
+                    std::memcpy(&x,a.stream.payload.data()+offset+word,4);
+                    std::memcpy(&y,b.stream.payload.data()+offset+word,4);
                     if((x^y)==0x80000000u && !(x&0x7FFFFFFFu) && !(y&0x7FFFFFFFu)){
-                        motion_zero=true;
-                        q.motion_zero_evidence={q.motion_zero_evidence[0]+1,i,0x1CC,x,y};
+                        motion_zero[field]=true;
+                        q.motion_zero_evidence={q.motion_zero_evidence[0]+1,i,word,x,y};
                     }
+                    }
+                    break; // Count each field once even if player identities alias.
                 }
             }
             const bool differs=pointer_record_padding?
@@ -140,7 +147,10 @@ struct TwoFrameIdleReplay {
             if(differs){
                 for(uint64_t j=skip;j<length;++j){
                     if(pointer_record_padding && j>=4 && j<8)continue;
-                    if(motion_zero && j==0x1CF)continue;
+                    bool zero_sign=false;
+                    for(unsigned field=0;field<3;++field)
+                        zero_sign |= motion_zero[field] && j==motion_words[field]+3;
+                    if(zero_sign)continue;
                     const auto expected=a.stream.payload[offset+j],actual=b.stream.payload[offset+j];
                     if(expected!=actual){
                         reject(4,i,j,length,std::to_integer<unsigned>(expected),std::to_integer<unsigned>(actual));

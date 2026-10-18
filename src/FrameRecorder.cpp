@@ -40,6 +40,7 @@
 #include "NetworkGameHandoff.hpp"
 #include "NetworkDepthCorrection.hpp"
 #include "NativeWindowReuseProbe.hpp"
+#include "MatchDataset.hpp"
 
 extern "C" { void* SC6Original=nullptr; void SC6EntryBridge(); }
 extern "C" { void* SC6FieldOriginal=nullptr; void SC6FieldBridge(); }
@@ -816,6 +817,7 @@ void write_capture(Recorder& r) {
 extern "C" void SC6RecordEntry(uintptr_t argument,uintptr_t* replacement=nullptr,uintptr_t return_address=0,uintptr_t* continuation=nullptr) noexcept {
     struct LastErrorGuard { DWORD value=GetLastError(); ~LastErrorGuard(){SetLastError(value);} } guard;
     auto& r=state();
+    if(r.verified && return_address==r.base+0x3FE816 && !sc6::research::combat_resource_preparation.load() && !r.active.load())sc6::research::match_dataset::frame(r.base,argument);
     // Persistent boundary service runs before the recording gate and outside r.lock.
     if(r.verified){uint32_t frame{};if(copy(&frame,r.base+0x470D0C4,4))sc6::research::lease_service::dispatch(frame);sc6::research::generated_observer::observe_frame();}
     if(auto* preparation=sc6::research::combat_resource_preparation.load(std::memory_order_acquire)){
@@ -838,13 +840,18 @@ extern "C" void SC6RecordEntry(uintptr_t argument,uintptr_t* replacement=nullptr
                 sc6::research::RollbackBoundaryKey key{peer.local_nonce,peer.remote_nonce,round.generation,
                     round.round,round.counter,frame,peer.local_slot,GetCurrentThreadId()};
                 preparation->capture_boundary(key,r.base,argument);
-                if(continuation)preparation->replay_boundary(key,r.base,argument,reinterpret_cast<sc6::research::SingleUpdateCall::Routine>(SC6Original));
+                if(continuation){
+                    sc6::RoundFightReadiness fight;
+                    if(preparation->retained_replay_enabled.load(std::memory_order_acquire) && preparation->retained_replay->multi_round)
+                        fight=sc6::RoundFightReadiness::read(r.base,round.round,round.generation,frame);
+                    preparation->replay_boundary(key,r.base,argument,reinterpret_cast<sc6::research::SingleUpdateCall::Routine>(SC6Original),fight);
+                }
                 if(preparation->replay_restart()){if(continuation)*continuation=0;return;}
             }
         }
     }
     const auto* combat=sc6::research::combat_routes.load(std::memory_order_acquire);
-    if(auto* route=combat?combat->battle:sc6::research::exclusive_battle_route.load(std::memory_order_acquire)){
+    if(auto* route=combat?(combat->retired()?nullptr:combat->battle):sc6::research::exclusive_battle_route.load(std::memory_order_acquire)){
         if(continuation){*continuation=0;route->run(argument,return_address);}
         return;
     }
@@ -1083,6 +1090,7 @@ void recorder_init() {
     }
 }
 bool prepare_owned_replay_impl(){
+ if(sc6::research::match_dataset::recording.load())return false;
  auto& r=state();AcquireSRWLockExclusive(&r.lock);
  if(!r.verified || r.active.load() || r.observation_used || r.network_reuse){ReleaseSRWLockExclusive(&r.lock);return false;}
  r.network_reuse=std::make_unique<sc6::research::NativeWindowReuseProbe>();
@@ -1091,6 +1099,7 @@ bool prepare_owned_replay_impl(){
  ReleaseSRWLockExclusive(&r.lock);return true;
 }
 bool prepare_combat_recording_impl(std::uint64_t nonce,bool first_match){
+ if(sc6::research::match_dataset::recording.load())return false;
  auto& r=state();AcquireSRWLockExclusive(&r.lock);
  const bool eligible=r.verified && r.hooked && !r.active.load() && !r.observation_used && !r.network_reuse &&
      !r.observing && !r.restore_failed && r.observation && !sc6::research::combat_resource_preparation.load();
@@ -1109,6 +1118,7 @@ static std::unique_ptr<sc6::research::NativeArmingDispatch> continuous_request;
 static std::uint64_t continuous_request_nonce{};
 unsigned continuous_start_state_impl(){return continuous_request?1u+static_cast<unsigned>(continuous_request->state()):0u;}
 bool queue_continuous_start_impl(const ContinuousStartRequest& request){
+ if(sc6::research::match_dataset::recording.load())return false;
  auto& r=state();AcquireSRWLockExclusive(&r.lock);bool result=false;
  try {result=[&]{
      using namespace sc6::research;
@@ -1158,6 +1168,7 @@ void recorder_poll() {
     queue_continuous_start=queue_continuous_start_impl;
     continuous_start_state=continuous_start_state_impl;
     auto& r=state();auto now=GetTickCount64();if(now-r.lastPoll<250)return;r.lastPoll=now;
+    if(r.verified)sc6::research::match_dataset::poll(r.directory,!r.active.load() && !r.restore_failed && !sc6::research::combat_resource_preparation.load() && !sc6::research::combat_routes.load() && !sc6::research::exclusive_battle_route.load());
     if(r.verified)sc6::research::effect_observer::poll(r.base,r.directory);
     if(r.verified)sc6::research::range_observer::poll(r.base,r.directory);
     if(r.verified)sc6::research::resource_observer::poll(r.base,r.directory);
@@ -1185,6 +1196,7 @@ void recorder_poll() {
     if(r.ready){write_capture(r);r.ready=false;}
     ReleaseSRWLockExclusive(&r.lock);
     if(!r.verified || r.active.load() || r.restore_failed)return;
+    if(sc6::research::match_dataset::recording.load())return;
     bool full_request=std::filesystem::exists(r.directory/"offline-full-restore.arm");
     bool shared_request=std::filesystem::exists(r.directory/"offline-shared-restore.arm");
     bool save_request=std::filesystem::exists(r.directory/"offline-save.arm");

@@ -31,7 +31,7 @@ public:
         "topology_removed_1_address","topology_removed_1_vtable_rva","topology_removed_1_next","topology_removed_1_parent","topology_removed_1_child_count","topology_removed_1_child_address","topology_removed_1_child_kind","topology_removed_1_child_size","topology_removed_1_child_bytes",
         "topology_added_0_address","topology_added_0_vtable_rva","topology_added_0_next","topology_added_0_parent","topology_added_0_child_count","topology_added_0_child_address","topology_added_0_child_kind","topology_added_0_child_size","topology_added_0_child_bytes",
         "topology_added_1_address","topology_added_1_vtable_rva","topology_added_1_next","topology_added_1_parent","topology_added_1_child_count","topology_added_1_child_address","topology_added_1_child_kind","topology_added_1_child_size","topology_added_1_child_bytes",
-        "payload_structural","payload_records","payload_bytes","payload_retained","payload_overflow","payload_0_record","payload_0_length","payload_0_writer","payload_0_source_saved","payload_0_source_loaded","payload_0_first","payload_0_last","payload_0_expected","payload_0_actual","payload_1_record","payload_1_length","payload_1_writer","payload_1_source_saved","payload_1_source_loaded","payload_1_first","payload_1_last","payload_1_expected","payload_1_actual","payload_2_record","payload_2_length","payload_2_writer","payload_2_source_saved","payload_2_source_loaded","payload_2_first","payload_2_last","payload_2_expected","payload_2_actual","payload_3_record","payload_3_length","payload_3_writer","payload_3_source_saved","payload_3_source_loaded","payload_3_first","payload_3_last","payload_3_expected","payload_3_actual","payload_4_record","payload_4_length","payload_4_writer","payload_4_source_saved","payload_4_source_loaded","payload_4_first","payload_4_last","payload_4_expected","payload_4_actual","payload_5_record","payload_5_length","payload_5_writer","payload_5_source_saved","payload_5_source_loaded","payload_5_first","payload_5_last","payload_5_expected","payload_5_actual","payload_6_record","payload_6_length","payload_6_writer","payload_6_source_saved","payload_6_source_loaded","payload_6_first","payload_6_last","payload_6_expected","payload_6_actual","payload_7_record","payload_7_length","payload_7_writer","payload_7_source_saved","payload_7_source_loaded","payload_7_first","payload_7_last","payload_7_expected","payload_7_actual","payload_8_record","payload_8_length","payload_8_writer","payload_8_source_saved","payload_8_source_loaded","payload_8_first","payload_8_last","payload_8_expected","payload_8_actual","payload_9_record","payload_9_length","payload_9_writer","payload_9_source_saved","payload_9_source_loaded","payload_9_first","payload_9_last","payload_9_expected","payload_9_actual","payload_10_record","payload_10_length","payload_10_writer","payload_10_source_saved","payload_10_source_loaded","payload_10_first","payload_10_last","payload_10_expected","payload_10_actual","payload_11_record","payload_11_length","payload_11_writer","payload_11_source_saved","payload_11_source_loaded","payload_11_first","payload_11_last","payload_11_expected","payload_11_actual","payload_12_record","payload_12_length","payload_12_writer","payload_12_source_saved","payload_12_source_loaded","payload_12_first","payload_12_last","payload_12_expected","payload_12_actual","payload_13_record","payload_13_length","payload_13_writer","payload_13_source_saved","payload_13_source_loaded","payload_13_first","payload_13_last","payload_13_expected","payload_13_actual","payload_14_record","payload_14_length","payload_14_writer","payload_14_source_saved","payload_14_source_loaded","payload_14_first","payload_14_last","payload_14_expected","payload_14_actual","payload_15_record","payload_15_length","payload_15_writer","payload_15_source_saved","payload_15_source_loaded","payload_15_first","payload_15_last","payload_15_expected","payload_15_actual","replay_ring_status","replay_ring_validity","replay_ring_group","replay_ring_slot","replay_ring_offset","replay_ring_field","replay_ring_expected","replay_ring_actual","replay_ring_expected_word","replay_ring_actual_word","replay_native_reason","replay_native_record","replay_native_offset","replay_native_length","replay_native_writer","replay_native_source","replay_native_expected","replay_native_actual","replay_native_word_offset","replay_native_expected_word","replay_native_actual_word","replay_native_changed_bytes","camera_restore_line","camera_restore_record","camera_restore_section","camera_restore_offset","camera_restore_saved","camera_restore_next","camera_restore_loaded","camera_restore_live","deferred_animation_bytes","motion_zero_count","motion_zero_record","motion_zero_offset","motion_zero_expected_bits","motion_zero_actual_bits"};
+        "payload_structural","payload_records","payload_bytes","payload_retained","payload_overflow","payload_0_record","payload_0_length","payload_0_writer","payload_0_source_saved","payload_0_source_loaded","payload_0_first","payload_0_last","payload_0_expected","payload_0_actual","payload_1_record","payload_1_length","payload_1_writer","payload_1_source_saved","payload_1_source_loaded","payload_1_first","payload_1_last","payload_1_expected","payload_1_actual","payload_2_record","payload_2_length","payload_2_writer","payload_2_source_saved","payload_2_source_loaded","payload_2_first","payload_2_last","payload_2_expected","payload_2_actual","payload_3_record","payload_3_length","payload_3_writer","payload_3_source_saved","payload_3_source_loaded","payload_3_first","payload_3_last","payload_3_expected","payload_3_actual","payload_4_record","payload_4_length","payload_4_writer","payload_4_source_saved","payload_4_source_loaded","payload_4_first","payload_4_last","payload_4_expected","payload_4_actual","payload_5_record","payload_5_length","payload_5_writer","payload_5_source_saved","payload_5_source_loaded","payload_5_first","payload_5_last","payload_5_expected","payload_5_actual","payload_6_record","payload_6_length","payload_6_writer","payload_6_source_saved","payload_6_source_loaded","payload_6_first","payload_6_last","payload_6_expected","payload_6_actual","payload_7_record","payload_7_length","payload_7_writer","payload_7_source_saved","payload_7_source_loaded","payload_7_first","payload_7_last","payload_7_expected","payload_7_actual","payload_8_record","payload_8_length","payload_8_writer","payload_8_source_saved","payload_8_source_loaded","payload_8_first","payload_8_last","payload_8_expected","payload_8_actual","payload_9_record","payload_9_length","payload_9_writer","payload_9_source_saved","payload_9_source_loaded","payload_9_first","payload_9_last","payload_9_expected","payload_9_actual","payload_10_record","payload_10_length","payload_10_writer","payload_10_source_saved","payload_10_source_loaded","payload_10_first","payload_10_last","payload_10_expected","payload_10_actual","payload_11_record","payload_11_length","payload_11_writer","payload_11_source_saved","payload_11_source_loaded","payload_11_first","payload_11_last","payload_11_expected","payload_11_actual","payload_12_record","payload_12_length","payload_12_writer","payload_12_source_saved","payload_12_source_loaded","payload_12_first","payload_12_last","payload_12_expected","payload_12_actual","payload_13_record","payload_13_length","payload_13_writer","payload_13_source_saved","payload_13_source_loaded","payload_13_first","payload_13_last","payload_13_expected","payload_13_actual","payload_14_record","payload_14_length","payload_14_writer","payload_14_source_saved","payload_14_source_loaded","payload_14_first","payload_14_last","payload_14_expected","payload_14_actual","payload_15_record","payload_15_length","payload_15_writer","payload_15_source_saved","payload_15_source_loaded","payload_15_first","payload_15_last","payload_15_expected","payload_15_actual","replay_ring_status","replay_ring_validity","replay_ring_group","replay_ring_slot","replay_ring_offset","replay_ring_field","replay_ring_expected","replay_ring_actual","replay_ring_expected_word","replay_ring_actual_word","replay_native_reason","replay_native_record","replay_native_offset","replay_native_length","replay_native_writer","replay_native_source","replay_native_expected","replay_native_actual","replay_native_word_offset","replay_native_expected_word","replay_native_actual_word","replay_native_changed_bytes","camera_restore_line","camera_restore_record","camera_restore_section","camera_restore_offset","camera_restore_saved","camera_restore_next","camera_restore_loaded","camera_restore_live","deferred_animation_bytes","motion_zero_count","motion_zero_record","motion_zero_offset","motion_zero_expected_bits","motion_zero_actual_bits","postload_failure_check","reset54_p1_side","reset54_p1_saved","reset54_p1_loaded","reset54_p1_live","reset54_p1_reason","reset54_p1_restored","reset54_p2_side","reset54_p2_saved","reset54_p2_loaded","reset54_p2_live","reset54_p2_reason","reset54_p2_restored","selector_enabled","selector_phase","selector_reason","selector_side","selector_offset","selector_expected","selector_actual","selector_written","selector_restored","selector_endpoint_verified"};
     using Diagnostics=std::array<uint64_t,std::size(diagnostic_names)>;
     Diagnostics diagnostics(){
         auto& window=(stage==Stage::clean_rewind || stage==Stage::reference_replay)?clean:predicted_;
@@ -84,15 +84,49 @@ public:
         if constexpr(requires {clean.motion_zero_summary;}){
             if(clean.motion_zero_summary[0])std::copy(clean.motion_zero_summary.begin(),clean.motion_zero_summary.end(),result.begin()+322);
         }
+        const auto& sr=p.scalar_resets[0];const auto& sr2=p.scalar_resets[1];
+        const uint64_t reset_values[]={p.postload_failure_check,sr.side,sr.saved,sr.loaded,sr.live,sr.reason,sr.restored,sr2.side,sr2.saved,sr2.loaded,sr2.live,sr2.reason,sr2.restored};
+        std::copy(std::begin(reset_values),std::end(reset_values),result.begin()+327);
+        const auto& sd=p.selector_diagnostic;
+        const uint64_t selector_values[]={p.selector_enabled,sd.phase,sd.reason,sd.side,sd.offset,sd.expected,sd.actual,sd.written,p.selector_restored,p.selector_endpoint_verified};
+        std::copy(std::begin(selector_values),std::end(selector_values),result.begin()+340);
         return result;
     }
     void capture_failure_evidence(ReplayFailureEvidence& evidence){
         auto& window=(stage==Stage::clean_rewind || stage==Stage::reference_replay)?clean:predicted_;
-        const void* wind=nullptr;size_t wind_size=0;
+        const void* wind=nullptr;size_t wind_size=0;const void* emitters=nullptr;size_t emitter_size=0;
+        const void* births=nullptr;size_t birth_size=0;
         if constexpr(requires {window.effect_session_;}){
-            if(window.effect_session_){wind=&window.effect_session_->evidence;wind_size=sizeof(window.effect_session_->evidence);}
+            if(window.effect_session_){wind=&window.effect_session_->evidence;wind_size=sizeof(window.effect_session_->evidence);emitters=&window.effect_session_->emitter_evidence;emitter_size=sizeof(window.effect_session_->emitter_evidence);}
+            if(window.effect_session_){births=&window.effect_session_->birth_evidence();birth_size=sizeof(window.effect_session_->birth_evidence());}
         }
-        evidence.capture(*window.diagnostic().probe,evidence_inputs_.data(),sizeof(evidence_inputs_),clean.base_,wind,wind_size);
+        evidence.capture(*window.diagnostic().probe,evidence_inputs_.data(),sizeof(evidence_inputs_),clean.base_,wind,wind_size,emitters,emitter_size,births,birth_size);
+    }
+    bool capture_owned_recording(std::array<std::unique_ptr<ReplayFailureEvidence>,4>& output){
+        if(clean.count_!=4 || !clean.dependencies_valid() || clean.rewind_started())return false;
+        for(unsigned i=0;i<4;++i){
+            auto e=std::make_unique<ReplayFailureEvidence>();
+            if(!clean.pool_.visit(clean.handles_[i],[&](NativeBoundarySnapshot& snapshot){
+                if(!snapshot.valid || snapshot.fault)return false;
+                const uint64_t magic=0x3144564543364353ULL;e->append(&magic,8);
+                const unsigned schema=1;e->section("owned_recording_schema",schema);
+                e->section("boundary",clean.keys_[i]);e->section("module",snapshot.module);
+                e->section("capture_valid",snapshot.valid);e->section("capture_stage",snapshot.capture_stage);e->section("exception",snapshot.exception);
+                const auto& q=*snapshot.data;e->section("input",q.delayed_inputs);e->section("measurements",q.measurements);e->section("keys",q.before_keys);
+                if(i<3){evidence_inputs_[0][i]=q.delayed_inputs;evidence_inputs_[1][i]=q.delayed_inputs;}
+                e->section("native.saved.lengths",q.saved.lengths);e->section("native.saved.traces",q.saved.traces);
+                e->section("native.saved.size",q.saved.stream.write_position);e->section("native.saved.payload",q.saved.stream.payload);
+                e->section("ring.source",q.rings[0]);e->section("blend.source",q.blends[0]);
+                e->section("camera.source",q.cameras[0]);e->section("transform.source",q.transforms[0]);
+                const auto& guard=clean.dependency_guards_[i];
+                e->section("dependency.root",guard.root);e->section("dependency.control",guard.control);e->section("dependency.descriptors",guard.descriptors);
+                if(snapshot.effects){e->section("wind.emitters",snapshot.effects->emitters);e->section("effects.image",snapshot.effects->image);e->section("effects.binding_valid",snapshot.effects->valid);}
+                // Archive is diagnostic only; ownership stays in the live pool.
+                e->state.store(1,std::memory_order_release);return true;
+            }))return false;
+            output[i]=std::move(e);
+        }
+        return true;
     }
     const auto& blend_evidence(){return ((stage==Stage::clean_rewind || stage==Stage::reference_replay)?clean:predicted_).diagnostic().probe->blend_pair_evidence;}
     using Input=std::array<std::byte,40>;
@@ -205,7 +239,7 @@ public:
                     q.after_save=ref.saved;q.after_keys=ref.before_keys;
                     if(ref.blend_timer_count)q.blend_timer_expected=ref.blend_timer_history[0];
                     std::memcpy(q.after_players,ref.before_players,sizeof(q.after_players));
-                    q.original_next=ref.measurements[0];q.rings[2]=ref.rings[0];q.blends[1]=ref.blends[0];q.transforms[1]=ref.transforms[0];q.cameras[1]=ref.cameras[0];
+                    q.selectors[1]=ref.selectors[0];q.original_next=ref.measurements[0];q.rings[2]=ref.rings[0];q.blends[1]=ref.blends[0];q.transforms[1]=ref.transforms[0];q.cameras[1]=ref.cameras[0];
                     rng_trace::Scope rng_phase(4);Update call;
                     if(!call.run(original,delivery_.assign(actual[i]),reinterpret_cast<volatile uint32_t*>(base+0x470D0C4),clean.keys_[i].frame,live.thread))return false;
                     hop.replay_delivered=true;
@@ -224,3 +258,4 @@ public:
 };
 using OwnedPredictionCorrection=OwnedPredictionCorrectionBackend<>;
 }
+

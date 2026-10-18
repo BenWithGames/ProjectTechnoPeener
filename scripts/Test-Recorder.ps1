@@ -1,4 +1,4 @@
-param([switch]$TestOnly)
+param([switch]$TestOnly,[switch]$Optimized)
 $ErrorActionPreference='Stop'
 $project=Split-Path $PSScriptRoot -Parent
 $build=Join-Path $project 'build-recorder'
@@ -26,6 +26,7 @@ $commands=@(
 "cl /nologo /std:c++20 /EHsc /W4 /WX /Od /MD /I`"$mh\include`" `"$project\tests\RecorderHookTest.cpp`" /Fo`"$build\RecorderHookTest.obj`" /Fe`"$build\RecorderHookTest.exe`" /link `"$build\RecorderHook.lib`" bcrypt.lib",'if errorlevel 1 exit /b 1')
 $commands += @("cl /nologo /std:c++20 /EHsc /W4 /WX /Od /MD `"$project\tests\RecordedInputBridgeTest.cpp`" /Fo`"$build\RecordedInputBridgeTest.obj`" /Fe`"$build\RecordedInputBridgeTest.exe`" /link `"$build\EntryBridge.obj`"",'if errorlevel 1 exit /b 1')
 $commands += @("cl /nologo /std:c++20 /EHsc /W4 /WX /Od /MD `"$project\tests\FieldUpdateBridgeTest.cpp`" /Fo`"$build\FieldUpdateBridgeTest.obj`" /Fe`"$build\FieldUpdateBridgeTest.exe`" /link `"$build\FieldUpdateBridge.obj`" `"$build\FieldAfterBridge.obj`" `"$build\FieldAfterHarness.obj`"",'if errorlevel 1 exit /b 1')
+if($Optimized){$commands=$commands | ForEach-Object { $_.Replace("/Od /MD","/O2 /Ob1 /fp:precise /MD") }}
 Set-Content "$build\build.cmd" $commands -Encoding ascii
 & "$build\build.cmd"
 if($LASTEXITCODE -ne 0){throw 'Recorder test build failed.'}

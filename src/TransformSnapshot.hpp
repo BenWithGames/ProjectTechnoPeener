@@ -15,12 +15,20 @@ struct TransformSnapshot {
     unsigned count{},failure{},trapped_exception{}; uintptr_t failure_address{};
     bool reject(unsigned reason,uintptr_t address){failure=reason;failure_address=address;return false;}
     bool valid{};
+    bool copy_recorded_from(const TransformSnapshot& source) noexcept {
+        if(source.count>source.records.size())return false;
+        if(this==&source)return true;
+        std::memcpy(records.data(),source.records.data(),source.count*sizeof(Record));
+        count=source.count;failure=source.failure;trapped_exception=source.trapped_exception;
+        failure_address=source.failure_address;valid=source.valid;
+        return true;
+    }
     static uintptr_t pointer(const std::byte* p){uintptr_t v{};std::memcpy(&v,p,8);return v;}
     bool append(uintptr_t address,unsigned side,unsigned kind,unsigned list,unsigned parent,unsigned size){
         failure_address=address;
         if(address<0x10000 || address>UINTPTR_MAX-size)return reject(1,address);
         if(count>=records.size())return reject(2,address);
-        auto& r=records[count];r.address=address;r.side=side;r.kind=kind;r.list=list;r.parent=parent;r.size=size;
+        auto& r=records[count];r={};r.address=address;r.side=side;r.kind=kind;r.list=list;r.parent=parent;r.size=size;
         std::memcpy(r.bytes.data(),reinterpret_cast<void*>(address),size);++count;return true;
     }
     bool capture(const uintptr_t* owners,uintptr_t module_base=0) noexcept {
@@ -407,6 +415,16 @@ struct TransformSnapshot {
         }
         return true;
     }
+    // Pinned 2DA1B0 assigns the static manager; 333FD0 copies battle time
+    // scale 48462F0 into manager+0C before effect updates (331180 etc.).
+    // Only the separated +08/+0C scalar record qualifies, never the list head.
+    bool manager_clock_field(const Record& r,uintptr_t base)const {
+        if(!base || r.side!=2 || r.kind!=3 || r.size!=8 || r.address!=base+0x4100B68 || r.parent>=count)return false;
+        const auto& owner=records[r.parent];
+        return owner.side==2 && owner.kind==5 && owner.size==8 && owner.address==base+0x470E038 &&
+            pointer(owner.bytes.data())==base+0x4100B60 &&
+            pointer(reinterpret_cast<const std::byte*>(owner.address))==base+0x4100B60;
+    }
     bool restore_wind(const TransformSnapshot& next,const TransformSnapshot& current,uintptr_t module_base,bool validate_only=false,WindDiagnostic* diagnostic=nullptr)const noexcept {
         if(diagnostic)*diagnostic={};
         __try {
@@ -431,7 +449,12 @@ struct TransformSnapshot {
                     diagnostic->shared.live_valid=1;
                     if(std::memcmp(c.bytes.data(),diagnostic->shared.live.data(),a.size))return mismatch(3,c.bytes.data(),diagnostic->shared.live.data());
                 }else if(std::memcmp(c.bytes.data(),reinterpret_cast<void*>(a.address),a.size))return wind_reject(diagnostic,__LINE__);
-                if(!wind_field(a.kind) && std::memcmp(a.bytes.data(),b.bytes.data(),a.size))return mismatch(4,a.bytes.data(),b.bytes.data());
+                if(!wind_field(a.kind) && std::memcmp(a.bytes.data(),b.bytes.data(),a.size)){
+                    // Preserve the neighboring +08 scalar exactly. Permit only
+                    // the audited cached time-step to differ between frames.
+                    if(!manager_clock_field(a,module_base) || std::memcmp(a.bytes.data(),b.bytes.data(),4))
+                        return mismatch(4,a.bytes.data(),b.bytes.data());
+                }
                 if(a.kind==4){auto vt=pointer(a.bytes.data());
                     if(diagnostic){diagnostic->size=a.size;diagnostic->vtable_rva=vt>=module_base?vt-module_base:0;}
                     if(vt!=module_base+0x3E88CB8 && vt!=module_base+0x3E88C88 && vt!=module_base+0x3E88D18 && vt!=module_base+0x3E88CE8)return wind_reject(diagnostic,__LINE__);
@@ -485,7 +508,9 @@ struct TransformSnapshot {
             if(rng_records!=2)return wind_reject(diagnostic,__LINE__);
             if(validate_only){if(diagnostic)diagnostic->shared.reason=0;return true;}
             for(unsigned i=0;i<count;++i){auto& a=records[i];
-                if(a.side==2 && a.kind==24){
+                if(manager_clock_field(a,module_base)){
+                    std::memcpy(reinterpret_cast<void*>(a.address+4),a.bytes.data()+4,4);
+                }else if(a.side==2 && a.kind==24){
                     for(unsigned j=0;j<a.size;j+=4)if(stage_wind_byte(j+0x18))
                         std::memcpy(reinterpret_cast<void*>(a.address+j),a.bytes.data()+j,4);
                 }else if(a.side==2 && a.kind==23){

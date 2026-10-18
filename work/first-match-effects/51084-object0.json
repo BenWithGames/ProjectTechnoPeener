@@ -1,0 +1,92 @@
+{
+  "image_size": 32912,
+  "evidence_size": 65832,
+  "expected_object_address": "0x1e8247d0400",
+  "actual_object_address": "0x1e825798080",
+  "expected_generation": 10,
+  "actual_generation": 11,
+  "vtable_rva": "0x3e88d18",
+  "object_size": 384,
+  "byte_differences": [
+    {
+      "offset": "0x8",
+      "expected": 128,
+      "actual": 0
+    },
+    {
+      "offset": "0x9",
+      "expected": 179,
+      "actual": 181
+    },
+    {
+      "offset": "0xa",
+      "expected": 125,
+      "actual": 121
+    },
+    {
+      "offset": "0xb",
+      "expected": 36,
+      "actual": 37
+    },
+    {
+      "offset": "0x24",
+      "expected": 0,
+      "actual": 3
+    },
+    {
+      "offset": "0x34",
+      "expected": 0,
+      "actual": 4
+    },
+    {
+      "offset": "0x3c",
+      "expected": 0,
+      "actual": 8
+    },
+    {
+      "offset": "0xe4",
+      "expected": 0,
+      "actual": 1
+    },
+    {
+      "offset": "0xe8",
+      "expected": 0,
+      "actual": 1
+    },
+    {
+      "offset": "0xea",
+      "expected": 0,
+      "actual": 1
+    },
+    {
+      "offset": "0x110",
+      "expected": 0,
+      "actual": 1
+    },
+    {
+      "offset": "0x114",
+      "expected": 232,
+      "actual": 1
+    },
+    {
+      "offset": "0x115",
+      "expected": 1,
+      "actual": 0
+    },
+    {
+      "offset": "0x118",
+      "expected": 1,
+      "actual": 0
+    },
+    {
+      "offset": "0x11c",
+      "expected": 0,
+      "actual": 136
+    },
+    {
+      "offset": "0x12c",
+      "expected": 28,
+      "actual": 0
+    }
+  ]
+}

@@ -58,6 +58,7 @@ public:
         return ledger_.forget_unpinned(token);
     }
     bool snapshot_valid(Snapshot snapshot)const noexcept {return !failed_ && valid(snapshot);}
+    bool pinned(Token token) noexcept {return owner() && session_ && ledger_.pinned(token);}
     bool live(Token token) noexcept {return owner() && session_ && !failed_ && ledger_.live(token);}
     bool failed()const noexcept {return failed_;}
     // Only after verified unlink. Unknown/stale/duplicate retire is rejected;

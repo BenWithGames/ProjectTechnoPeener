@@ -1,0 +1,8 @@
+@echo off
+call "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat" >nul
+cl /nologo /std:c++20 /EHsc /MD /Od /fp:precise /I"C:\Users\Ben\Documents\Codex\2026-10-07\rollback-mod-design-chatgpt-conversation-6ac67623\outputs\SC6Rollback\third_party\minhook\include" "C:\Users\Ben\Documents\Codex\2026-10-07\rollback-mod-design-chatgpt-conversation-6ac67623\outputs\SC6Rollback\work\restore-performance\CompareBench.cpp" /Fo"C:\Users\Ben\Documents\Codex\2026-10-07\rollback-mod-design-chatgpt-conversation-6ac67623\outputs\SC6Rollback\work\restore-performance\Od.obj" /Fe"C:\Users\Ben\Documents\Codex\2026-10-07\rollback-mod-design-chatgpt-conversation-6ac67623\outputs\SC6Rollback\work\restore-performance\Od.exe"
+if errorlevel 1 exit /b 1
+"C:\Users\Ben\Documents\Codex\2026-10-07\rollback-mod-design-chatgpt-conversation-6ac67623\outputs\SC6Rollback\work\restore-performance\Od.exe"
+cl /nologo /std:c++20 /EHsc /MD /O2 /fp:precise /I"C:\Users\Ben\Documents\Codex\2026-10-07\rollback-mod-design-chatgpt-conversation-6ac67623\outputs\SC6Rollback\third_party\minhook\include" "C:\Users\Ben\Documents\Codex\2026-10-07\rollback-mod-design-chatgpt-conversation-6ac67623\outputs\SC6Rollback\work\restore-performance\CompareBench.cpp" /Fo"C:\Users\Ben\Documents\Codex\2026-10-07\rollback-mod-design-chatgpt-conversation-6ac67623\outputs\SC6Rollback\work\restore-performance\O2.obj" /Fe"C:\Users\Ben\Documents\Codex\2026-10-07\rollback-mod-design-chatgpt-conversation-6ac67623\outputs\SC6Rollback\work\restore-performance\O2.exe"
+if errorlevel 1 exit /b 1
+"C:\Users\Ben\Documents\Codex\2026-10-07\rollback-mod-design-chatgpt-conversation-6ac67623\outputs\SC6Rollback\work\restore-performance\O2.exe"

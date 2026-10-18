@@ -1,0 +1,4 @@
+CompareBench.cpp
+exact comparator: 0.003332 ms/call; verified=1000; probe_bytes=37447472
+CompareBench.cpp
+exact comparator: 0.002069 ms/call; verified=1000; probe_bytes=37447472

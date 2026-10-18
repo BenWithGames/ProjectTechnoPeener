@@ -1,0 +1,30 @@
+Follow-up Ghidra investigation: matrix producer (2026-10-16)
+
+Confirmed native call chain (RVAs; names are research labels):
+2DBC60 battle update -> 34DA70 player update -> 305B50 -> 2EDB90 matrix builder -> 2E7780 sample selection -> 2E71E0 compressed sample decoder.
+305B50 calls 2EDB90 at305D97, with player+95FA0 as cache, current primary ring as destination, and flag1 or16 selected by player+78.
+34DA70 subsequently invokes the already-instrumented2F0F20 at34E34B.
+The native replay runs through2DBC60, so this is not a separate render function omitted wholesale by replay.
+
+Writer and branch:
+2EDB90's matrix30 copy at2F0CF0..2F0D73 writes offset7B0. It selects ring-to-cache versus cache-to-ring using a local per-matrix result flag at stack+3728. This is DIFFERENT from the existing2F355D copy diagnostic at stack+3758 in the later function.
+The existing entry_mask=0 evidence concerns2F0F20 only; it cannot establish the branch taken inside2EDB90.
+2E7780 reads layer descriptor+10 and cursor+14, clamps/scales cursor using descriptor flags, decodes current/next samples via2E71E0, and passes interpolation inputs to2E79C0.
+2E71E0 decodes compressed resource data into temporary buffers; no simple persistent sample cache is apparent in the inspected function. Do not claim a stale decoder cache without evidence.
+
+Recorded state:
+P1 native records1 and9 source/restored bytes are identical.
+P1 layer0 descriptor667; cursor8 in source/restored,9 in expected AND actual output.
+Other captured layer headers also match expected/actual. Thus the cursor advances; replay does not simply skip animation update.
+The matrix itself remains at source values in replay. Her natural P1 matrix was constant, unlike Ben's, so her pass does not validate that changing field.
+
+Limit:
+Existing timer.lookup hooks observe3499D0 etc, NOT the separate2E7780 matrix sampler. Existing animation.copy hooks observe2F0F20, NOT the earlier2EDB90 producer. No recorded decoder arguments, sampled per-matrix mask, or pre/post2EDB90 output establishes which internal branch caused this mismatch.
+Exact runtime reason remains unproven. Candidates: matrix-channel selection/copy direction or sampled resource/external inputs. The ordinary timer cursor is not the missing state.
+
+Next decisive diagnostic if a new build is requested:
+Preserve existing hooks/guards. Capture2EDB90 entry/exit,2E7780 layer descriptor/cursor and bounded descriptor metadata, and matrix30 copy condition/pre/post vectors at2F0CF0. Include flags from305B50 and source/next/restored ownership identity. Record natural/reference phases in existing replay evidence. Do not force-call updater twice, copy expected-next matrix, or relax comparison.
+
+Artifacts:
+Workspace/work/ghidra-sc6-focus/position-producer contains six focused decompilations, plus caller-disasm.txt in seven-bytes. Large matrix decompilation has a type-propagation warning: machine-code branch/store evidence takes precedence.
+No game/mod code, diagnostics or round guards changed. No new build installed or live replay started.

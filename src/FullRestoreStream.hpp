@@ -1,6 +1,7 @@
 #pragma once
 #include "SaveProbe.hpp"
 #include <intrin.h>
+#include <algorithm>
 namespace sc6::research {
 // Fresh in-memory streams only. An exception aborts native code on an invalid transfer;
 // it cannot undo side effects that happened before the rejected read.
@@ -41,6 +42,26 @@ struct FullRestoreStream {
         t->traces[t->reads].reader=reinterpret_cast<uintptr_t>(_ReturnAddress());
         s->read_position+=n;++t->reads;return n;
     }
+    // Only published bytes/records are observable. Preserve all stream control
+    // fields; discard obsolete published metadata when reusing a smaller image.
+    bool copy_recorded_from(const FullRestoreStream& snapshot){
+        if(snapshot.writes>transfer_limit || snapshot.reads>snapshot.writes ||
+           snapshot.stream.write_position>SaveStream::limit || snapshot.stream.read_position>snapshot.stream.write_position)return false;
+        uint64_t total=0;
+        for(unsigned i=0;i<snapshot.writes;++i){auto n=snapshot.lengths[i];
+            if(!n || total>snapshot.stream.write_position || n>snapshot.stream.write_position-total)return false;total+=n;}
+        if(total!=snapshot.stream.write_position)return false;
+        if(this==&snapshot)return true;
+        const auto old=(std::min)(writes,transfer_limit);
+        stream.slots=snapshot.stream.slots;stream.write_position=snapshot.stream.write_position;stream.read_position=snapshot.stream.read_position;
+        std::memcpy(stream.payload.data(),snapshot.stream.payload.data(),static_cast<size_t>(total));
+        stream.failures=snapshot.stream.failures;stream.transfers=snapshot.stream.transfers;
+        stream.first_error=snapshot.stream.first_error;stream.copier=snapshot.stream.copier;
+        std::memcpy(lengths.data(),snapshot.lengths.data(),snapshot.writes*sizeof(lengths[0]));
+        std::memcpy(traces.data(),snapshot.traces.data(),snapshot.writes*sizeof(traces[0]));
+        for(unsigned i=snapshot.writes;i<old;++i){lengths[i]=0;traces[i]={};}
+        writes=snapshot.writes;reads=snapshot.reads;sealed=snapshot.sealed;return true;
+    }
     // Prepare a private reader without consuming or resetting the archived save.
     // Only pristine readers and complete, unread captures are accepted. Failed
     // or partly consumed streams must never be recycled as valid snapshots.
@@ -59,7 +80,7 @@ struct FullRestoreStream {
             total+=length;
         }
         if(total!=snapshot.stream.write_position)return false;
-        *this=snapshot;
+        if(!copy_recorded_from(snapshot))return false;
         for(unsigned i=0;i<writes;++i){traces[i].destination=0;traces[i].reader=0;}
         return true;
     }

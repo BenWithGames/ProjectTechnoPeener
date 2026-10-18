@@ -5,7 +5,7 @@ namespace cycle_bank_test {
 struct Runner {
     sc6::research::StartupCorrectionExchange exchange;
     std::atomic<bool> verified{},retired{},failed{},restart{};
-    std::atomic<bool> restored{},injected{},no_divergence{};std::atomic<unsigned> stage{};
+    std::atomic<bool> restored{},injected{},no_divergence{},safe_rejection{};std::atomic<unsigned> stage{};
     void configure_combat(){exchange.require_combat_inputs=true;}
     bool attack_fixture{};void configure_attack(){attack_fixture=true;}
     unsigned releases{};bool reject_release{};
@@ -96,6 +96,39 @@ inline void run(){
     dc->runner.exchange.failed=true;dc->runner.exchange.input_rejection=2;
     dc->runner.retired=true;dc->runner.restart=true;dc->confirmation.state=4;
     ds.update(dirty,1,104);assert(ds.failed && dirty.active()==1 && !dirty.skipped(0));
+    {
+        using Session=sc6::research::RepeatedCorrectionSession;
+        Bank left(false,true),right(false,true);Session l,r;
+        assert(l.begin(left,1,100,200,1,true) && r.begin(right,1,100,200,2,true));
+        for(auto* bank:{&left,&right}){bank->current()->runner.no_divergence=true;bank->current()->runner.retired=true;}
+        sc6::research::RetryBoundaryObservation::Sample sample{2,10,1000,4,100};
+        l.update(left,2,10,sample);r.update(right,2,10,sample);
+        Bank::Words lw{},rw{};assert(l.outgoing(1,lw) && r.outgoing(1,rw));
+        assert(l.receive(1,rw) && r.receive(1,lw));
+        l.update(left,2,10,sample);assert(l.outgoing(2,lw) && lw[0]==4);
+        assert(r.receive(2,lw));r.update(right,2,10,{});assert(!r.outgoing(2,rw)); // no stale-frame activation
+        r.update(right,2,10,sample);assert(r.outgoing(2,rw) && rw[0]==5);
+        assert(l.receive(2,rw));l.update(left,2,10,sample);
+        assert(left.active()==2 && l.outgoing(2,lw) && lw[0]==6);
+        assert(right.active()==1 && r.receive(2,lw));r.update(right,2,10,sample);
+        assert(right.active()==2 && !l.failed && !r.failed);
+        assert(left.current()->entry.target_clock()==610 && left.current()->entry.target_battle()==1600);
+        assert(l.begin(left,1,100,200,1,true)); // startup polling remains idempotent after a new round
+        assert(!l.receive(3,rw)); // future-cycle/stale proposal rejection
+        // Unstarted boundary cancellation waits for owner retirement, then retries.
+        auto* c=left.current();c->entry.state=4;c->confirmation.state=4;
+        l.update(left,3,0,{});assert(!l.failed && l.local[1]==0);
+        c->runner.retired=true;c->runner.safe_rejection=true;
+        l.update(left,3,0,{});assert(!l.failed && l.local[1]==3);
+        c->runner.restart=true;l.update(left,3,0,{});assert(l.failed);
+    }
+    {
+        sc6::research::RetryBoundaryObservation observation;
+        for(unsigned i=1;i<=4;++i){observation.clock(2,i);observation.battle(i+50,100+i);}
+        auto sample=observation.read(104);assert(sample.stable==4 && sample.clock==4 && sample.battle==54);
+        assert(!observation.read(400).stable);
+        observation.clock(3,1);observation.battle(100,401);assert(!observation.read(401).stable);
+    }
     std::cout<<"PASS: isolated correction cycles, stale packet rejection and independent cleanup\n";
 }
 }

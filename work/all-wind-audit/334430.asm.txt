@@ -1,0 +1,169 @@
+334430: push rbp
+334432: sub rsp, 0x80
+334439: cmp qword ptr [rcx], 0
+33443d: mov rbp, rcx
+334440: je 0x140334477
+334442: movsxd rax, dword ptr [rcx + 0x9c]
+334449: cmp eax, 8
+33444c: jge 0x14033473e
+334452: mov edx, dword ptr [rcx + 0x98]
+334458: lea r8, [rax + rdx*8]
+33445c: lea rax, [rip - 0x33]
+334463: mov qword ptr [rcx + r8*8 + 0x18], rax
+334468: inc dword ptr [rcx + 0x9c]
+33446e: add rsp, 0x80
+334475: pop rbp
+334476: ret 
+334477: cmp dword ptr [rcx + 0xa0], 0
+33447e: mov qword ptr [rsp + 0x98], rbx
+334486: mov qword ptr [rsp + 0xa0], rsi
+33448e: mov qword ptr [rsp + 0xa8], rdi
+334496: movaps xmmword ptr [rsp + 0x70], xmm6
+33449b: movaps xmmword ptr [rsp + 0x60], xmm7
+3344a0: movaps xmmword ptr [rsp + 0x50], xmm8
+3344a6: movaps xmmword ptr [rsp + 0x40], xmm9
+3344ac: jge 0x1403344d6
+3344ae: movups xmm0, xmmword ptr [rcx + 0xb0]
+3344b5: movaps xmmword ptr [rsp + 0x30], xmm0
+3344ba: movss xmm7, dword ptr [rsp + 0x3c]
+3344c0: movss xmm8, dword ptr [rsp + 0x38]
+3344c7: movss xmm6, dword ptr [rsp + 0x34]
+3344cd: movss xmm9, dword ptr [rsp + 0x30]
+3344d4: jmp 0x140334505
+3344d6: call 0x14034f130
+3344db: movss xmm7, dword ptr [rip + 0x3b55ddd]
+3344e3: xorps xmm6, xmm6
+3344e6: movss xmm8, dword ptr [rip + 0x3b55e65]
+3344ef: and eax, 0x7fffff
+3344f4: xorps xmm9, xmm9
+3344f8: cvtsi2ss xmm6, rax
+3344fd: mulss xmm6, dword ptr [rip + 0x3b55a8f]
+334505: mov rbx, qword ptr [rip + 0x43d9b2c]
+33450c: mov ecx, 0x130
+334511: call 0x1404a61c0
+334516: xor edi, edi
+334518: mov qword ptr [rsp + 0x90], rax
+334520: mov rcx, rax
+334523: test rax, rax
+334526: je 0x14033458a
+334528: mov qword ptr [rax + 0x50], rdi
+33452c: mov dword ptr [rax + 0x58], edi
+33452f: mov qword ptr [rax + 0x5c], 0x3f800000
+334537: mov qword ptr [rax + 0x40], rdi
+33453b: mov dword ptr [rax + 0x48], edi
+33453e: mov dword ptr [rax + 0x4c], 0x3f800000
+334545: mov qword ptr [rax + 0x64], rdi
+334549: mov qword ptr [rax + 0x10], rdi
+33454d: mov qword ptr [rax + 0x18], rdi
+334551: mov qword ptr [rax + 0x28], rdi
+334555: mov dword ptr [rax + 0x6c], 1
+33455c: lea rax, [rip + 0x3b54725]
+334563: mov qword ptr [rcx], rax
+334566: mov word ptr [rcx + 0x20], di
+33456a: mov qword ptr [rcx + 0x28], rbx
+33456e: mov qword ptr [rcx + 0x18], rdi
+334572: mov rax, qword ptr [rbx]
+334575: mov qword ptr [rcx + 0x10], rax
+334579: mov rax, qword ptr [rbx]
+33457c: test rax, rax
+33457f: je 0x140334585
+334581: mov qword ptr [rax + 0x18], rcx
+334585: mov qword ptr [rbx], rcx
+334588: jmp 0x14033458d
+33458a: mov rcx, rdi
+33458d: movaps xmm3, xmm6
+334590: movss dword ptr [rsp + 0x20], xmm8
+334597: movaps xmm2, xmm9
+33459b: movaps xmm1, xmm7
+33459e: call 0x1403311f0
+3345a3: mov rbx, qword ptr [rip + 0x43d9a8e]
+3345aa: mov ecx, 0x130
+3345af: call 0x1404a61c0
+3345b4: movaps xmm9, xmmword ptr [rsp + 0x40]
+3345ba: mov rsi, rax
+3345bd: movaps xmm8, xmmword ptr [rsp + 0x50]
+3345c3: movaps xmm7, xmmword ptr [rsp + 0x60]
+3345c8: movaps xmm6, xmmword ptr [rsp + 0x70]
+3345cd: mov qword ptr [rsp + 0x90], rax
+3345d5: test rax, rax
+3345d8: je 0x140334648
+3345da: mov qword ptr [rax + 0x50], 0
+3345e2: mov dword ptr [rax + 0x58], edi
+3345e5: mov qword ptr [rax + 0x5c], 0x3f800000
+3345ed: mov qword ptr [rax + 0x40], 0
+3345f5: mov dword ptr [rax + 0x48], edi
+3345f8: mov dword ptr [rax + 0x4c], 0x3f800000
+3345ff: mov qword ptr [rax + 0x64], 0
+334607: mov qword ptr [rax + 0x10], rdi
+33460b: mov qword ptr [rax + 0x18], rdi
+33460f: mov qword ptr [rax + 0x28], rdi
+334613: mov dword ptr [rax + 0x6c], 1
+33461a: lea rax, [rip + 0x3b54697]
+334621: mov qword ptr [rsi], rax
+334624: mov word ptr [rsi + 0x20], di
+334628: mov qword ptr [rsi + 0x28], rbx
+33462c: mov qword ptr [rsi + 0x18], rdi
+334630: mov rax, qword ptr [rbx]
+334633: mov qword ptr [rsi + 0x10], rax
+334637: mov rax, qword ptr [rbx]
+33463a: test rax, rax
+33463d: je 0x140334643
+33463f: mov qword ptr [rax + 0x18], rsi
+334643: mov qword ptr [rbx], rsi
+334646: jmp 0x14033464b
+334648: mov rsi, rdi
+33464b: mov r8d, dword ptr [rip + 0x452a4d6]
+334652: mov eax, 0x834e0b5f
+334657: imul r8d
+33465a: mov eax, 0x834e0b5f
+33465f: add edx, r8d
+334662: sar edx, 0x10
+334665: mov ecx, edx
+334667: shr ecx, 0x1f
+33466a: add edx, ecx
+33466c: imul ecx, edx, 0x7fffffff
+334672: imul edx, r8d, 0x41a7
+334679: sub edx, ecx
+33467b: test edx, edx
+33467d: lea ecx, [rdx + 0x7fffffff]
+334683: cmovg ecx, edx
+334686: imul ecx
+334688: lea ebx, [rcx + rcx]
+33468b: add edx, ecx
+33468d: imul ecx, ecx, 0x41a7
+334693: sar edx, 0x10
+334696: mov eax, edx
+334698: shr eax, 0x1f
+33469b: add edx, eax
+33469d: imul eax, edx, 0x7fffffff
+3346a3: sub ecx, eax
+3346a5: test ecx, ecx
+3346a7: lea r11d, [rcx + 0x7fffffff]
+3346ae: cmovg r11d, ecx
+3346b2: mov dword ptr [rip + 0x452a46f], r11d
+3346b9: call 0x14034f130
+3346be: movss xmm2, dword ptr [rip + 0x3b55b3e]
+3346c6: xorps xmm3, xmm3
+3346c9: movss xmm1, dword ptr [rip + 0x3b55cf7]
+3346d1: and eax, 0x7fffff
+3346d6: and r11d, 1
+3346da: xorps xmm0, xmm0
+3346dd: or r11d, ebx
+3346e0: mov rcx, rsi
+3346e3: and r11d, 0x7fffff
+3346ea: cvtsi2ss xmm3, rax
+3346ef: mov eax, r11d
+3346f2: cvtsi2ss xmm0, rax
+3346f7: mulss xmm3, dword ptr [rip + 0x3b55895]
+3346ff: mulss xmm0, dword ptr [rip + 0x3b5588d]
+334707: subss xmm3, dword ptr [rip + 0x3b55b69]
+33470f: mulss xmm3, xmm0
+334713: mulss xmm3, dword ptr [rip + 0x3b559e1]
+33471b: call 0x1403315a0
+334720: mov rsi, qword ptr [rsp + 0xa0]
+334728: mov rbx, qword ptr [rsp + 0x98]
+334730: mov dword ptr [rbp + 0xa4], edi
+334736: mov rdi, qword ptr [rsp + 0xa8]
+33473e: add rsp, 0x80
+334745: pop rbp
+334746: ret 

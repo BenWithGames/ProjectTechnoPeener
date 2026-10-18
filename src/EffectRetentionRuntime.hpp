@@ -6,6 +6,7 @@
 #include "NativeEffectImage.hpp"
 #include "EffectRestorePlan.hpp"
 #include "EffectImageWriter.hpp"
+#include "EffectBirthJournal.hpp"
 namespace sc6::research {
 // Construct on simulation owner thread; keep alive until hooks are quiescent.
 // This does not publish itself or install hooks. Native save/load is not protected
@@ -13,6 +14,36 @@ namespace sc6::research {
 template<unsigned Capacity=64,unsigned Slots=16> class EffectRetentionRuntime {
     static_assert(Capacity<=64);
 public:
+    EffectBirthJournal births;
+    // Rolling-history edits share the allocation hook's direct-memory gate.
+    // Never wait for worker allocations on the simulation thread.
+    template<class Edit> bool edit_births(Edit edit){
+        if(!owner() || !active_)return false;
+        bool accepted=false;
+        return gate_.try_access(notices_.stopped,[&]{accepted=edit(births);}) && accepted;
+    }
+    // Lifetime evidence only. Atomics allow report reads without traversing live objects.
+    std::atomic<uint64_t> native_deferred{},snapshot_protected{},allocator_releases{},revivals{};
+    template<class Stream> void retention_report(Stream& out)const{
+        births.report(out);
+        out<<"suite_wind_capture_runtime_check="<<capture_check.load()<<"\nsuite_wind_capture_object="<<capture_object.load()
+           <<"\nsuite_wind_capture_address="<<capture_address.load()<<"\nsuite_wind_capture_vtable="<<capture_vtable.load()
+           <<"\nsuite_wind_capture_image_check="<<image_check.load()<<"\nsuite_wind_capture_image_exception="<<image_exception.load()
+           <<"\nsuite_wind_capture_stopped="<<capture_stopped.load()<<"\nsuite_wind_capture_window_failed="<<capture_window_failed.load()<<'\n';
+        out<<"suite_wind_gate_schema=1\nsuite_wind_gate_outcome="<<capture_gate_outcome.load()
+           <<"\nsuite_wind_gate_thread="<<capture_gate_thread.load()<<"\nsuite_wind_gate_owner="<<capture_gate_owner.load()
+           <<"\nsuite_wind_gate_frame="<<capture_gate_frame.load()<<"\nsuite_wind_gate_attempts="<<capture_gate_attempts.load()
+           <<"\nsuite_wind_gate_contentions="<<capture_gate_contentions.load()<<"\nsuite_wind_gate_stops="<<capture_gate_stops.load()
+           <<"\nsuite_wind_gate_last_rejection="<<capture_gate_last_rejection.load()<<'\n';
+        out<<"suite_retention_schema=1\nsuite_retention_native_deferred="<<native_deferred.load()
+           <<"\nsuite_retention_snapshot_protected="<<snapshot_protected.load()
+           <<"\nsuite_retention_allocator_releases="<<allocator_releases.load()
+           <<"\nsuite_retention_revivals="<<revivals.load()<<'\n';
+    }
+    std::atomic<unsigned> capture_gate_outcome{},capture_gate_thread{},capture_gate_owner{},capture_gate_last_rejection{};
+    std::atomic<uint64_t> capture_gate_frame{},capture_gate_attempts{},capture_gate_contentions{},capture_gate_stops{};
+    std::atomic<unsigned> capture_check{},capture_object{},image_check{},image_exception{},capture_stopped{},capture_window_failed{};
+    std::atomic<uintptr_t> capture_address{},capture_vtable{};
     using Registry=EffectObjectRegistry<Capacity,Slots>;
     using Window=typename Registry::Window;
     using Token=typename Window::Token;
@@ -47,11 +78,15 @@ private:
     }
     void flush(){
         const auto count=free_count_;free_count_=0;
-        for(unsigned i=0;i<count;++i)native_(pending_frees_[i],0x70);
+        for(unsigned i=0;i<count;++i){native_(pending_frees_[i],0x70);++allocator_releases;}
     }
     static bool defer(void* context,uintptr_t address,uintptr_t argument) noexcept {
         auto& self=*static_cast<EffectRetentionRuntime*>(context);
-        return self.active_ && argument==0x70 && self.window_.retire(self.registry_.lookup(address));
+        if(!self.active_ || argument!=0x70)return false;
+        const auto token=self.registry_.lookup(address);
+        const bool pinned=self.window_.pinned(token);
+        if(!self.window_.retire(token))return false;
+        ++self.native_deferred;if(pinned)++self.snapshot_protected;return true;
     }
     static void before_native(void* context,uintptr_t address) noexcept {
         auto& self=*static_cast<EffectRetentionRuntime*>(context);
@@ -102,7 +137,10 @@ public:
         bool accepted=false;
         gate_.try_access(notices_.stopped,[&]{
             uintptr_t* empty=nullptr;for(auto& slot:notices_.addresses)if(!slot){empty=&slot;break;}
-            if(empty && registry_.allocation(address,bytes,caller_rva,module_)){*empty=address;accepted=true;}
+            if(empty && registry_.allocation(address,bytes,caller_rva,module_)){
+                *empty=address;accepted=births.allocation(address,bytes,caller_rva);
+                if(!accepted)notices_.stopped=true;
+            }
             else notices_.stopped=true;
         });return accepted;
     }
@@ -135,24 +173,43 @@ public:
         return capture_effects_with_reader(frame,snapshot,[&]{return snapshot.capture(owners,module_);});
     }
     Snapshot capture_image(uint64_t frame,uintptr_t manager,NativeEffectImage<Capacity>& image){
-        Snapshot result{};image.valid=false;if(!owner() || !active_)return result;
+        Snapshot result{};image.valid=false;
+        capture_gate_outcome=0;capture_gate_thread=GetCurrentThreadId();capture_gate_owner=owner_;capture_gate_frame=frame;
+        capture_check=1;capture_object=0;capture_address=0;capture_vtable=0;image_check=0;image_exception=0;
+        capture_stopped=notices_.stopped.load();capture_window_failed=window_.failed();
+        if(!owner() || !active_)return result;
+        capture_check=2;
+        ++capture_gate_attempts;EffectMemoryGate::AccessOutcome gate_outcome{};
         gate_.try_access(notices_.stopped,[&]{
             EffectEnvironment before,after;
-            if(!environment_reader_(module_,before) || !image.capture(manager,module_) ||
-               !environment_reader_(module_,after) || !before.same(after)){image.valid=false;return;}
-            image.environment=before;
-            image.valid=false;std::array<Token,Capacity> tokens{};
+            capture_check=3;if(!environment_reader_(module_,before))return;
+            typename NativeEffectImage<Capacity>::CaptureDiagnostic diagnostic;
+            capture_check=4;const bool read=image.capture(manager,module_,&diagnostic);
+            image_check=diagnostic.check;image_exception=diagnostic.exception;capture_object=diagnostic.index;
+            capture_address=diagnostic.address;capture_vtable=diagnostic.vtable;
+            if(!read)return;
+            capture_check=5;if(!environment_reader_(module_,after))return;
+            capture_check=6;if(!before.same(after))return;
+            image.environment=before;image.valid=false;std::array<Token,Capacity> tokens{};
             for(unsigned i=0;i<image.count;++i){auto& object=image.objects[i];
+                capture_check=7;capture_object=i;capture_address=object.address;capture_vtable=object.vtable;
                 tokens[i]=registry_.constructed(object.address,object.vtable,true,window_);
                 if(!tokens[i].generation)return;
                 object.generation=tokens[i].generation;
             }
-            result=window_.capture(frame,std::span<const Token>(tokens.data(),image.count));
+            capture_check=8;result=window_.capture(frame,std::span<const Token>(tokens.data(),image.count));
             image.valid=result.generation!=0;
             if(image.valid){image.snapshot_serial=result.generation;image.snapshot_slot=result.slot;
-                image.session=result.session;image.round=result.round;image.frame=result.frame;}
-        });return result;
+                image.session=result.session;image.round=result.round;image.frame=result.frame;capture_check=0;}
+        },&gate_outcome);
+        capture_gate_outcome=static_cast<unsigned>(gate_outcome);
+        if(gate_outcome==EffectMemoryGate::AccessOutcome::contended){++capture_gate_contentions;capture_gate_last_rejection=2;}
+        if(gate_outcome==EffectMemoryGate::AccessOutcome::stopped){++capture_gate_stops;capture_gate_last_rejection=3;}
+        capture_stopped=notices_.stopped.load();capture_window_failed=window_.failed();
+        if(!result.generation)image.valid=false;
+        return result;
     }
+
     bool prepare_effect_restore(Snapshot snapshot,const NativeEffectImage<Capacity>& saved,
         NativeEffectImage<Capacity>& current,EffectRestorePlan<Capacity>& plan){
         plan.valid=false;if(!owner() || !active_ || saved.snapshot_serial!=snapshot.generation ||
@@ -196,7 +253,9 @@ public:
             if(!environment_reader_(module_,before_write) || !saved.environment.same(before_write))return;
             if(!EffectImageWriter<Capacity>::write(saved,write_exception_)){restart_required_=true;notices_.stopped=true;return;}
             for(unsigned i=0;i<saved.count;++i){const auto& object=saved.objects[i];
-                if(!window_.restored(snapshot,{object.address,object.generation})){restart_required_=true;notices_.stopped=true;return;}
+                const Token token{object.address,object.generation};const bool was_retired=!window_.live(token);
+                if(!window_.restored(snapshot,token)){restart_required_=true;notices_.stopped=true;return;}
+                if(was_retired)++revivals;
             }
             for(unsigned i=0;i<plan.remove_count;++i){const auto& object=current.objects[plan.remove[i]];
                 if(!window_.retire({object.address,object.generation})){restart_required_=true;notices_.stopped=true;return;}

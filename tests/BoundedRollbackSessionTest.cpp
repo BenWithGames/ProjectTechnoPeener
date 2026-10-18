@@ -1,5 +1,8 @@
 #include "../src/BoundedRollbackSession.hpp"
 #include "../src/ContinuousRollbackReport.hpp"
+#include "../src/PostBattleSettlement.hpp"
+#include "PostBattleContinuationTest.hpp"
+#include "NativeOuterContinuationFrameTest.hpp"
 #include <sstream>
 #include <cassert>
 #include <iostream>
@@ -12,7 +15,103 @@ struct Adapter {
     bool step(Input local,Input remote){++steps;value=(value*3+local.held+remote.held*7+remote.edge*11)%1000003;return !failStep;}
 };
 using Session=sc6::research::BoundedRollbackSession<Input,long long>;
+struct BoundaryAdapter {
+    struct Snapshot {int value{};unsigned frame{};};
+    int value{};unsigned frame{},endpoint{},loads{};bool fault{},fail_boundary{};
+    unsigned expected_frame()const{return frame;}
+    bool failed()const{return fault;}
+    bool begin_boundary(Input){endpoint=frame;return !fail_boundary;}
+    Input predict(Input previous){return {previous.held,0};}
+    bool save(Snapshot& out){out={value,frame};return true;}
+    bool load(Snapshot saved){
+        if(endpoint!=frame){fault=true;return false;}
+        ++loads;value=saved.value;frame=saved.frame;return true;
+    }
+    bool step(Input local,Input remote){value+=local.held+remote.held+remote.edge;++frame;return true;}
+};
+static void post_battle_tests(){
+    using S=sc6::research::BoundedRollbackSession<Input,BoundaryAdapter::Snapshot>;
+    using Barrier=sc6::research::PostBattleSettlement;
+    using R=Barrier::Result;
+    {
+        Barrier blocking;uint64_t tick=0;unsigned polls=0,pauses=0;bool caller_resumed=false;
+        const auto result=blocking.wait([&]{assert(!caller_resumed);return ++polls==4?R::ready:R::waiting;},
+            [&]{return tick;},[&]{assert(!caller_resumed);++pauses;++tick;},10);
+        caller_resumed=true;
+        assert(result==R::ready && polls==4 && pauses==3);
+        Barrier timeout;tick=0;
+        assert(timeout.wait([]{return R::waiting;},[&]{return tick;},[&]{++tick;},3)==R::restart_required);
+        assert(timeout.failure()==Barrier::Failure::timeout);
+        assert(timeout.wait([]{return R::ready;},[]{return 0u;},[]{},3)==R::restart_required);
+        Barrier reentry;
+        assert(reentry.wait([&]{
+            assert(reentry.wait([]{return R::ready;},[]{return 0u;},[]{},3)==R::restart_required);
+            return R::ready;
+        },[]{return 0u;},[]{},3)==R::restart_required);
+        assert(reentry.failure()==Barrier::Failure::boundary);
+        Barrier exception;
+        assert(exception.wait([]()->R{throw 1;},[]{return 0u;},[]{},3)==R::restart_required);
+        assert(exception.failure()==Barrier::Failure::exception);
+    }
+    // Incomplete truth waits at exactly the same endpoint. The last correction
+    // requires refreshing the native backend endpoint before its load.
+    S s;BoundaryAdapter a,reference;Barrier barrier;
+    assert(s.begin(11,12) && s.advance(a,{1,0}) && s.advance(a,{2,0}));
+    assert(a.endpoint==0 && a.frame==2);
+    auto poll=[&]{return barrier.poll(s,a,[]{return true;},Input{},11,12,7,2,true);};
+    assert(poll()==R::waiting && a.endpoint==2);
+    assert(s.receive(11,12,1,{4,1})==S::Arrival::accepted);
+    assert(poll()==R::waiting && a.frame==2 && a.loads==1);
+    assert(s.receive(11,12,0,{3,1})==S::Arrival::accepted);
+    assert(poll()==R::ready && a.frame==2 && s.head()==2);
+    reference.step({1,0},{3,1});reference.step({2,0},{4,1});
+    assert(a.value==reference.value);
+    const auto loads=a.loads;
+    assert(poll()==R::ready && a.loads==loads); // Never repeats a clean replay.
+    assert(!s.advance(a,{9,0})); // No extra frame while native commit is pending.
+    // Every rejection below must stop before an unsafe load/step.
+    for(unsigned fault=0;fault<6;++fault){
+        S broken;BoundaryAdapter engine;Barrier guard;
+        assert(broken.begin(11,12) && broken.advance(engine,{}));
+        engine.fail_boundary=fault==3;
+        auto drain=[&]{if(fault==4)throw 1;return fault!=2;};
+        assert(guard.poll(broken,engine,drain,Input{},11,12,fault==0?0u:7u,
+            fault==1?2u:1u,fault!=5)==R::restart_required);
+        assert(engine.frame==1 && !engine.loads);
+        assert(guard.poll(broken,engine,[]{return true;},Input{},11,12,7,1,true)==R::restart_required);
+    }
+    S changed;BoundaryAdapter engine;Barrier guard;
+    assert(changed.begin(11,12) && changed.advance(engine,{}));
+    assert(guard.poll(changed,engine,[]{return true;},Input{},11,12,7,1,true)==R::waiting);
+    assert(guard.poll(changed,engine,[]{return true;},Input{},11,13,7,1,true)==R::restart_required);
+    S recursive;BoundaryAdapter nested_engine;Barrier nested;
+    assert(recursive.begin(11,12));
+    auto reenter=[&]{
+        assert(nested.poll(recursive,nested_engine,[]{return true;},Input{},11,12,7,0,true)==R::restart_required);
+        return true;
+    };
+    assert(nested.poll(recursive,nested_engine,reenter,Input{},11,12,7,0,true)==R::restart_required);
+}
 int main(){
+    test_post_battle_continuation();
+    test_native_outer_continuation_frame();
+    post_battle_tests();
+    {
+        Session rearm;Adapter engine;
+        assert(rearm.begin(10,20) && rearm.settled());
+        assert(!rearm.begin(10,20)); // Never erase/reuse an active identity.
+        assert(rearm.advance(engine,{1,0}) && !rearm.settled());
+        assert(!rearm.begin(10,21) && rearm.head()==1);
+        assert(rearm.receive(10,20,0,{2,1})==Session::Arrival::accepted);
+        assert(!rearm.settled() && !rearm.begin(10,21)); // Truth still needs replay.
+        assert(rearm.reconcile(engine) && rearm.settled());
+        assert(rearm.begin(10,21) && rearm.head()==0);
+        assert(rearm.receive(10,20,0,{2,1})==Session::Arrival::wrong_identity);
+        assert(rearm.advance(engine,{}));
+        assert(rearm.receive(10,21,0,{})==Session::Arrival::accepted);
+        assert(!rearm.settled() && !rearm.begin(10,22)); // Equal prediction still needs retirement.
+        assert(rearm.reconcile(engine) && rearm.settled() && rearm.begin(10,22));
+    }
     sc6::research::RollbackJournal<2> tiny;
     tiny.push(1,2,0,0,1);tiny.push(1,2,1,1,1);tiny.push(1,2,2,2,1);
     assert(tiny.dropped()==1);sc6::research::RollbackEvent e;
@@ -63,7 +162,10 @@ int main(){
     assert(h.value==expected.value);
     assert(hold.advance(h,{})); // oldest unresolved now at depth3
     const auto steps=h.steps;assert(!hold.advance(h,{}));assert(h.steps==steps);
-    // Four-frame-old input is terminal, never clamped or silently skipped.
+    // An exact retained retransmission does not trigger a spurious restart.
+    assert(hold.receive(1,1,0,{2,1})==Session::Arrival::duplicate);
+    assert(hold.state!=Session::State::restart_required);
+    // Four-frame-old conflicting input is terminal, never clamped or silently skipped.
     assert(hold.receive(1,1,0,{3,0})==Session::Arrival::expired);
     assert(!hold.advance(h,{}) && !hold.begin(2,2));
     for(unsigned failure=0;failure<3;++failure){
@@ -103,6 +205,25 @@ int main(){
     }
     assert(delivered==7200 && stream.head()==7200 && stream.stalls>0);
     assert(actual.value==baseline.value);
+    // A pre-handoff drain must apply the final correction without advancing
+    // another frame. Packet receipt and equal predictions both need settlement.
+    for(bool changed : {false,true}){
+        Session drain;Adapter da,db;assert(drain.begin(31,32));
+        assert(drain.advance(da,{1,0}));assert(drain.advance(da,{2,0}));
+        assert(!drain.request_handoff(31,33));
+        assert(drain.request_handoff(31,32));
+        assert(drain.admission(31,32)==Session::Admission::waiting);
+        assert(!drain.settle_handoff(da) && !drain.handoff_ready());
+        assert(!drain.advance(da,{3,0}) && drain.head()==2);
+        const Input remote{changed?2:0,0};
+        assert(drain.receive(31,32,1,remote)==Session::Arrival::accepted);
+        assert(!drain.settle_handoff(da));
+        assert(drain.receive(31,32,0,remote)==Session::Arrival::accepted);
+        assert(!drain.handoff_ready());
+        assert(drain.settle_handoff(da) && drain.handoff_ready() && drain.head()==2);
+        assert(db.step({1,0},remote) && db.step({2,0},remote));assert(da.value==db.value);
+        assert(drain.begin(31,33) && drain.admission(31,33)==Session::Admission::ready);
+    }
     // Reports must distinguish a started correction from a completed one,
     // retain the failing frame/reason, and expose dropped evidence.
     sc6::research::RollbackJournal<4> evidence;

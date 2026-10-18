@@ -42,17 +42,27 @@ class CombatStartExchange {
     bool bound_{};
     CombatStartMailbox* mailbox_{};bool published_{};
     std::atomic<uint64_t> held_ticket_{0};
+    CombatStartAgreement::Offer completed_peer_{};
+    std::atomic<bool> completed_{};
+    std::atomic<uint64_t> retired_packets_{};
+    const CombatStartExchange* previous_{};unsigned depth_{};
     void publish_ready(){
         if(held_ticket_.load(std::memory_order_acquire)==local_.ticket)agreement_.local_held(local_.ticket);
         if(mailbox_ && !published_ && agreement_.activation_ready())published_=mailbox_->publish(agreement_);
+        if(published_)completed_.store(true,std::memory_order_release);
     }
 public:
     // Game thread calls only after validating its bound native hold. Ticket is
     // immutable and prevents another start attempt's notification from matching.
     bool report_local_hold(uint64_t ticket){uint64_t empty=0;return ticket && held_ticket_.compare_exchange_strong(empty,ticket,std::memory_order_release);}
     bool attach(CombatStartMailbox& mailbox){if(bound_ || mailbox_)return false;mailbox_=&mailbox;return true;}
-    bool begin(uint64_t steam_peer,const CombatStartAgreement::Offer& local){
+    bool begin(uint64_t steam_peer,const CombatStartAgreement::Offer& local,const CombatStartExchange* previous=nullptr){
+        if(previous && (!previous->completed_.load(std::memory_order_acquire) || previous->expected_steam_peer_!=steam_peer ||
+            previous->local_.sender!=local.sender || previous->local_.recipient!=local.recipient || previous->depth_>=15))return false;
+        for(auto* old=previous;old;old=old->previous_)
+            if(old->local_.round==local.round && old->local_.event==local.event)return false;
         if(bound_ || !steam_peer || !agreement_.begin(local))return false;
+        previous_=previous;depth_=previous?previous->depth_+1:0;
         local_=local;expected_steam_peer_=steam_peer;bound_=true;return true;
     }
     CombatStartPacket::Bytes outgoing(){
@@ -63,13 +73,23 @@ public:
         if(!bound_ || !mutual || steam_peer!=expected_steam_peer_)return false;
         const auto p=CombatStartPacket::decode(bytes,size);
         if(!p || p->offer.sender!=local_.recipient || p->offer.recipient!=local_.sender)return false;
+        // An old, authenticated start/ack must not poison the new agreement.
+        // Exact completed offers only; no numeric "older round" shortcut.
+        for(auto* old=previous_;old;old=old->previous_){
+            if(p->offer==old->completed_peer_ && (p->kind==1 || p->echo==old->local_.ticket)){
+                ++retired_packets_;return true;
+            }
+        }
+        if(p->offer.round!=local_.round || p->offer.event!=local_.event)return false;
         if(!agreement_.receive(p->offer))return false;peer_ticket_=p->offer.ticket;
         const bool accepted=p->kind==1 || agreement_.acknowledge(p->offer.sender,p->echo,p->offer.ticket);
         if(!accepted)return false;
         if(p->kind==3 && !agreement_.peer_held(p->offer.ticket))return false;
+        if(!completed_.load(std::memory_order_relaxed))completed_peer_=p->offer;
         publish_ready();return true;
     }
     bool consume(){return agreement_.consume(local_);}
+    uint64_t retired_packets()const{return retired_packets_.load(std::memory_order_relaxed);}
 };
 // Publish before polling; exchange is then owned exclusively by the network
 // worker and must outlive it. This pointer alone never arms native execution.

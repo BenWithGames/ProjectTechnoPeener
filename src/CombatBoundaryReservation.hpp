@@ -39,6 +39,7 @@ public:
         reserved_=advanced_=false;++clock_;++battle_;return true;
     }
     bool restart_required()const{return failed_;}
+    bool quiescent()const{return bound_ && !failed_ && !reserved_ && !advanced_;}
     void stop()noexcept{failed_=true;}
 };
 }

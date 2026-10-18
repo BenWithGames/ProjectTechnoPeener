@@ -1,0 +1,28 @@
+Repeated owned replay (suite profile 14)
+
+Extends the successful same-session reference replay with three bounded cycles.
+Each captures four consecutive snapshots, retains supported dependencies, restores
+and replays three original-input frames, verifies results and retires the window.
+The next window starts 120 simulation frames after the previous window ends.
+No snapshots are captured during that spacing interval.
+
+Round/session/owner changes cancel or reject under existing rules. No replay crosses
+a round boundary. A repeated frame or backwards frame during the spacing interval
+is rejected. Partial completion does not pass. Failed restoration/replay retains
+the existing restart requirement. Timing of the startup hold remains unchanged.
+
+Evidence is immutable and separate per cycle: four captured snapshots, replay
+expected/actual evidence, animation trace, inline RNG trace, and diagnostic values.
+First-window snapshot filenames remain compatible with the single-window runner.
+Failure evidence is separate from successful replay evidence, so a later failure
+cannot be masked by the earlier archive's published state. No published evidence
+is reused or overwritten by the game thread.
+
+Profiles 12 (removal/revival) and 13 (single owned replay) retain their test targets.
+Profile 14 does not require object removal, a wall break, idle inputs, or deliberately
+wrong predictions. It is not continuous rollback or a latency reduction test.
+
+Procedure: both install with SC6 closed, play one private warmup match, return to
+lobby, start Steam-TestSuite.cmd on both PCs, wait for connection, then enter the
+next match and play normally. Leave both games open through the 30-second
+observation/result exchange. Collect both reports. Restart before another suite.

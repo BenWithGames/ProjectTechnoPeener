@@ -28,6 +28,7 @@ public:
     struct State {
         uint32_t identity{},frame{},local_cursor{},all_cursor{},lead{};
         unsigned slots{},local_mask{},all_mask{},remote_mask{},mode{},phase{};
+        unsigned wait_reason{},wait_count{},published{};
     };
     enum class Result {unbound,ready,native_wait,withheld,advanced,restart_required};
     enum class Failure {none,identity,layout,phase,order,exception,service_advanced,advance_count};
@@ -37,6 +38,7 @@ private:
     uint32_t identity_{};
     bool bound_{},failed_{},serviced_{},native_wait_{};
     State serviced_state_{};
+    State wait_state_{};
     Failure failure_{};
     unsigned exception_{};
     bool fail(Failure reason){failed_=true;failure_=reason;return false;}
@@ -53,6 +55,8 @@ private:
             out.local_cursor=word(0x4410);out.all_cursor=word(0x4414);out.lead=word(0x440C);
             out.mode=*reinterpret_cast<const unsigned char*>(object_+0x4404);
             out.phase=*reinterpret_cast<const unsigned char*>(object_+0x4424);
+            out.wait_reason=*reinterpret_cast<const unsigned char*>(object_+0x4425);
+            out.wait_count=word(0x3A8);out.published=word(0x3B0);
             if(out.slots!=2 || (out.local_mask!=1 && out.local_mask!=2) ||
                 out.remote_mask!=(out.local_mask^3u) || out.all_mask!=3 || out.mode!=1 ||
                 out.frame>static_cast<uint32_t>(INT32_MAX) || out.identity>static_cast<uint32_t>(INT32_MAX))return fail(Failure::layout);
@@ -68,7 +72,14 @@ private:
         return true;
     }
     bool invoke_service() noexcept {
-        __try {Calls::service(base_,object_);native_wait_=Calls::waiting(base_,object_);return true;}
+        __try {
+            Calls::service(base_,object_);
+            // 3E9EE0 clears 4425 and changes 3A8. Preserve the actual
+            // post-service reason BEFORE that stateful native call. An
+            // observation made before service or after waiting is stale.
+            if(!read(wait_state_))return false;
+            native_wait_=Calls::waiting(base_,object_);return true;
+        }
         __except(EXCEPTION_EXECUTE_HANDLER){exception_=GetExceptionCode();return fail(Failure::exception);}
     }
     bool invoke_advance() noexcept {
@@ -123,6 +134,7 @@ public:
         return Result::advanced;
     }
     const State& last_serviced_state()const{return serviced_state_;}
+    const State& last_wait_state()const{return wait_state_;}
     Failure failure()const{return failure_;}
     unsigned exception()const{return exception_;}
     bool restart_required()const{return failed_;}

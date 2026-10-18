@@ -1,0 +1,11 @@
+# Three-match recording suite
+
+Start a fresh game on both PCs, join a private lobby, and run Record-ThreeMatches (P1 locally, P2 in the partner CMD). No warmup or friend code is required. Manually label and arm each match before entering it; stop at results before a rematch, and confirm whether the entire match was covered. Three local folders plus session metadata are collected in a Downloads ZIP on each PC. These independent recordings are not automatically authenticated or synchronized; compare matching frame/round metadata and inputs afterward.
+
+The game-thread recorder observes the ordinary update call at RVA 3FE816. It records up to 54,000 updates per match, with both input slots in the existing 40-byte input envelope, QPC, RNG (RVA 485EB28), battle frame, and round identity. CSV contains ten little-endian input words. frames.bin is a sequence of 72-byte records: QPC uint64, generation uint64, frame/round/event/RNG uint32, followed by 40 input bytes. recording.txt publishes the actual record size and QPC frequency.
+
+Two four-snapshot windows are attempted at record indices 120–123 and 1800–1803. Snapshot files use the existing sectioned evidence container; each has record index, capture validity and stage, module base, saved bytes/transfer information, rings, camera, blend and transform references. Consecutive-window counts require matching identity and adjacent frames. Capture itself may cause brief overhead. Missed callbacks, read failures, gaps, and overflow mark the recording incomplete. Snapshot failures are reported separately.
+
+There is no native load, extra update, input replacement, live rollback, or effect-object retention in this mode. Normal game networking is unchanged. The package excludes correction launchers. Runtime preparation entry points reject simultaneous dataset recording. Raw snapshot pointers are process-specific; objects are not kept alive. These are analysis/reference datasets, NOT portable replay saves. A replay consumer with validated lifetime reconstruction remains future work.
+
+Validation: standalone C++ tests exercise rejected unsafe/stale arms, three separate start/stop cycles, exact binary input export, invalid counter reads and file completion. Existing native snapshot tests remain in the full build. Actual full-match coverage needs both players' confirmation and live reports.

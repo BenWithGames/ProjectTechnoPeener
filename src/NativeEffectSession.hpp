@@ -1,18 +1,26 @@
 #pragma once
 #include "EffectExternalReferences.hpp"
 #include "EffectLifecycleWindow.hpp"
+#include "WindEmitterSnapshot.hpp"
 namespace sc6::research {
 // Owned by ReplayOwnedResources on the game thread; bindings die before the
 // source's strong stage references. No worker is allowed to destroy this object.
 class NativeEffectSession {
 public:
+    uint64_t revival_count()const{return runtime_.revivals.load();}
+    bool retired_on_owner()const{
+        return GetCurrentThreadId()==owner_thread_ && !active_ && !route_published_ && !comparison_pending_.generation &&
+            captures.load()==retirements.load() && !failure.load();
+    }
     using Runtime=EffectRetentionRuntime<64,32>;
     using Image=NativeEffectImage<64>;
     struct Binding {
-        Runtime::Snapshot snapshot{};Image image;EffectExternalReferences references;
+        Runtime::Snapshot snapshot{};Image image;WindEmitterSnapshot emitters;EffectExternalReferences references;
         NativeEffectSession* owner{};bool valid{};
+        uint64_t birth_window{};unsigned birth_cursor{};
     };
 private:
+    DWORD owner_thread_=GetCurrentThreadId();
     Runtime runtime_;
     uintptr_t module_{},manager_{};uint64_t session_{},round_{},serial_{};
     EffectExternalSource external_{};
@@ -20,10 +28,40 @@ private:
     Runtime::Snapshot comparison_pending_{};
     effect_release::NativeRelease native_release_{};
 public:
+    const EffectBirthJournal& birth_evidence()const{return runtime_.births;}
+    // Only the sole rolling-history owner may trim/rebase retained cursors.
+    bool compact_birth_history(unsigned first,unsigned retained){
+        return active_ && !runtime_.stopped() && captures.load()-retirements.load()==retained &&
+            runtime_.edit_births([&](EffectBirthJournal& births){return births.discard_prefix(first);});
+    }
+    bool branch_birth_history(unsigned at,unsigned retained){
+        if(!active_ || runtime_.stopped() || captures.load()-retirements.load()!=retained)return false;
+        // Releasing the final binding stops the old journal. The next capture
+        // starts a fresh epoch; otherwise preserve its retained prefix.
+        if(!retained)return runtime_.births.mode==EffectBirthJournal::Mode::off;
+        return runtime_.edit_births([&](EffectBirthJournal& births){return births.resume_recording(at);});
+    }
+    bool begin_birth_replay(const Binding& source,const Binding& next){
+        const bool ok=source.owner==this && next.owner==this && source.valid && next.valid &&
+            source.birth_window==next.birth_window && !runtime_.stopped() &&
+            runtime_.births.begin(source.birth_cursor,next.birth_cursor,session_,round_,source.birth_window);
+        if(!ok)failure=8;return ok;
+    }
+    bool end_birth_replay(){const bool ok=runtime_.births.finish() && !runtime_.stopped();if(!ok)failure=8;return ok;}
+    template<class Stream> void retention_report(Stream& out)const{out<<"suite_wind_capture_session_check="<<capture_check.load()<<'\n';runtime_.retention_report(out);out<<"suite_emitter_schema=1\nsuite_emitter_check="<<emitter_check.load()<<"\nsuite_emitter_count="<<emitter_count.load()<<"\nsuite_emitter_restores="<<emitter_restores.load()<<"\nsuite_emitter_compares="<<emitter_compares.load()<<'\n';}
+    // Read after owner retirement; no live object traversal from report worker.
+    unsigned retention_result()const{
+        if(failure.load() || runtime_.births.failure || captures.load()!=retirements.load() ||
+           runtime_.native_deferred.load()!=runtime_.allocator_releases.load())return 2;
+        return runtime_.snapshot_protected.load()?1:0;
+    }
     struct Evidence {Image expected,actual;unsigned external_failure{};} evidence;
+    struct EmitterEvidence {WindEmitterSnapshot expected,actual;} emitter_evidence;
+    std::atomic<unsigned> emitter_check{},emitter_restores{},emitter_compares{},emitter_count{};
     void configure(effect_release::NativeRelease release){if(!active_)native_release_=release;}
     std::atomic<unsigned> failure{},captures{},loads{},comparisons{},retirements{},added{},removed{},mismatch_object{UINT32_MAX},mismatch_offset{UINT32_MAX};
     std::atomic<bool> mutated{};
+    std::atomic<unsigned> capture_check{};
     std::atomic<uint64_t> external_check{},external_visits{},external_column{},external_interval{},external_candidate{},external_address{},external_extent{};
     void external_diagnostic(const Binding& b){const auto& d=b.references.diagnostic;external_check=d.check;external_visits=d.visits;external_column=d.column;external_interval=d.interval;external_candidate=d.candidate;external_address=d.address;external_extent=d.extent;}
     bool begin(uintptr_t module,uint64_t session,uint64_t round,EffectExternalSource external){
@@ -38,23 +76,37 @@ public:
     }
     bool capture(Binding& binding){
         failure=2;
-        if(!active_ || binding.snapshot.generation || serial_==UINT64_MAX || runtime_.stopped())return false;
+        capture_check=1;if(!active_)return false;
+        capture_check=2;if(binding.snapshot.generation)return false;
+        capture_check=3;if(serial_==UINT64_MAX)return false;
+        capture_check=4;if(runtime_.stopped())return false;
+        if(captures.load()==retirements.load() &&
+           !runtime_.births.start(session_,round_,serial_+1))return false;
+        capture_check=5;
         if(!binding.references.capture(module_,external_)){external_diagnostic(binding);failure=100+static_cast<unsigned>(binding.references.failure);return false;}
         external_diagnostic(binding);
+        emitter_check=1;
+        if(!binding.emitters.capture(module_)){failure=7;emitter_evidence.actual=binding.emitters;return false;}
+        emitter_count=binding.emitters.count;emitter_check=0;
         binding.owner=this;
-        binding.snapshot=runtime_.capture_image(++serial_,manager_,binding.image);
+        binding.birth_window=runtime_.births.window;binding.birth_cursor=runtime_.births.count;
+        capture_check=6;binding.snapshot=runtime_.capture_image(++serial_,manager_,binding.image);
         if(binding.snapshot.generation)++captures;
-        binding.valid=binding.snapshot.generation && binding.references.validate();
+        if(!binding.snapshot.generation)return false;
+        capture_check=7;binding.valid=binding.references.validate();external_diagnostic(binding);
         if(!binding.valid)return false;
-        if(!runtime_.collect())return false;
-        failure=0;return true;
+        capture_check=8;if(!runtime_.collect())return false;
+        capture_check=0;failure=0;return true;
     }
     bool validate(Binding& binding){
         const bool ok=active_ && binding.owner==this && binding.valid && !runtime_.stopped() && binding.references.validate();
         external_diagnostic(binding);evidence.external_failure=static_cast<unsigned>(binding.references.failure);return ok;
     }
     bool restore(Binding& binding){
+        runtime_.births.seal();
         failure=3;evidence.expected=binding.image;evidence.actual={};if(!validate(binding))return false;
+        emitter_evidence.expected=binding.emitters;emitter_check=2;
+        if(!emitter_evidence.actual.capture(module_) || !binding.emitters.compatible(emitter_evidence.actual)){failure=7;return false;}
         Image current;
         unsigned add=0,remove=0;
         const bool ok=runtime_.apply_effect_image(binding.snapshot,binding.image,current,[&](const Image& saved,const Image& live){
@@ -65,6 +117,9 @@ public:
         evidence.actual=current;
         mutated=mutated || ok || runtime_.restart_required();
         if(!ok)return false;
+        emitter_check=3;
+        if(!binding.emitters.restore(module_,emitter_evidence.actual)){failure=7;return false;}
+        ++emitter_restores;emitter_check=0;
         added+=add;removed+=remove;++loads;failure=0;return true;
     }
     bool compare(Binding& reference){
@@ -80,12 +135,17 @@ public:
         if(!runtime_.expire(token))return false;
         comparison_pending_={};
         if(!same)return false;
+        emitter_evidence.expected=reference.emitters;emitter_check=4;
+        if(!emitter_evidence.actual.capture(module_) || !reference.emitters.compatible(emitter_evidence.actual,true)){failure=7;return false;}
+        ++emitter_compares;emitter_check=0;
         ++comparisons;failure=0;return true;
     }
     bool release(Binding& binding){
         if(!binding.snapshot.generation){binding.valid=false;return true;}
         if(binding.owner!=this || !runtime_.expire(binding.snapshot)){failure=5;return false;}
-        binding.snapshot={};binding.valid=false;++retirements;return true;
+        binding.snapshot={};binding.valid=false;++retirements;
+        if(captures.load()==retirements.load())runtime_.births.stop();
+        return true;
     }
     bool finish(){
         if(!active_)return true;

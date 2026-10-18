@@ -85,6 +85,26 @@ struct ImmediateIdleCorrection {
                    std::memcmp(reinterpret_cast<void*>(r.owner),live.bytes.data(),r.bytes.size()))return reject(__LINE__);
                 if(r.smoothing_valid && (r.smoothing!=live.smoothing || r.targets!=live.targets || r.response!=live.response))return reject(__LINE__);
                 if(r.bytes==live.bytes)continue;
+                // 33FF40/340F70 omit these active limits. 33E640/3402C0
+                // initialize the exact defaults below; 340C00 uses the limits.
+                // Restore the archived scalars, never exclude them from equality.
+                if(!r.smoothing_valid && !next.smoothing_valid &&
+                   TransformSnapshot::pointer(r.bytes.data())==base+0x3E885E0 &&
+                   TransformSnapshot::pointer(next.bytes.data())==base+0x3E885E0 &&
+                   TransformSnapshot::pointer(live.bytes.data())==base+0x3E885E0){
+                    constexpr unsigned offsets[]={0x188,0x18C,0x1B8,0x1BC};
+                    constexpr unsigned defaults[]={0xBE7FFFBC,0x3E7FFD60,0x3F000000,0x437A0000};
+                    for(unsigned j=0;j<r.bytes.size();++j){
+                        bool limit=false;for(auto off:offsets)if(j>=off && j<off+4)limit=true;
+                        if(!limit && r.bytes[j]!=live.bytes[j])return reject(__LINE__);
+                    }
+                    for(unsigned j=0;j<4;++j){const auto off=offsets[j];
+                        if(!std::memcmp(r.bytes.data()+off,live.bytes.data()+off,4))continue;
+                        if(!finite(r.bytes.data()+off,4) || CameraSnapshot::word(live.bytes.data()+off)!=defaults[j] ||
+                           !add(r.owner+off,r.bytes.data()+off,4))return reject(__LINE__);
+                    }
+                    continue;
+                }
                 // Separate observed base-camera object; smoothing camera has
                 // already been corrected by its existing dedicated restorer.
                 // Later-frame motion is irrelevant: copy only the saved finite

@@ -25,3 +25,29 @@ try:
 except ValueError:
     pass
 print('PASS: shared-state evidence exact values, unread-live distinction and bounds')
+
+sections.pop('wind.preflight_shared')
+sections['postload.failure_check']=struct.pack('<I',4)
+sections['scalar_reset.diagnostic']=struct.pack('<12I',0,0x3F333333,0x3F800000,0x3F800000,0,1,1,0,0,0,0,0)
+r=analyze(sections)
+assert r['postload_failure_check']==4 and r['scalar_resets'][0]['saved']==0x3F333333
+sections['scalar_reset.diagnostic']=b'bad'
+try:
+    analyze(sections)
+    raise AssertionError('bad scalar reset size accepted')
+except ValueError:
+    pass
+print('PASS: scalar reset evidence and bounds')
+
+sections.pop('scalar_reset.diagnostic', None)
+sections['wind.rng_boundary']=struct.pack('<9I',1,0,1,1,1,1,1,0,0)+struct.pack('<128I',*range(128))
+r=analyze(sections)['effect_rng_boundary']
+assert r['entry_match']==1 and r['after_match']==0
+assert r['source']['cursor']==25 and r['after']['secondary_words']==list(range(122,128))
+sections['wind.rng_boundary']=b'bad'
+try:
+    analyze(sections)
+    raise AssertionError('bad effect RNG boundary size accepted')
+except ValueError:
+    pass
+print('PASS: full shared RNG boundary decoding and malformed-size rejection')

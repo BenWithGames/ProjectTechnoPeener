@@ -7,6 +7,7 @@ namespace dependency_events {
 using Owned=void(*)(uintptr_t,uintptr_t,uintptr_t);
 inline std::atomic<Owned> owned{};
 inline std::atomic<void(*)()> clear{};
+inline std::atomic<void(*)(uintptr_t,uintptr_t,bool)> scoped_clear{};
 }
 // Scoped collection from verified native ownership callbacks during save.
 // Raw identities recorded here are backed by owned references until teardown.

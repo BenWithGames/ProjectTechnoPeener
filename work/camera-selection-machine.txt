@@ -1,0 +1,9 @@
+31a450: mov dword ptr [rbx + 0x2ac], edi
+31a5e2: movsxd rcx, dword ptr [rbx + 0x2ac]
+31a5f7: movzx eax, byte ptr [rsi + 0x23c]
+31a601: mov dword ptr [rbx + 0x2ac], eax
+31a6ee: movzx eax, byte ptr [rsi + 0x23c]
+31a77c: movzx eax, byte ptr [r13 + 0x23c]
+31a786: cmp byte ptr [rsi + 0x23c], al
+31ae1f: movzx eax, byte ptr [rbx + 0x23c]
+31ae4d: movzx eax, byte ptr [r14 + 0x23c]

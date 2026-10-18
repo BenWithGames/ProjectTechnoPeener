@@ -1,0 +1,15 @@
+FULL-MATCH REFERENCE REPLAY (profile 16)
+Both players install this build with SC6 closed. Launch and join the first private lobby.
+No warmup. Partner runs Steam-TestSuite.cmd (Ben friend code, P2, consent prefilled).
+Ben runs his P1 launcher. Wait until both scripts connect, then start the match.
+Play normally through the entire match. Keep both games open at the results screen until both scripts finish.
+
+Four adjacent snapshots form each verified three-frame restore/replay window. Continue scheduling windows at least 120 game frames apart until the native match-end state. This is continuous session operation at a bounded cadence, not every-frame prediction or latency reduction. Native networking remains active.
+Each snapshot requires fight-ready mode. Partial windows are discarded on round changes or confirmed match end; unexpected identities and unsafe restoration failures still stop. Every replay keeps existing exact endpoint verification and diagnostics.
+Three evidence slots bound live memory. The game never waits for file I/O: if all slots are pending, capture is skipped and counted. The report worker writes immutable full evidence, traces and per-cycle summaries, then returns slots. Failed writes stop the test and cannot count as PASS.
+Match completion requires native terminal state, verified cycles, cleanup, flushed evidence and peer agreement. Timeout, early cancellation and disconnect are not a full-match PASS. The existing ten-minute capture timeout remains.
+Collect-RollbackReport.cmd packages this run's diagnostics. All cycle files are retained; full-match reports may be large.
+
+Stage wind birth validation: each bounded original-input window records allocation-entry events. During replay, only the audited WindForStage accumulator receives its original allocation-entry bits before native construction. Event order/count and exact endpoints remain checked. Reports include suite_wind_birth_* and raw wind.births evidence. Both PCs require the matching build. Zero applied events means the new-object correction was not exercised, even if the match otherwise passes.
+
+Storage: first successful cycle plus latest three binary windows are retained; every numeric cycle summary and failed window is kept. Startup enforces a 4 GiB capture budget and 2 GiB free-space reserve. A blocked evidence writer pauses new windows without stopping normal gameplay; free space and allow reports to flush. See CAPTURE_STORAGE_POLICY.md.

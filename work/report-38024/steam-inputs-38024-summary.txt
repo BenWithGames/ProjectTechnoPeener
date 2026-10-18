@@ -1,0 +1,84 @@
+﻿Status: SUITE_COMPLETE
+Reason: match_ended_after_verified_cycles
+Restart required by failure: False
+
+Side  Stage                                 Result                                                                     
+----  -----                                 ------                                                                     
+local Transport                             Passed                                                                     
+local Resources and cleanup                 Passed                                                                     
+local Frame pairs                           Passed                                                                     
+local Boundary agreement                    Passed                                                                     
+local Hold and release                      Passed                                                                     
+local Retained recordings                   Passed                                                                     
+local Bounded original-input replay         Passed                                                                     
+local Replay cycles verified and cleaned up Passed                                                                     
+peer  Transport                             Passed                                                                     
+peer  Resources and cleanup                 Passed                                                                     
+peer  Frame pairs                           Passed                                                                     
+peer  Boundary agreement                    Passed                                                                     
+peer  Hold and release                      Passed                                                                     
+peer  Retained recordings                   Passed                                                                     
+peer  Bounded original-input replay         Passed                                                                     
+peer  Replay cycles verified and cleaned up Passed                                                                     
+both  Continuous rollback                   Unavailable in this runner                                                 
+local Fight-ready capture gate              Native Normal mode required on each snapshot; waited 972 boundaries; dis...
+peer  Fight-ready capture gate              See peer raw report; not inferred from transport PASS                      
+local Camera calculation diagnostics        Installed: 1; events: 42594; dropped: 0; overwritten: 42082. Six stages ...
+local Animation timer evidence              Installed: 1; events: 49332; invalid: 0; dropped: 0; overwritten: 45236;...
+peer  Animation timer evidence              Requires peer report and timer-lookup.bin                                  
+local Diagnostic capture                    Preallocated immutable evidence; report worker serializes. Arena limit: ...
+local Wind emitter state                    Check: 0; emitters: 1; restores: 114; comparisons: 380. See raw wind.emi...
+local Effect capture gate                   Entered; attempts: 532; contentions: 0; stops: 0; last rejection: 0; thr...
+local Scoped resource clears                Seen: 7; unrelated ignored: 7; related: 0; unknown: 0; last reason: 0. E...
+peer  Scoped resource clears                Requires peer raw report; not inferred from transport PASS                 
+local Cycle 1 timing: step                  Count 4; total 43.223 ms; max 39.460 ms                                    
+local Cycle 1 timing: capture               Count 4; total 4.993 ms; max 1.340 ms                                      
+local Cycle 1 timing: archive               Count 1; total 6.381 ms; max 6.381 ms                                      
+local Cycle 1 timing: restore               Count 1; total 19.812 ms; max 19.812 ms                                    
+local Cycle 1 timing: replay                Count 1; total 5.004 ms; max 5.004 ms                                      
+local Cycle 1 timing: evidence              Count 1; total 3.010 ms; max 3.010 ms                                      
+local Cycle 1 timing: traces                Count 1; total 0.395 ms; max 0.395 ms                                      
+local Cycle 1 timing: retire                Count 1; total 2.131 ms; max 2.131 ms                                      
+local Cycle 1 timing: round_cleanup         Count 1; total 0.003 ms; max 0.003 ms                                      
+local Cycle 1 timing: callback_gap          Count 3; total 50.112 ms; max 16.750 ms                                    
+local Cycle 2 timing: step                  Count 123; total 43.290 ms; max 39.515 ms                                  
+local Cycle 2 timing: capture               Count 4; total 4.883 ms; max 1.273 ms                                      
+local Cycle 2 timing: archive               Count 1; total 7.219 ms; max 7.219 ms                                      
+local Cycle 2 timing: restore               Count 1; total 19.730 ms; max 19.730 ms                                    
+local Cycle 2 timing: replay                Count 1; total 4.995 ms; max 4.995 ms                                      
+local Cycle 2 timing: evidence              Count 1; total 2.368 ms; max 2.368 ms                                      
+local Cycle 2 timing: traces                Count 1; total 0.490 ms; max 0.490 ms                                      
+local Cycle 2 timing: retire                Count 1; total 2.064 ms; max 2.064 ms                                      
+local Cycle 2 timing: round_cleanup         Count 1; total 0.003 ms; max 0.003 ms                                      
+local Cycle 2 timing: callback_gap          Count 123; total 2076.222 ms; max 42.869 ms                                
+local Cycle 3 timing: step                  Count 123; total 42.523 ms; max 38.669 ms                                  
+local Cycle 3 timing: capture               Count 4; total 5.036 ms; max 1.378 ms                                      
+local Cycle 3 timing: archive               Count 1; total 6.630 ms; max 6.630 ms                                      
+local Cycle 3 timing: restore               Count 1; total 19.358 ms; max 19.358 ms                                    
+local Cycle 3 timing: replay                Count 1; total 5.061 ms; max 5.061 ms                                      
+local Cycle 3 timing: evidence              Count 1; total 2.384 ms; max 2.384 ms                                      
+local Cycle 3 timing: traces                Count 1; total 0.439 ms; max 0.439 ms                                      
+local Cycle 3 timing: retire                Count 1; total 2.162 ms; max 2.162 ms                                      
+local Cycle 3 timing: round_cleanup         Count 1; total 0.003 ms; max 0.003 ms                                      
+local Cycle 3 timing: callback_gap          Count 123; total 2076.483 ms; max 43.238 ms                                
+local Session timing: step                  Count 5287; total 1496.869 ms; max 41.156 ms                               
+local Session timing: capture               Count 140; total 169.752 ms; max 1.611 ms                                  
+local Session timing: archive               Count 35; total 226.579 ms; max 7.189 ms                                   
+local Session timing: restore               Count 35; total 699.303 ms; max 20.981 ms                                  
+local Session timing: replay                Count 35; total 178.935 ms; max 5.691 ms                                   
+local Session timing: evidence              Count 35; total 85.278 ms; max 2.906 ms                                    
+local Session timing: traces                Count 35; total 14.024 ms; max 0.523 ms                                    
+local Session timing: retire                Count 35; total 70.470 ms; max 2.274 ms                                    
+local Session timing: release               Count 1; total 2.483 ms; max 2.483 ms                                      
+local Session timing: round_cleanup         Count 37; total 0.102 ms; max 0.004 ms                                     
+local Session timing: report_io             Count 114; total 840.517 ms; max 27.226 ms                                 
+local Session timing: callback_gap          Count 5287; total 89395.244 ms; max 182.284 ms                             
+local Timing interpretation                 Wall time, not GPU/display frame time. Step includes its child phases; d...
+local Full-match reference replay           Cycles: 38; native match end: 1; clean retirement: 1; spacing: 120 frame...
+local Bounded evidence queue                Flushed: 38; wait frames: 0; I/O failures: 0. Full per-cycle files retai...
+local Latest selector restoration           Enabled: 1; restored: 1; endpoint verified: 1; phase/reason: 3/0; side/o...
+
+
+Round changes: 0; rematch candidates: 0
+Zero events means not observed, not passed. Restart SC6 before another suite.
+Raw report: C:\Program Files (x86)\Steam\steamapps\common\SoulcaliburVI\SoulcaliburVI\Binaries\Win64\Mods\SC6Rollback\captures\steam-inputs-38024.txt

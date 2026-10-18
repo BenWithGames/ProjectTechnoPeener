@@ -33,7 +33,13 @@ inline void bridge(uintptr_t object) {
     // Owner-thread startup polling must precede servicing/advancement. A held
     // clock may produce no battle entry, so battle-only polling deadlocks.
     if(const auto* startup=startup_poll.load(std::memory_order_acquire))startup->poll(startup->context,object);
-    if(const auto* routes=combat_routes.load(std::memory_order_acquire))routes->clock->run(object,original);
+    if(const auto* routes=combat_routes.load(std::memory_order_acquire)){
+        if(routes->retired()){
+            if(auto* hold=start_hold.load(std::memory_order_acquire);hold && hold->matches(object))hold->run(object,now);
+            else original(object);
+        }
+        else routes->clock->run(object,original);
+    }
     else if(auto* hold=start_hold.load(std::memory_order_acquire);hold && hold->matches(object))hold->run(object,GetTickCount64());
     else if(auto* dispatch=route.load(std::memory_order_acquire))dispatch->run(object,original);
     else original(object);

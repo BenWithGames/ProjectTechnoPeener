@@ -1,0 +1,110 @@
+[
+  {
+    "pid": 76196,
+    "evidence_sha256": "aec85072753cd7bb2420bb3dc7fbc8bb238b460cb070c3f54d6fec7440235147",
+    "source_count": 6,
+    "endpoint_count": 7,
+    "existing_objects_equal_except_list_links": true,
+    "original_address": "0x1d2d05e2200",
+    "replay_address": "0x1d2d05ee200",
+    "fields": {
+      "0x134": {
+        "original": 0.040040045976638794,
+        "replay": 0.040040045976638794
+      },
+      "0x138": {
+        "original": -587.9244384765625,
+        "replay": 0.040040045976638794
+      },
+      "0x13c": {
+        "original": -587.9244384765625,
+        "replay": 0.040040045976638794
+      },
+      "0x140": {
+        "original": -0.001700898865237832,
+        "replay": 24.97499656677246
+      }
+    },
+    "timings_ms": {
+      "1": {
+        "step": 35.7113,
+        "restore": 20.0641,
+        "replay": 5.8572,
+        "callback_gap": 16.7261
+      },
+      "2": {
+        "step": 31.2935,
+        "restore": 18.4925,
+        "replay": 4.0675,
+        "callback_gap": 40.5495
+      },
+      "3": {
+        "step": 30.3284,
+        "restore": 17.8103,
+        "replay": 4.3995,
+        "callback_gap": 36.0643
+      },
+      "4": {
+        "step": 31.5561,
+        "restore": 18.548,
+        "replay": 4.295,
+        "callback_gap": 35.48
+      }
+    },
+    "hold_mode": "baseline_100ms"
+  },
+  {
+    "pid": 36908,
+    "evidence_sha256": "5921314c48ec8d3a8e6c0ae49167d3d5ecb78cc3ebc4c0c289b195266dc252a8",
+    "source_count": 6,
+    "endpoint_count": 7,
+    "existing_objects_equal_except_list_links": true,
+    "original_address": "0x1cd63fb3c00",
+    "replay_address": "0x1cd63fb9a00",
+    "fields": {
+      "0x134": {
+        "original": 0.040040045976638794,
+        "replay": 0.040040045976638794
+      },
+      "0x138": {
+        "original": 0.040040045976638794,
+        "replay": 19.21928596496582
+      },
+      "0x13c": {
+        "original": 0.040040045976638794,
+        "replay": 5.0
+      },
+      "0x140": {
+        "original": 24.97499656677246,
+        "replay": 0.20000000298023224
+      }
+    },
+    "timings_ms": {
+      "1": {
+        "step": 37.9911,
+        "restore": 19.3709,
+        "replay": 5.0874,
+        "callback_gap": 16.7193
+      },
+      "2": {
+        "step": 35.774,
+        "restore": 19.1404,
+        "replay": 4.5789,
+        "callback_gap": 42.0929
+      },
+      "3": {
+        "step": 37.1123,
+        "restore": 19.5528,
+        "replay": 4.6839,
+        "callback_gap": 39.4607
+      },
+      "4": {
+        "step": 36.1593,
+        "restore": 19.1614,
+        "replay": 4.7961,
+        "callback_gap": 41.1652
+      }
+    },
+    "hold_mode": "baseline_100ms"
+  }
+]

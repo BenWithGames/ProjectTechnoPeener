@@ -1,0 +1,194 @@
+[
+  {
+    "side": 0,
+    "player": "0x7ff79f1556f0",
+    "offset": "0x1735",
+    "hits": [
+      {
+        "index": 1,
+        "source": "0x7ff79f155780",
+        "size": 13584,
+        "writer": "0x30a9ce",
+        "offset": "0x16a5"
+      }
+    ]
+  },
+  {
+    "side": 0,
+    "player": "0x7ff79f1556f0",
+    "offset": "0x1736",
+    "hits": [
+      {
+        "index": 1,
+        "source": "0x7ff79f155780",
+        "size": 13584,
+        "writer": "0x30a9ce",
+        "offset": "0x16a6"
+      }
+    ]
+  },
+  {
+    "side": 0,
+    "player": "0x7ff79f1556f0",
+    "offset": "0x7c4",
+    "hits": [
+      {
+        "index": 1,
+        "source": "0x7ff79f155780",
+        "size": 13584,
+        "writer": "0x30a9ce",
+        "offset": "0x734"
+      }
+    ]
+  },
+  {
+    "side": 0,
+    "player": "0x7ff79f1556f0",
+    "offset": "0x1e50",
+    "hits": [
+      {
+        "index": 1,
+        "source": "0x7ff79f155780",
+        "size": 13584,
+        "writer": "0x30a9ce",
+        "offset": "0x1dc0"
+      }
+    ]
+  },
+  {
+    "side": 0,
+    "player": "0x7ff79f1556f0",
+    "offset": "0x34bc",
+    "hits": [
+      {
+        "index": 1,
+        "source": "0x7ff79f155780",
+        "size": 13584,
+        "writer": "0x30a9ce",
+        "offset": "0x342c"
+      }
+    ]
+  },
+  {
+    "side": 0,
+    "player": "0x7ff79f1556f0",
+    "offset": "0x3480",
+    "hits": [
+      {
+        "index": 1,
+        "source": "0x7ff79f155780",
+        "size": 13584,
+        "writer": "0x30a9ce",
+        "offset": "0x33f0"
+      }
+    ]
+  },
+  {
+    "side": 0,
+    "player": "0x7ff79f1556f0",
+    "offset": "0x95788",
+    "hits": []
+  },
+  {
+    "side": 0,
+    "player": "0x7ff79f1556f0",
+    "offset": "0x959e4",
+    "hits": []
+  },
+  {
+    "side": 1,
+    "player": "0x7ff79f1ecae0",
+    "offset": "0x1735",
+    "hits": [
+      {
+        "index": 349,
+        "source": "0x7ff79f1ecb70",
+        "size": 13584,
+        "writer": "0x30a9ce",
+        "offset": "0x16a5"
+      }
+    ]
+  },
+  {
+    "side": 1,
+    "player": "0x7ff79f1ecae0",
+    "offset": "0x1736",
+    "hits": [
+      {
+        "index": 349,
+        "source": "0x7ff79f1ecb70",
+        "size": 13584,
+        "writer": "0x30a9ce",
+        "offset": "0x16a6"
+      }
+    ]
+  },
+  {
+    "side": 1,
+    "player": "0x7ff79f1ecae0",
+    "offset": "0x7c4",
+    "hits": [
+      {
+        "index": 349,
+        "source": "0x7ff79f1ecb70",
+        "size": 13584,
+        "writer": "0x30a9ce",
+        "offset": "0x734"
+      }
+    ]
+  },
+  {
+    "side": 1,
+    "player": "0x7ff79f1ecae0",
+    "offset": "0x1e50",
+    "hits": [
+      {
+        "index": 349,
+        "source": "0x7ff79f1ecb70",
+        "size": 13584,
+        "writer": "0x30a9ce",
+        "offset": "0x1dc0"
+      }
+    ]
+  },
+  {
+    "side": 1,
+    "player": "0x7ff79f1ecae0",
+    "offset": "0x34bc",
+    "hits": [
+      {
+        "index": 349,
+        "source": "0x7ff79f1ecb70",
+        "size": 13584,
+        "writer": "0x30a9ce",
+        "offset": "0x342c"
+      }
+    ]
+  },
+  {
+    "side": 1,
+    "player": "0x7ff79f1ecae0",
+    "offset": "0x3480",
+    "hits": [
+      {
+        "index": 349,
+        "source": "0x7ff79f1ecb70",
+        "size": 13584,
+        "writer": "0x30a9ce",
+        "offset": "0x33f0"
+      }
+    ]
+  },
+  {
+    "side": 1,
+    "player": "0x7ff79f1ecae0",
+    "offset": "0x95788",
+    "hits": []
+  },
+  {
+    "side": 1,
+    "player": "0x7ff79f1ecae0",
+    "offset": "0x959e4",
+    "hits": []
+  }
+]

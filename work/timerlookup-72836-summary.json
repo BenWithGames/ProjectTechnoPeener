@@ -1,0 +1,1764 @@
+{
+  "1": {
+    "total": 4733,
+    "dropped": 0,
+    "overwritten": 637,
+    "phases": {
+      "0": 4066,
+      "2": 30
+    },
+    "replay_events": [
+      {
+        "sequence": 4703,
+        "site": "before_replay",
+        "phase": 2,
+        "frame": 661,
+        "side": 0,
+        "weight": null,
+        "sample": null,
+        "timers": [
+          {
+            "slot": 0,
+            "descriptor_index": 0,
+            "cursor_bits": 0,
+            "state": 1
+          },
+          {
+            "slot": 1,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          },
+          {
+            "slot": 2,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          }
+        ]
+      },
+      {
+        "sequence": 4704,
+        "site": "before_replay",
+        "phase": 2,
+        "frame": 661,
+        "side": 1,
+        "weight": null,
+        "sample": null,
+        "timers": [
+          {
+            "slot": 0,
+            "descriptor_index": 211,
+            "cursor_bits": 0,
+            "state": 1
+          },
+          {
+            "slot": 1,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          },
+          {
+            "slot": 2,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          }
+        ]
+      },
+      {
+        "sequence": 4705,
+        "site": "controller_entry",
+        "phase": 2,
+        "frame": 661,
+        "side": 0,
+        "weight": null,
+        "sample": null,
+        "timers": [
+          {
+            "slot": 0,
+            "descriptor_index": 0,
+            "cursor_bits": 0,
+            "state": 1
+          },
+          {
+            "slot": 1,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          },
+          {
+            "slot": 2,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          }
+        ]
+      },
+      {
+        "sequence": 4706,
+        "site": "lookup_entry",
+        "phase": 2,
+        "frame": 661,
+        "side": 0,
+        "weight": null,
+        "sample": null,
+        "timers": [
+          {
+            "slot": 0,
+            "descriptor_index": 0,
+            "cursor_bits": 0,
+            "state": 1
+          },
+          {
+            "slot": 1,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          },
+          {
+            "slot": 2,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          }
+        ]
+      },
+      {
+        "sequence": 4707,
+        "site": "weight_input",
+        "phase": 2,
+        "frame": 661,
+        "side": 0,
+        "weight": 0.0,
+        "sample": null,
+        "timers": [
+          {
+            "slot": 0,
+            "descriptor_index": 0,
+            "cursor_bits": 0,
+            "state": 1
+          },
+          {
+            "slot": 1,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          },
+          {
+            "slot": 2,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          }
+        ]
+      },
+      {
+        "sequence": 4708,
+        "site": "controller_entry",
+        "phase": 2,
+        "frame": 661,
+        "side": 1,
+        "weight": null,
+        "sample": null,
+        "timers": [
+          {
+            "slot": 0,
+            "descriptor_index": 211,
+            "cursor_bits": 0,
+            "state": 1
+          },
+          {
+            "slot": 1,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          },
+          {
+            "slot": 2,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          }
+        ]
+      },
+      {
+        "sequence": 4709,
+        "site": "lookup_entry",
+        "phase": 2,
+        "frame": 661,
+        "side": 1,
+        "weight": null,
+        "sample": null,
+        "timers": [
+          {
+            "slot": 0,
+            "descriptor_index": 211,
+            "cursor_bits": 0,
+            "state": 1
+          },
+          {
+            "slot": 1,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          },
+          {
+            "slot": 2,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          }
+        ]
+      },
+      {
+        "sequence": 4710,
+        "site": "weight_input",
+        "phase": 2,
+        "frame": 661,
+        "side": 1,
+        "weight": 0.0,
+        "sample": null,
+        "timers": [
+          {
+            "slot": 0,
+            "descriptor_index": 211,
+            "cursor_bits": 0,
+            "state": 1
+          },
+          {
+            "slot": 1,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          },
+          {
+            "slot": 2,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          }
+        ]
+      },
+      {
+        "sequence": 4711,
+        "site": "after_replay",
+        "phase": 2,
+        "frame": 662,
+        "side": 0,
+        "weight": null,
+        "sample": null,
+        "timers": [
+          {
+            "slot": 0,
+            "descriptor_index": 0,
+            "cursor_bits": 0,
+            "state": 1
+          },
+          {
+            "slot": 1,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          },
+          {
+            "slot": 2,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          }
+        ]
+      },
+      {
+        "sequence": 4712,
+        "site": "after_replay",
+        "phase": 2,
+        "frame": 662,
+        "side": 1,
+        "weight": null,
+        "sample": null,
+        "timers": [
+          {
+            "slot": 0,
+            "descriptor_index": 211,
+            "cursor_bits": 0,
+            "state": 1
+          },
+          {
+            "slot": 1,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          },
+          {
+            "slot": 2,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          }
+        ]
+      },
+      {
+        "sequence": 4713,
+        "site": "before_replay",
+        "phase": 2,
+        "frame": 662,
+        "side": 0,
+        "weight": null,
+        "sample": null,
+        "timers": [
+          {
+            "slot": 0,
+            "descriptor_index": 0,
+            "cursor_bits": 0,
+            "state": 1
+          },
+          {
+            "slot": 1,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          },
+          {
+            "slot": 2,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          }
+        ]
+      },
+      {
+        "sequence": 4714,
+        "site": "before_replay",
+        "phase": 2,
+        "frame": 662,
+        "side": 1,
+        "weight": null,
+        "sample": null,
+        "timers": [
+          {
+            "slot": 0,
+            "descriptor_index": 211,
+            "cursor_bits": 0,
+            "state": 1
+          },
+          {
+            "slot": 1,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          },
+          {
+            "slot": 2,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          }
+        ]
+      },
+      {
+        "sequence": 4715,
+        "site": "controller_entry",
+        "phase": 2,
+        "frame": 662,
+        "side": 0,
+        "weight": null,
+        "sample": null,
+        "timers": [
+          {
+            "slot": 0,
+            "descriptor_index": 0,
+            "cursor_bits": 0,
+            "state": 1
+          },
+          {
+            "slot": 1,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          },
+          {
+            "slot": 2,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          }
+        ]
+      },
+      {
+        "sequence": 4716,
+        "site": "lookup_entry",
+        "phase": 2,
+        "frame": 662,
+        "side": 0,
+        "weight": null,
+        "sample": null,
+        "timers": [
+          {
+            "slot": 0,
+            "descriptor_index": 0,
+            "cursor_bits": 0,
+            "state": 1
+          },
+          {
+            "slot": 1,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          },
+          {
+            "slot": 2,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          }
+        ]
+      },
+      {
+        "sequence": 4717,
+        "site": "weight_input",
+        "phase": 2,
+        "frame": 662,
+        "side": 0,
+        "weight": 0.0,
+        "sample": null,
+        "timers": [
+          {
+            "slot": 0,
+            "descriptor_index": 0,
+            "cursor_bits": 0,
+            "state": 1
+          },
+          {
+            "slot": 1,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          },
+          {
+            "slot": 2,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          }
+        ]
+      },
+      {
+        "sequence": 4718,
+        "site": "controller_entry",
+        "phase": 2,
+        "frame": 662,
+        "side": 1,
+        "weight": null,
+        "sample": null,
+        "timers": [
+          {
+            "slot": 0,
+            "descriptor_index": 211,
+            "cursor_bits": 0,
+            "state": 1
+          },
+          {
+            "slot": 1,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          },
+          {
+            "slot": 2,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          }
+        ]
+      },
+      {
+        "sequence": 4719,
+        "site": "lookup_entry",
+        "phase": 2,
+        "frame": 662,
+        "side": 1,
+        "weight": null,
+        "sample": null,
+        "timers": [
+          {
+            "slot": 0,
+            "descriptor_index": 211,
+            "cursor_bits": 0,
+            "state": 1
+          },
+          {
+            "slot": 1,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          },
+          {
+            "slot": 2,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          }
+        ]
+      },
+      {
+        "sequence": 4720,
+        "site": "weight_input",
+        "phase": 2,
+        "frame": 662,
+        "side": 1,
+        "weight": 0.0,
+        "sample": null,
+        "timers": [
+          {
+            "slot": 0,
+            "descriptor_index": 211,
+            "cursor_bits": 0,
+            "state": 1
+          },
+          {
+            "slot": 1,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          },
+          {
+            "slot": 2,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          }
+        ]
+      },
+      {
+        "sequence": 4721,
+        "site": "after_replay",
+        "phase": 2,
+        "frame": 663,
+        "side": 0,
+        "weight": null,
+        "sample": null,
+        "timers": [
+          {
+            "slot": 0,
+            "descriptor_index": 0,
+            "cursor_bits": 0,
+            "state": 1
+          },
+          {
+            "slot": 1,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          },
+          {
+            "slot": 2,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          }
+        ]
+      },
+      {
+        "sequence": 4722,
+        "site": "after_replay",
+        "phase": 2,
+        "frame": 663,
+        "side": 1,
+        "weight": null,
+        "sample": null,
+        "timers": [
+          {
+            "slot": 0,
+            "descriptor_index": 211,
+            "cursor_bits": 0,
+            "state": 1
+          },
+          {
+            "slot": 1,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          },
+          {
+            "slot": 2,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          }
+        ]
+      },
+      {
+        "sequence": 4723,
+        "site": "before_replay",
+        "phase": 2,
+        "frame": 663,
+        "side": 0,
+        "weight": null,
+        "sample": null,
+        "timers": [
+          {
+            "slot": 0,
+            "descriptor_index": 0,
+            "cursor_bits": 0,
+            "state": 1
+          },
+          {
+            "slot": 1,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          },
+          {
+            "slot": 2,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          }
+        ]
+      },
+      {
+        "sequence": 4724,
+        "site": "before_replay",
+        "phase": 2,
+        "frame": 663,
+        "side": 1,
+        "weight": null,
+        "sample": null,
+        "timers": [
+          {
+            "slot": 0,
+            "descriptor_index": 211,
+            "cursor_bits": 0,
+            "state": 1
+          },
+          {
+            "slot": 1,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          },
+          {
+            "slot": 2,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          }
+        ]
+      },
+      {
+        "sequence": 4725,
+        "site": "controller_entry",
+        "phase": 2,
+        "frame": 663,
+        "side": 0,
+        "weight": null,
+        "sample": null,
+        "timers": [
+          {
+            "slot": 0,
+            "descriptor_index": 0,
+            "cursor_bits": 0,
+            "state": 1
+          },
+          {
+            "slot": 1,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          },
+          {
+            "slot": 2,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          }
+        ]
+      },
+      {
+        "sequence": 4726,
+        "site": "lookup_entry",
+        "phase": 2,
+        "frame": 663,
+        "side": 0,
+        "weight": null,
+        "sample": null,
+        "timers": [
+          {
+            "slot": 0,
+            "descriptor_index": 0,
+            "cursor_bits": 0,
+            "state": 1
+          },
+          {
+            "slot": 1,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          },
+          {
+            "slot": 2,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          }
+        ]
+      },
+      {
+        "sequence": 4727,
+        "site": "weight_input",
+        "phase": 2,
+        "frame": 663,
+        "side": 0,
+        "weight": 0.0,
+        "sample": null,
+        "timers": [
+          {
+            "slot": 0,
+            "descriptor_index": 0,
+            "cursor_bits": 0,
+            "state": 1
+          },
+          {
+            "slot": 1,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          },
+          {
+            "slot": 2,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          }
+        ]
+      },
+      {
+        "sequence": 4728,
+        "site": "controller_entry",
+        "phase": 2,
+        "frame": 663,
+        "side": 1,
+        "weight": null,
+        "sample": null,
+        "timers": [
+          {
+            "slot": 0,
+            "descriptor_index": 211,
+            "cursor_bits": 0,
+            "state": 1
+          },
+          {
+            "slot": 1,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          },
+          {
+            "slot": 2,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          }
+        ]
+      },
+      {
+        "sequence": 4729,
+        "site": "lookup_entry",
+        "phase": 2,
+        "frame": 663,
+        "side": 1,
+        "weight": null,
+        "sample": null,
+        "timers": [
+          {
+            "slot": 0,
+            "descriptor_index": 211,
+            "cursor_bits": 0,
+            "state": 1
+          },
+          {
+            "slot": 1,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          },
+          {
+            "slot": 2,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          }
+        ]
+      },
+      {
+        "sequence": 4730,
+        "site": "weight_input",
+        "phase": 2,
+        "frame": 663,
+        "side": 1,
+        "weight": 0.0,
+        "sample": null,
+        "timers": [
+          {
+            "slot": 0,
+            "descriptor_index": 211,
+            "cursor_bits": 0,
+            "state": 1
+          },
+          {
+            "slot": 1,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          },
+          {
+            "slot": 2,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          }
+        ]
+      },
+      {
+        "sequence": 4731,
+        "site": "after_replay",
+        "phase": 2,
+        "frame": 664,
+        "side": 0,
+        "weight": null,
+        "sample": null,
+        "timers": [
+          {
+            "slot": 0,
+            "descriptor_index": 0,
+            "cursor_bits": 0,
+            "state": 1
+          },
+          {
+            "slot": 1,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          },
+          {
+            "slot": 2,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          }
+        ]
+      },
+      {
+        "sequence": 4732,
+        "site": "after_replay",
+        "phase": 2,
+        "frame": 664,
+        "side": 1,
+        "weight": null,
+        "sample": null,
+        "timers": [
+          {
+            "slot": 0,
+            "descriptor_index": 211,
+            "cursor_bits": 0,
+            "state": 1
+          },
+          {
+            "slot": 1,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          },
+          {
+            "slot": 2,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          }
+        ]
+      }
+    ]
+  },
+  "2": {
+    "total": 18114,
+    "dropped": 0,
+    "overwritten": 14018,
+    "phases": {
+      "0": 4066,
+      "2": 30
+    },
+    "replay_events": [
+      {
+        "sequence": 18084,
+        "site": "before_replay",
+        "phase": 2,
+        "frame": 2469,
+        "side": 0,
+        "weight": null,
+        "sample": null,
+        "timers": [
+          {
+            "slot": 0,
+            "descriptor_index": 0,
+            "cursor_bits": 0,
+            "state": 1
+          },
+          {
+            "slot": 1,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          },
+          {
+            "slot": 2,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          }
+        ]
+      },
+      {
+        "sequence": 18085,
+        "site": "before_replay",
+        "phase": 2,
+        "frame": 2469,
+        "side": 1,
+        "weight": null,
+        "sample": null,
+        "timers": [
+          {
+            "slot": 0,
+            "descriptor_index": 26,
+            "cursor_bits": 0,
+            "state": 1
+          },
+          {
+            "slot": 1,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          },
+          {
+            "slot": 2,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          }
+        ]
+      },
+      {
+        "sequence": 18086,
+        "site": "controller_entry",
+        "phase": 2,
+        "frame": 2469,
+        "side": 0,
+        "weight": null,
+        "sample": null,
+        "timers": [
+          {
+            "slot": 0,
+            "descriptor_index": 0,
+            "cursor_bits": 0,
+            "state": 1
+          },
+          {
+            "slot": 1,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          },
+          {
+            "slot": 2,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          }
+        ]
+      },
+      {
+        "sequence": 18087,
+        "site": "lookup_entry",
+        "phase": 2,
+        "frame": 2469,
+        "side": 0,
+        "weight": null,
+        "sample": null,
+        "timers": [
+          {
+            "slot": 0,
+            "descriptor_index": 0,
+            "cursor_bits": 0,
+            "state": 1
+          },
+          {
+            "slot": 1,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          },
+          {
+            "slot": 2,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          }
+        ]
+      },
+      {
+        "sequence": 18088,
+        "site": "weight_input",
+        "phase": 2,
+        "frame": 2469,
+        "side": 0,
+        "weight": 0.0,
+        "sample": null,
+        "timers": [
+          {
+            "slot": 0,
+            "descriptor_index": 0,
+            "cursor_bits": 0,
+            "state": 1
+          },
+          {
+            "slot": 1,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          },
+          {
+            "slot": 2,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          }
+        ]
+      },
+      {
+        "sequence": 18089,
+        "site": "controller_entry",
+        "phase": 2,
+        "frame": 2469,
+        "side": 1,
+        "weight": null,
+        "sample": null,
+        "timers": [
+          {
+            "slot": 0,
+            "descriptor_index": 26,
+            "cursor_bits": 0,
+            "state": 1
+          },
+          {
+            "slot": 1,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          },
+          {
+            "slot": 2,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          }
+        ]
+      },
+      {
+        "sequence": 18090,
+        "site": "lookup_entry",
+        "phase": 2,
+        "frame": 2469,
+        "side": 1,
+        "weight": null,
+        "sample": null,
+        "timers": [
+          {
+            "slot": 0,
+            "descriptor_index": 26,
+            "cursor_bits": 0,
+            "state": 1
+          },
+          {
+            "slot": 1,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          },
+          {
+            "slot": 2,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          }
+        ]
+      },
+      {
+        "sequence": 18091,
+        "site": "weight_input",
+        "phase": 2,
+        "frame": 2469,
+        "side": 1,
+        "weight": 0.0,
+        "sample": null,
+        "timers": [
+          {
+            "slot": 0,
+            "descriptor_index": 26,
+            "cursor_bits": 0,
+            "state": 1
+          },
+          {
+            "slot": 1,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          },
+          {
+            "slot": 2,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          }
+        ]
+      },
+      {
+        "sequence": 18092,
+        "site": "after_replay",
+        "phase": 2,
+        "frame": 2470,
+        "side": 0,
+        "weight": null,
+        "sample": null,
+        "timers": [
+          {
+            "slot": 0,
+            "descriptor_index": 0,
+            "cursor_bits": 0,
+            "state": 1
+          },
+          {
+            "slot": 1,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          },
+          {
+            "slot": 2,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          }
+        ]
+      },
+      {
+        "sequence": 18093,
+        "site": "after_replay",
+        "phase": 2,
+        "frame": 2470,
+        "side": 1,
+        "weight": null,
+        "sample": null,
+        "timers": [
+          {
+            "slot": 0,
+            "descriptor_index": 26,
+            "cursor_bits": 0,
+            "state": 1
+          },
+          {
+            "slot": 1,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          },
+          {
+            "slot": 2,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          }
+        ]
+      },
+      {
+        "sequence": 18094,
+        "site": "before_replay",
+        "phase": 2,
+        "frame": 2470,
+        "side": 0,
+        "weight": null,
+        "sample": null,
+        "timers": [
+          {
+            "slot": 0,
+            "descriptor_index": 0,
+            "cursor_bits": 0,
+            "state": 1
+          },
+          {
+            "slot": 1,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          },
+          {
+            "slot": 2,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          }
+        ]
+      },
+      {
+        "sequence": 18095,
+        "site": "before_replay",
+        "phase": 2,
+        "frame": 2470,
+        "side": 1,
+        "weight": null,
+        "sample": null,
+        "timers": [
+          {
+            "slot": 0,
+            "descriptor_index": 26,
+            "cursor_bits": 0,
+            "state": 1
+          },
+          {
+            "slot": 1,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          },
+          {
+            "slot": 2,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          }
+        ]
+      },
+      {
+        "sequence": 18096,
+        "site": "controller_entry",
+        "phase": 2,
+        "frame": 2470,
+        "side": 0,
+        "weight": null,
+        "sample": null,
+        "timers": [
+          {
+            "slot": 0,
+            "descriptor_index": 0,
+            "cursor_bits": 0,
+            "state": 1
+          },
+          {
+            "slot": 1,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          },
+          {
+            "slot": 2,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          }
+        ]
+      },
+      {
+        "sequence": 18097,
+        "site": "lookup_entry",
+        "phase": 2,
+        "frame": 2470,
+        "side": 0,
+        "weight": null,
+        "sample": null,
+        "timers": [
+          {
+            "slot": 0,
+            "descriptor_index": 0,
+            "cursor_bits": 0,
+            "state": 1
+          },
+          {
+            "slot": 1,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          },
+          {
+            "slot": 2,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          }
+        ]
+      },
+      {
+        "sequence": 18098,
+        "site": "weight_input",
+        "phase": 2,
+        "frame": 2470,
+        "side": 0,
+        "weight": 0.0,
+        "sample": null,
+        "timers": [
+          {
+            "slot": 0,
+            "descriptor_index": 0,
+            "cursor_bits": 0,
+            "state": 1
+          },
+          {
+            "slot": 1,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          },
+          {
+            "slot": 2,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          }
+        ]
+      },
+      {
+        "sequence": 18099,
+        "site": "controller_entry",
+        "phase": 2,
+        "frame": 2470,
+        "side": 1,
+        "weight": null,
+        "sample": null,
+        "timers": [
+          {
+            "slot": 0,
+            "descriptor_index": 26,
+            "cursor_bits": 0,
+            "state": 1
+          },
+          {
+            "slot": 1,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          },
+          {
+            "slot": 2,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          }
+        ]
+      },
+      {
+        "sequence": 18100,
+        "site": "lookup_entry",
+        "phase": 2,
+        "frame": 2470,
+        "side": 1,
+        "weight": null,
+        "sample": null,
+        "timers": [
+          {
+            "slot": 0,
+            "descriptor_index": 26,
+            "cursor_bits": 0,
+            "state": 1
+          },
+          {
+            "slot": 1,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          },
+          {
+            "slot": 2,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          }
+        ]
+      },
+      {
+        "sequence": 18101,
+        "site": "weight_input",
+        "phase": 2,
+        "frame": 2470,
+        "side": 1,
+        "weight": 0.0,
+        "sample": null,
+        "timers": [
+          {
+            "slot": 0,
+            "descriptor_index": 26,
+            "cursor_bits": 0,
+            "state": 1
+          },
+          {
+            "slot": 1,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          },
+          {
+            "slot": 2,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          }
+        ]
+      },
+      {
+        "sequence": 18102,
+        "site": "after_replay",
+        "phase": 2,
+        "frame": 2471,
+        "side": 0,
+        "weight": null,
+        "sample": null,
+        "timers": [
+          {
+            "slot": 0,
+            "descriptor_index": 0,
+            "cursor_bits": 0,
+            "state": 1
+          },
+          {
+            "slot": 1,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          },
+          {
+            "slot": 2,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          }
+        ]
+      },
+      {
+        "sequence": 18103,
+        "site": "after_replay",
+        "phase": 2,
+        "frame": 2471,
+        "side": 1,
+        "weight": null,
+        "sample": null,
+        "timers": [
+          {
+            "slot": 0,
+            "descriptor_index": 26,
+            "cursor_bits": 0,
+            "state": 1
+          },
+          {
+            "slot": 1,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          },
+          {
+            "slot": 2,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          }
+        ]
+      },
+      {
+        "sequence": 18104,
+        "site": "before_replay",
+        "phase": 2,
+        "frame": 2471,
+        "side": 0,
+        "weight": null,
+        "sample": null,
+        "timers": [
+          {
+            "slot": 0,
+            "descriptor_index": 0,
+            "cursor_bits": 0,
+            "state": 1
+          },
+          {
+            "slot": 1,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          },
+          {
+            "slot": 2,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          }
+        ]
+      },
+      {
+        "sequence": 18105,
+        "site": "before_replay",
+        "phase": 2,
+        "frame": 2471,
+        "side": 1,
+        "weight": null,
+        "sample": null,
+        "timers": [
+          {
+            "slot": 0,
+            "descriptor_index": 26,
+            "cursor_bits": 0,
+            "state": 1
+          },
+          {
+            "slot": 1,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          },
+          {
+            "slot": 2,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          }
+        ]
+      },
+      {
+        "sequence": 18106,
+        "site": "controller_entry",
+        "phase": 2,
+        "frame": 2471,
+        "side": 0,
+        "weight": null,
+        "sample": null,
+        "timers": [
+          {
+            "slot": 0,
+            "descriptor_index": 0,
+            "cursor_bits": 0,
+            "state": 1
+          },
+          {
+            "slot": 1,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          },
+          {
+            "slot": 2,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          }
+        ]
+      },
+      {
+        "sequence": 18107,
+        "site": "lookup_entry",
+        "phase": 2,
+        "frame": 2471,
+        "side": 0,
+        "weight": null,
+        "sample": null,
+        "timers": [
+          {
+            "slot": 0,
+            "descriptor_index": 0,
+            "cursor_bits": 0,
+            "state": 1
+          },
+          {
+            "slot": 1,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          },
+          {
+            "slot": 2,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          }
+        ]
+      },
+      {
+        "sequence": 18108,
+        "site": "weight_input",
+        "phase": 2,
+        "frame": 2471,
+        "side": 0,
+        "weight": 0.0,
+        "sample": null,
+        "timers": [
+          {
+            "slot": 0,
+            "descriptor_index": 0,
+            "cursor_bits": 0,
+            "state": 1
+          },
+          {
+            "slot": 1,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          },
+          {
+            "slot": 2,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          }
+        ]
+      },
+      {
+        "sequence": 18109,
+        "site": "controller_entry",
+        "phase": 2,
+        "frame": 2471,
+        "side": 1,
+        "weight": null,
+        "sample": null,
+        "timers": [
+          {
+            "slot": 0,
+            "descriptor_index": 26,
+            "cursor_bits": 0,
+            "state": 1
+          },
+          {
+            "slot": 1,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          },
+          {
+            "slot": 2,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          }
+        ]
+      },
+      {
+        "sequence": 18110,
+        "site": "lookup_entry",
+        "phase": 2,
+        "frame": 2471,
+        "side": 1,
+        "weight": null,
+        "sample": null,
+        "timers": [
+          {
+            "slot": 0,
+            "descriptor_index": 26,
+            "cursor_bits": 0,
+            "state": 1
+          },
+          {
+            "slot": 1,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          },
+          {
+            "slot": 2,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          }
+        ]
+      },
+      {
+        "sequence": 18111,
+        "site": "weight_input",
+        "phase": 2,
+        "frame": 2471,
+        "side": 1,
+        "weight": 0.0,
+        "sample": null,
+        "timers": [
+          {
+            "slot": 0,
+            "descriptor_index": 26,
+            "cursor_bits": 0,
+            "state": 1
+          },
+          {
+            "slot": 1,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          },
+          {
+            "slot": 2,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          }
+        ]
+      },
+      {
+        "sequence": 18112,
+        "site": "after_replay",
+        "phase": 2,
+        "frame": 2472,
+        "side": 0,
+        "weight": null,
+        "sample": null,
+        "timers": [
+          {
+            "slot": 0,
+            "descriptor_index": 0,
+            "cursor_bits": 0,
+            "state": 1
+          },
+          {
+            "slot": 1,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          },
+          {
+            "slot": 2,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          }
+        ]
+      },
+      {
+        "sequence": 18113,
+        "site": "after_replay",
+        "phase": 2,
+        "frame": 2472,
+        "side": 1,
+        "weight": null,
+        "sample": null,
+        "timers": [
+          {
+            "slot": 0,
+            "descriptor_index": 26,
+            "cursor_bits": 0,
+            "state": 1
+          },
+          {
+            "slot": 1,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          },
+          {
+            "slot": 2,
+            "descriptor_index": 0,
+            "cursor_bits": 1077936128,
+            "state": 0
+          }
+        ]
+      }
+    ]
+  }
+}

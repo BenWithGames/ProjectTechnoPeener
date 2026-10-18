@@ -104,6 +104,8 @@ struct NativeBoundarySnapshot {
             capture_stage=10;if(!q.rings[0].same(q.rings[1])){fault=true;__leave;}
             capture_stage=11;if(!q.capture_blend(base,0)){fault=true;__leave;}
             capture_stage=12;if(!q.cameras[0].capture(q.saved,base)){fault=true;__leave;}
+            q.selector_enabled=selector_lifetime::installed && mode==Mode::general_combat;
+            if(q.selector_enabled){capture_stage=16;if(!q.selectors[0].capture(q.before_players,q.selector_diagnostic)){fault=true;__leave;}}
             capture_stage=13;
             std::array<std::uint32_t,std::size(FullStateProbe::key_rvas)> keys{};uintptr_t players[2]{};
             FullStateProbe::keys(base,keys.data(),players);
@@ -193,13 +195,22 @@ struct NativeBoundarySnapshot {
         }
         if(!q.saved.prepare_reader_from(a.saved))return reject(Rejection::reader);
         q.fault=true; // Remains latched if any preparation guard rejects.
-        q.after_save=b.saved;q.measurements[0]=a.measurements[0];q.measurements[1]=a.measurements[1];
+        if(!q.after_save.copy_recorded_from(b.saved))return reject(Rejection::reader);q.measurements[0]=a.measurements[0];q.measurements[1]=a.measurements[1];
         q.measurements[2]=b.measurements[0];q.measurements[3]=b.measurements[1];
         q.before_keys=a.before_keys;q.after_keys=b.before_keys;
         std::memcpy(q.before_players,a.before_players,sizeof(q.before_players));std::memcpy(q.after_players,b.before_players,sizeof(q.after_players));
         q.rings[0]=a.rings[0];q.rings[1]=a.rings[0];q.rings[2]=b.rings[0];q.rings[3]=b.rings[0];
-        q.blends[0]=a.blends[0];q.blends[1]=b.blends[0];q.transforms[0]=a.transforms[0];q.transforms[1]=b.transforms[0];
+        q.blends[0]=a.blends[0];q.blends[1]=b.blends[0];
+        if(!q.transforms[0].copy_recorded_from(a.transforms[0]) ||
+           !q.transforms[1].copy_recorded_from(b.transforms[0]))return reject(Rejection::transforms);
         q.cameras[0]=a.cameras[0];q.cameras[1]=b.cameras[0];q.delayed_inputs=a.delayed_inputs;
+        if(a.selector_enabled!=b.selector_enabled)return reject(Rejection::sources);
+        q.selector_enabled=a.selector_enabled;
+        if(q.selector_enabled){
+            q.selectors[0]=a.selectors[0];q.selectors[1]=b.selectors[0];
+            if(!q.selectors[0].compatible(q.selectors[1],q.selector_diagnostic) ||
+               !q.selectors[0].dependencies(q.selector_diagnostic))return reject(Rejection::sources);
+        }
         q.general_combat_requested=general_pair;
         q.external_wind_lifecycle=a.external_wind_lifecycle;
         q.blend_timer_restore_requested=general_pair;

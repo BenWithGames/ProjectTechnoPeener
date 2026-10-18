@@ -1,0 +1,41 @@
+Multi-round replay: native fight-ready admission
+
+Problem: the round identity event is a preparation boundary, not authorization
+for combat replay. The latest second-round attempt captured frames1580-1583;
+the user saw the freeze before FIGHT. The camera post-load selector check failed
+(saved -1, loaded0). The existing zero-factor preflight fix did pass.
+
+Change: profile15 now samples the native mode at every owner-thread pre-update
+boundary and requires HgBattleModeNormal: global state pointer RVA4843ED0,
+vtable3E873D0, update handler384EE0. Existing pinned binary research identifies
+HgBattleModeStart at3E87378/384040; startup locks player processing and transitions
+after its configured duration. This is the same mode identity previously used
+by NativeNetworkCheckpointProbe::normal_battle, now applied to retained replay.
+No timer, guessed number of frames, input activity, or event2 is used as readiness.
+The inspected upstream event2 timing is supporting context only, not a gate.
+
+A read is valid only for its exact round, generation, frame and owner thread.
+Unknown, startup, end, win, intro, results, replay, unreadable and wrong-handler
+states do not capture. Waiting does not count as replay success. Partial windows
+are discarded without restoration if readiness disappears; effect bindings are
+finished. Cleanup failure still stops. Every new round must qualify again.
+Session/peer/slot/thread checks, consecutive-round checks, rematch cancellation,
+resource validation, camera/RNG/animation/wind checks and evidence remain active.
+This changes admission, not camera restoration acceptance. It is not evidence
+that all camera failures are fixed, nor continuous rollback.
+
+Reports append suite_fight_* state/wait/discard fields and each completed cycle's
+fight_ready_frame. Existing round-event CSVs and snapshot/replay archives remain.
+The profile15 signature changes so both PCs must install this build.
+
+Test normally after the existing warmup; complete at least three rounds.
+No idle requirement. Observe whether captures occur after FIGHT, and collect both
+reports. Local tests cover mode reads, unreadable data, stale identity/frame/thread,
+waiting across rounds, readiness loss, partial cleanup, three-round completion,
+rematch cancellation and cleanup failure. Live validation remains pending.
+
+Validation and delivery: full Build-Native.ps1 passed; Test-TestSuite.ps1 passed.
+Installed and hash-verified DLL 7545571C7A197253DDDC8205E0D79911A794D743708F9E7AB7448ADA69248826
+ZIP: C:\Users\Ben\Downloads\SC6Rollback-MultiRoundReplay-FightReady-Suite-20261016-195133.zip
+Local P1 launcher refreshed; friend config P2/Ben283215760, D: Steam path.
+No live capture armed.

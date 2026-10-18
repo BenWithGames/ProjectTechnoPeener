@@ -8,6 +8,7 @@
 #include "../src/OwnedInputPublication.hpp"
 #include <memory>
 #include <iostream>
+#include <thread>
 using namespace sc6::research;
 static uint32_t simulationCounter;
 static uint64_t value;
@@ -39,6 +40,74 @@ struct ClockFixture {
     void stop(){stopped=true;reserve.stop();}
 };
 int main(){
+    {
+        auto shared=std::make_unique<sc6::observation::Shared>();
+        shared->signature=sc6::observation::magic;shared->schema=sc6::observation::version;
+        shared->nonce=1;shared->frequency=10000000;shared->status=1;
+        OwnedInputPublication old,next,duplicate;
+        assert(old.bind(*shared,1,2,8,500));
+        CombatFrameInput input;input.envelope[0]=4;
+        assert(old.publish(1,2,500,input));
+        assert(!next.bind_after(old,*shared,1,3,9,0));
+        assert(old.retire());
+        assert(!next.bind_after(old,*shared,1,2,8,0));
+        assert(next.bind_after(old,*shared,1,3,9,0));
+        assert(!duplicate.bind_after(old,*shared,1,3,9,0));
+        assert(!old.publish(1,2,501,{}) && shared->status==1 && shared->count==1);
+        input.envelope[0]=8;assert(next.publish(1,3,0,input));
+        assert(shared->count==2 && shared->records[0].data[0]==500 && shared->records[0].data[1]==4);
+        assert(shared->rounds[0].number==2 && shared->rounds[0].event_counter==8);
+        assert(shared->records[1].data[0]==0 && shared->records[1].data[1]==8);
+        assert(shared->rounds[1].number==3 && shared->rounds[1].event_counter==9);
+    }
+    {
+        using Session=BoundedRollbackSession<CombatFrameInput,Backend::Snapshot>;
+        using Queue=SchedulerConfirmationQueue<Session,2>;
+        auto old_session=std::make_unique<Session>();assert(old_session->begin(1,2));
+        auto old=std::make_unique<Queue>(*old_session);assert(old->bind(1,9,2,8,1,500));
+        sc6::NetworkGameHandoff::Request input{1,9,1,500,2,8,{}};
+        assert(old->publish(input) && old->drain() && !old->retire());
+        Backend backend;simulationCounter=500;value=0;excess=false;
+        CombatUpdateAdapter adapter(backend,update,&simulationCounter,GetCurrentThreadId(),2,500);
+        assert(old_session->advance(adapter,{}));
+        assert(old_session->request_handoff(1,2) && old_session->settle_handoff(adapter));
+        std::atomic<bool> started{};
+        std::thread producer([&]{
+            started=true;
+            for(unsigned n=0;n<10000;++n){
+                const auto result=old->submit(input);
+                assert(result==sc6::SchedulerPublish::accepted || result==sc6::SchedulerPublish::full ||
+                    result==sc6::SchedulerPublish::retired);
+            }
+        });
+        while(!started.load())std::this_thread::yield();
+        for(unsigned attempt=0;attempt<10000 && !old->retired();++attempt){
+            old->retire();std::this_thread::yield();
+        }
+        producer.join();assert(old->retire() && old->retired());
+        auto next_session=std::make_unique<Session>();assert(next_session->begin(1,3));
+        auto next=std::make_unique<Queue>(*next_session);
+        assert(next->bind(1,9,3,9,1,0,old.get()));
+        sc6::SchedulerInputSink sink{next.get(),Queue::send};bool delivered=false;
+        assert(sc6::submit_scheduler_input(sink,input,delivered)==sc6::SchedulerPublish::retired && delivered);
+        assert(next->retired_packets()==1);
+        for(unsigned field=0;field<7;++field){
+            auto bad=input;
+            if(field==0)++bad.peer_nonce;if(field==1)++bad.local_nonce;if(field==2)++bad.boundary;
+            if(field==3)bad.round=99;if(field==4)++bad.frame;if(field==5)bad.slot=2;
+            if(field==6)bad.input[2]=1;
+            bool consumed=false;
+            assert(sc6::submit_scheduler_input(sink,bad,consumed)==sc6::SchedulerPublish::rejected && !consumed);
+        }
+        input.round=3;input.boundary=9;input.frame=0;
+        assert(next->publish(input) && next->drain());
+        // Native frame reset does not alias the previous round's inputs.
+        assert(next_session->head()==0 && old_session->head()==1);
+        auto reuse=std::make_unique<Queue>(*next_session);
+        assert(!reuse->bind(1,9,2,8,1,500,old.get()));
+        auto unsettled=std::make_unique<Queue>(*next_session);
+        assert(!unsettled->bind(1,9,4,10,1,0,next.get()));
+    }
     {
         using Session=BoundedRollbackSession<CombatFrameInput,Backend::Snapshot>;
         Session session;assert(session.begin(1,2));SchedulerConfirmationQueue<Session,2> queue(session);

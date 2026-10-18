@@ -20,6 +20,16 @@ public:
     bool bound()const{return bound_;}
     bool failed()const{return failed_;}
     bool ready()const{return bound_ && received_ && ack_ && !failed_;}
+    // The initial clock identity is an admission check. Profile 15 transfers
+    // round identity validation to RetainedObjectReplay after the agreed hold
+    // has released. Failed agreement and missed initial targets remain fatal.
+    unsigned runtime_rejection(unsigned profile,unsigned hold,bool repeated,bool continuous,
+        unsigned live_identity,unsigned startup_identity,unsigned live_frame)const{
+        const bool round_runner=(profile==15 || profile==16) && hold==3 && ready();
+        return (failed()?1u:0u) |
+            (!repeated && !round_runner && live_identity!=startup_identity?2u:0u) |
+            (!continuous && !repeated && hold==0 && live_frame>=target_clock()?4u:0u);
+    }
     unsigned target_clock()const{return local_[4];}
     unsigned target_battle()const{return local_[5];}
     Words outgoing()const{auto out=local_;out[7]=received_?1u:0u;return out;}

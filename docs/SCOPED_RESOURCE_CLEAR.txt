@@ -1,0 +1,33 @@
+Scoped resource clear handling
+
+Ghidra and the pinned executable establish that RVA899110 locks container+208,
+releases primary sparse-array entries at container+100 (32-byte entries,
+object+8/control+16) through1C14E80, clears secondary entries at+150 through
+716430, and unlocks. FF0C80/39B5E0 use allocation bits, not every array slot.
+
+The existing callback discarded container identity and cancelled any clear when
+references were held. The new replay callback retains container and caller.
+It attempts the same recursive critical section without blocking; inspection
+and the original clear stay within that lock. No unlocked list inspection or
+gap between classification and removal. Original is invoked exactly once and
+return/LastError are preserved; added lock exits through finally.
+
+Only validated unrelated primary resource entries can be ignored. Match owned
+objects/control blocks or overlapping retained payloads => cancellation7.
+Unknown type, malformed/bounded-out layout, unreadable memory, unavailable lock,
+wrong thread, or nonempty raw secondary allocation => cancellation7.
+The secondary allocator's indirect ownership is not established; do not skip it.
+Existing resource leases must be active with valid payloads before classifying.
+Relevant resources are NOT automatically reacquired by this change.
+
+Report fields suite_scoped_clear_* preserve counters and last decision context.
+Result:0 unknown,1 unrelated,2 related.
+Reason:0 none,1 context,2 layout,3 read_fault,4 unsupported_resource,
+5 secondary_entries,6 dependency_match.
+The first cancellation remains latched by the existing cancellation diagnostics.
+No broad ignore of round-end clears. Root replacement, snapshots, wind, timer,
+camera, RNG, fight readiness, round identity and unsafe replay stops unchanged.
+
+Both PCs must install this version. Normal warmup/lobby/three-round workflow.
+The last failure may still cancel if its container actually owns dependencies
+or cannot be classified; its identity and reason will now be recorded.

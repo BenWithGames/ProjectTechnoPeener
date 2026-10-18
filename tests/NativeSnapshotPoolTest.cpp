@@ -13,6 +13,80 @@ static void dispose_control(uintptr_t){++disposed_controls;}
 int main(){
     {
         using namespace sc6::research;
+        auto source=std::make_unique<FullStateProbe>();
+        auto target=std::make_unique<FullStateProbe>();
+        std::memset(target.get(),0xA5,sizeof(*target));
+        for(unsigned i=0;i<source->transforms.size();++i){
+            auto& t=source->transforms[i];t.count=i;t.valid=true;t.failure=i;
+            for(unsigned j=0;j<i;++j)std::memset(&t.records[j],0x30+i,sizeof(t.records[j]));
+        }
+        source->fault=true;source->saved.writes=17;
+        assert(target->copy_recorded_from(*source));
+        auto* a=reinterpret_cast<const std::byte*>(target.get());
+        auto* b=reinterpret_cast<const std::byte*>(source.get());size_t cursor=0;
+        for(unsigned i=0;i<source->transforms.size();++i){
+            const auto& t=source->transforms[i];
+            auto begin=size_t(reinterpret_cast<const std::byte*>(t.records.data())-b);
+            assert(!std::memcmp(a+cursor,b+cursor,begin-cursor));
+            assert(!std::memcmp(a+begin,b+begin,t.count*sizeof(TransformSnapshot::Record)));
+            assert(target->transforms[i].records.back().bytes.back()==std::byte{0xA5});
+            cursor=begin+sizeof(t.records);
+        }
+        assert(!std::memcmp(a+cursor,b+cursor,sizeof(*source)-cursor));
+        auto& transform=target->transforms[1];
+        transform.records.back().bytes.back()=std::byte{0x5A};
+        assert(transform.copy_recorded_from(source->transforms[2]));
+        assert(transform.count==2 && transform.valid && transform.failure==2);
+        assert(!std::memcmp(transform.records.data(),source->transforms[2].records.data(),2*sizeof(TransformSnapshot::Record)));
+        assert(transform.records.back().bytes.back()==std::byte{0x5A});
+        assert(transform.copy_recorded_from(transform));
+        source->transforms[2].count=unsigned(source->transforms[2].records.size()+1);
+        assert(!transform.copy_recorded_from(source->transforms[2]) && transform.count==2);
+        source->transforms[2].count=0;
+        assert(transform.copy_recorded_from(source->transforms[2]) && transform.count==0);
+        assert(target->copy_recorded_from(*target));
+        source->transforms[0].count=unsigned(source->transforms[0].records.size()+1);
+        target->saved.writes=99;
+        assert(!target->copy_recorded_from(*source) && target->saved.writes==99);
+        source->transforms[0].count=unsigned(source->transforms[0].records.size());
+        source->transforms[0].records.back().bytes.back()=std::byte{0x77};
+        assert(target->copy_recorded_from(*source));
+        assert(target->transforms[0].records.back().bytes.back()==std::byte{0x77});
+    }
+    {
+        using namespace sc6::research;
+        const auto& defaults=FullStateProbe::reset_defaults();
+        auto reused=std::make_unique<FullStateProbe>();
+        std::memset(reused.get(),0xA5,sizeof(*reused));
+        reused->reset_for_reuse();
+        auto* actual=reinterpret_cast<const std::byte*>(reused.get());
+        auto* expected=reinterpret_cast<const std::byte*>(&defaults);
+        size_t cursor=0;
+        for(unsigned i=0;i<reused->transforms.size();++i){
+            const auto begin=static_cast<size_t>(reinterpret_cast<const std::byte*>(defaults.transforms[i].records.data())-expected);
+            assert(std::memcmp(actual+cursor,expected+cursor,begin-cursor)==0);
+            auto& t=reused->transforms[i];
+            assert(!t.valid && t.count==0 && t.failure==0 && t.trapped_exception==0);
+            // Large unused buffers survive retirement but are never valid data.
+            assert(t.records.back().bytes.back()==std::byte{0xA5});
+            cursor=begin+sizeof(t.records);
+        }
+        assert(std::memcmp(actual+cursor,expected+cursor,sizeof(*reused)-cursor)==0);
+        std::array<std::byte,24> payload{};payload.fill(std::byte{0x37});
+        auto& t=reused->transforms[0];
+        assert(t.append(reinterpret_cast<uintptr_t>(payload.data()),1,9,0,0,24));
+        assert(t.count==1 && !t.valid && t.records[0].size==24);
+        for(unsigned i=0;i<512;++i)assert(t.records[0].bytes[i]==(i<24?std::byte{0x37}:std::byte{}));
+        // Repeated reset must also discard stream cursors and diagnostic state.
+        reused->saved.writes=17;reused->saved.sealed=true;reused->fault=true;
+        reused->reset_for_reuse();
+        assert(!reused->fault && !reused->saved.writes && !reused->saved.sealed);
+        assert(reused->saved.stream.slots==&FullRestoreStream::table);
+        assert(!t.count && !t.valid);
+    }
+
+    {
+        using namespace sc6::research;
         struct Control {uintptr_t table{};LONG strong{1},weak{1};} control;
         auto history=std::make_unique<NativeRollingHistory<>>();
         RollbackBoundaryKey key{1,2,3,4,5,100,1,GetCurrentThreadId()};
@@ -227,6 +301,20 @@ int main(){
         assert(capture->mode_values[0]==0x55AA && capture->mode_values[2]==0x1234 && capture->mode_values[5]==1);
         assert(!capture->data->saved.sealed && !capture->data->saved.writes && !capture->data->restore_invoked);
         assert(VirtualFree(image,0,MEM_RELEASE));
+    }
+    {
+        // Reproduce the second-cycle failure using the real pool: terminal
+        // release quarantines all four slots even if retire returns success.
+        sc6::research::NativeSnapshotPool<4> terminal_pool;
+        for(unsigned frame=1;frame<=4;++frame){auto h=terminal_pool.acquire(1,1,frame);assert(h);assert(terminal_pool.release_dependencies(*h));assert(terminal_pool.retire(*h));}
+        assert(!terminal_pool.acquire(1,1,5));
+        // Normal successful retirement must preserve reusable storage.
+        sc6::research::NativeSnapshotPool<4> reusable;
+        for(unsigned cycle=0;cycle<3;++cycle){
+            std::array<sc6::research::NativeSnapshotPool<4>::Handle,4> handles;
+            for(unsigned n=0;n<4;++n){auto h=reusable.acquire(1,1,cycle*4+n+1);assert(h);handles[n]=*h;}
+            for(const auto& h:handles)assert(reusable.retire(h));
+        }
     }
     std::cout<<"PASS: native snapshot in-place reuse, stale handle/identity/thread rejection, retention and poisoned slots\n";
 }

@@ -18,15 +18,21 @@ if (!$vs) { throw 'MSVC x64 tools not found.' }
 & (Join-Path $PSScriptRoot 'Test-DelayedInput.ps1')
 & (Join-Path $PSScriptRoot 'Test-OfflineRollback.ps1')
 & (Join-Path $PSScriptRoot 'Test-BoundedRollback.ps1')
+& (Join-Path $PSScriptRoot 'Test-OuterStackContinuation.ps1')
+& (Join-Path $PSScriptRoot 'Test-OuterStackContinuation.ps1') -Optimized
 & (Join-Path $PSScriptRoot 'Test-CombatUpdateAdapter.ps1')
 & (Join-Path $PSScriptRoot 'Test-NativeClockAccess.ps1')
+& (Join-Path $PSScriptRoot 'Test-NativePredictionFrontier.ps1')
+& (Join-Path $PSScriptRoot 'Test-NativeInputWords.ps1')
 & (Join-Path $PSScriptRoot 'Test-EffectLifetime.ps1')
+& (Join-Path $PSScriptRoot 'Test-MatchDataset.ps1')
 & (Join-Path $PSScriptRoot 'Test-EffectObserver.ps1')
 & (Join-Path $PSScriptRoot 'Test-NativeSnapshotPool.ps1')
 & (Join-Path $PSScriptRoot 'Test-NativeRestoreReuse.ps1')
 & (Join-Path $PSScriptRoot 'Test-NativeRollbackWindow.ps1')
 & (Join-Path $PSScriptRoot 'Test-NativeSnapshotReader.ps1')
 & (Join-Path $PSScriptRoot 'Test-Recorder.ps1')
+& (Join-Path $PSScriptRoot 'Test-Recorder.ps1') -Optimized
 & (Join-Path $PSScriptRoot 'Test-SaveStream.ps1')
 & (Join-Path $PSScriptRoot 'Test-SharedRestore.ps1')
 & (Join-Path $PSScriptRoot 'Test-FullRestore.ps1')
@@ -37,6 +43,18 @@ if (!$vs) { throw 'MSVC x64 tools not found.' }
 & (Join-Path $PSScriptRoot 'Test-SteamPing.ps1')
 & (Join-Path $PSScriptRoot 'Test-SingleUpdateCall.ps1')
 & (Join-Path $PSScriptRoot 'Test-RngCallerBridge.ps1')
+& (Join-Path $PSScriptRoot 'Test-CameraCalc.ps1')
+& (Join-Path $PSScriptRoot 'Test-SelectorSnapshot.ps1')
+& (Join-Path $PSScriptRoot 'Test-ActiveAnimationGroup.ps1')
+& (Join-Path $PSScriptRoot 'Test-RestorePerformance.ps1')
+& (Join-Path $PSScriptRoot 'Test-EffectClock.ps1')
+& (Join-Path $PSScriptRoot 'Test-EffectBirthJournal.ps1')
+& (Join-Path $PSScriptRoot 'Test-CaptureStorage.ps1')
+& (Join-Path $PSScriptRoot 'Test-SharedRngBridge.ps1')
+& (Join-Path $PSScriptRoot 'Test-InlineRng.ps1')
+& (Join-Path $PSScriptRoot 'Test-TimerLookup.ps1')
+& (Join-Path $PSScriptRoot 'Test-ScopedResourceClear.ps1')
+& (Join-Path $PSScriptRoot 'Test-AnimationCopy.ps1')
 & (Join-Path $PSScriptRoot 'Test-LiveShadowPrediction.ps1')
 & (Join-Path $PSScriptRoot 'Test-NetworkInputComposer.ps1')
 & (Join-Path $PSScriptRoot 'Test-LiveInputComposition.ps1')
@@ -53,7 +71,7 @@ foreach ($dependency in @('imgui','textedit')) {
     if (!$folder) { throw "Missing downloaded dependency: $dependency" }
     $includes += $folder.FullName
 }
-$options = @('/nologo','/std:c++latest','/EHsc','/MD','/c','/DUNICODE','/D_UNICODE','/DUE_GAME','/DUE_BUILD_SHIPPING','/DPLATFORM_WINDOWS','/DPLATFORM_MICROSOFT','/DOVERRIDE_PLATFORM_HEADER_NAME=Windows','/DUBT_COMPILED_PLATFORM=Win64')
+$options = @('/O2','/Ob1','/fp:precise','/nologo','/std:c++latest','/EHsc','/MD','/c','/DUNICODE','/D_UNICODE','/DUE_GAME','/DUE_BUILD_SHIPPING','/DPLATFORM_WINDOWS','/DPLATFORM_MICROSOFT','/DOVERRIDE_PLATFORM_HEADER_NAME=Windows','/DUBT_COMPILED_PLATFORM=Win64')
 $options += $includes | ForEach-Object { '/I"' + $_ + '"' }
 $options += '"' + (Join-Path $project 'src\Mod.cpp') + '"'
 $options += '/Fo:"' + (Join-Path $build 'Mod.obj') + '"'
@@ -66,7 +84,7 @@ function Invoke-DeveloperCommands([string[]]$Commands) {
     & $batch
     if ($LASTEXITCODE -ne 0) { throw 'Native build failed.' }
 }
-Invoke-DeveloperCommands @("cl @`"$build\mod.rsp`"", "cl /nologo /std:c++20 /EHsc /MD /W4 /WX /I`"$project\third_party\minhook\include`" /c `"$project\src\FrameRecorder.cpp`" /Fo:`"$build\FrameRecorder.obj`"", "cl /nologo /std:c++20 /EHsc /MD /W4 /WX /c `"$project\src\StatusOverlay.cpp`" /Fo:`"$build\StatusOverlay.obj`"", "dumpbin /exports `"$runtime`" > `"$build\exports.txt`"")
+Invoke-DeveloperCommands @("cl @`"$build\mod.rsp`"", "cl /nologo /O2 /Ob1 /fp:precise /std:c++20 /EHsc /MD /W4 /WX /I`"$project\third_party\minhook\include`" /c `"$project\src\FrameRecorder.cpp`" /Fo:`"$build\FrameRecorder.obj`"", "cl /nologo /O2 /Ob1 /fp:precise /std:c++20 /EHsc /MD /W4 /WX /c `"$project\src\StatusOverlay.cpp`" /Fo:`"$build\StatusOverlay.obj`"", "dumpbin /exports `"$runtime`" > `"$build\exports.txt`"")
 $exports = Get-Content "$build\exports.txt" | ForEach-Object {
     if ($_ -match '^\s+\d+\s+[0-9A-F]+\s+[0-9A-F]+\s+(\S+)') { $Matches[1] }
 }
@@ -74,8 +92,10 @@ if (!$exports) { throw 'No runtime exports found.' }
 @('LIBRARY UE4SS.dll','EXPORTS') + $exports | Set-Content "$build\UE4SS.def" -Encoding ascii
 Invoke-DeveloperCommands @(
     "lib /nologo /def:`"$build\UE4SS.def`" /out:`"$build\UE4SS.lib`" /machine:x64",
-    "link /nologo /dll /out:`"$dllDir\main.dll`" /implib:`"$build\main.lib`" `"$build\Mod.obj`" `"$build\FrameRecorder.obj`" `"$build\StatusOverlay.obj`" `"$project\build-rng-bridge\RngCallerBridge.obj`" `"$project\build-recorder\RecorderHook.lib`" `"$build\UE4SS.lib`" bcrypt.lib user32.lib gdi32.lib gdiplus.lib",
+    "link /nologo /dll /out:`"$dllDir\main.dll`" /implib:`"$build\main.lib`" `"$build\Mod.obj`" `"$build\FrameRecorder.obj`" `"$build\StatusOverlay.obj`" `"$project\build-rng-bridge\RngCallerBridge.obj`" `"$project\build-shared-rng\SharedRngBridge.obj`" `"$project\build-camera-calc\CameraCalcBridge.obj`" `"$project\build-animation-copy\AnimationCopyBridge.obj`" `"$project\build-inline-rng\InlineRngBridge.obj`" `"$project\build-timer-lookup\TimerLookupBridge.obj`" `"$project\build-recorder\RecorderHook.lib`" `"$build\UE4SS.lib`" bcrypt.lib user32.lib gdi32.lib gdiplus.lib",
     "dumpbin /exports `"$dllDir\main.dll`""
 )
 Write-Host 'DLL staged locally. This does not install or launch the game.'
+
+
 

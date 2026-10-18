@@ -1,0 +1,43 @@
+Timer lookup diagnostic schema 1
+Read-only addition to the multi-round suite. Original-input replay, restoration,
+ownership, comparison, round-safety and fight-readiness rules remain intact.
+Warm up, return to lobby, run both suites, play normally through three rounds.
+This instrumentation does not fix blend divergence.
+
+Eight pinned, signature-checked hooks:
+0 349840 activation entry (player RCX, category EDX, descriptor R8D, rate XMM3)
+1 3498EB accepted activation before rate/cursor/descriptor/state writes
+2 3499D0 lookup entry
+3 349A59 active slot selected and identity accepted
+4 349AD9 actual sample before division by 65535
+5 349B4B lookup completion on active path
+6 2F943E lookup returned to blend writer
+7 2F90D0 blend controller entry
+Additional sites 8/9 sample both players immediately before/after replay.
+
+Context: sequence/QPC/thread/phase/frame, side/character/RNG, 16 GPRs, XMM0-5,
+MXCSR, three complete 128-byte timer slots, 96-byte controller, 120 animation
+control bytes and 8 player bookkeeping bytes, bounded 84-byte descriptor,
+exact 16-byte lookup sample and output category/weight. Pointers are raw
+observations, not restoration authorization or proof of resource ownership.
+Validity bits: 1 FX, 2 player, 4 state, 8 caller, 16 descriptor, 32 sample,
+64 output; high bit means guarded read exception. Missing is not zero evidence.
+4096 bounded events; contention drops and overwrites are explicitly reported.
+Callbacks allocate nothing, guard reads with SEH and preserve GetLastError.
+
+Bridges preserve GPRs, flags and FXSAVE state at both native stack alignments.
+Local tests cover deliberately clobbering callbacks, MinHook construction at
+all eight pinned sites, addressing, invalid reads, wrap/drop and decoding.
+Live-game behavior still needs validation.
+
+Traces are embedded in per-cycle/failure evidence and saved separately as
+steam-inputs-PID-timer-lookup.bin on terminal release. The report collector
+already includes them. analyze_replay_evidence.py decodes timer.lookup with
+all prior evidence. Compare natural phase0 with reference phase2 by side,
+frame and site. Before/after replay events disambiguate stale preparation
+frame labels in the old diagnostic fields.
+
+Questions answered: different activation descriptor, different cursor/sample,
+changed resource bytes, or different output despite equal inputs? Related
+controller/register/timing context is included. This cannot guarantee that
+all future failures will be explained by a single capture.

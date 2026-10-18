@@ -1,0 +1,155 @@
+[
+  {
+    "file": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\Mods\\SC6Rollback\\captures\\steam-inputs-76196-retained-evidence.bin",
+    "type": "0x3e88ce8",
+    "size": 480,
+    "changed": [
+      9,
+      10,
+      11,
+      12,
+      13,
+      34,
+      35,
+      36,
+      37,
+      38,
+      39,
+      52,
+      53,
+      54,
+      55,
+      56,
+      57,
+      58,
+      59,
+      60,
+      61,
+      244,
+      245,
+      284,
+      286,
+      287,
+      312,
+      313,
+      314,
+      315,
+      316,
+      317,
+      318,
+      319,
+      320,
+      321,
+      322,
+      323,
+      324,
+      332
+    ],
+    "words": [
+      {
+        "offset": "0x134",
+        "expected": "0801243d",
+        "actual": "0801243d",
+        "expected_float": 0.040040045976638794,
+        "actual_float": 0.040040045976638794
+      },
+      {
+        "offset": "0x138",
+        "expected": "2afb12c4",
+        "actual": "0801243d",
+        "expected_float": -587.9244384765625,
+        "actual_float": 0.040040045976638794
+      },
+      {
+        "offset": "0x13c",
+        "expected": "2afb12c4",
+        "actual": "0801243d",
+        "expected_float": -587.9244384765625,
+        "actual_float": 0.040040045976638794
+      },
+      {
+        "offset": "0x140",
+        "expected": "b2f0deba",
+        "actual": "cbccc741",
+        "expected_float": -0.001700898865237832,
+        "actual_float": 24.97499656677246
+      }
+    ]
+  },
+  {
+    "file": "work\\report-36908\\retained-evidence.bin",
+    "type": "0x3e88ce8",
+    "size": 480,
+    "changed": [
+      9,
+      34,
+      35,
+      36,
+      37,
+      39,
+      52,
+      53,
+      55,
+      56,
+      57,
+      58,
+      244,
+      245,
+      246,
+      247,
+      284,
+      285,
+      286,
+      287,
+      312,
+      313,
+      314,
+      315,
+      316,
+      317,
+      318,
+      319,
+      320,
+      322,
+      323,
+      324,
+      325,
+      326,
+      327,
+      332,
+      333,
+      334,
+      335
+    ],
+    "words": [
+      {
+        "offset": "0x134",
+        "expected": "0801243d",
+        "actual": "0801243d",
+        "expected_float": 0.040040045976638794,
+        "actual_float": 0.040040045976638794
+      },
+      {
+        "offset": "0x138",
+        "expected": "0801243d",
+        "actual": "19c19941",
+        "expected_float": 0.040040045976638794,
+        "actual_float": 19.21928596496582
+      },
+      {
+        "offset": "0x13c",
+        "expected": "0801243d",
+        "actual": "0000a040",
+        "expected_float": 0.040040045976638794,
+        "actual_float": 5.0
+      },
+      {
+        "offset": "0x140",
+        "expected": "cbccc741",
+        "actual": "cdcc4c3e",
+        "expected_float": 24.97499656677246,
+        "actual_float": 0.20000000298023224
+      }
+    ]
+  }
+]

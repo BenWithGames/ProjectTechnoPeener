@@ -1,0 +1,18 @@
+[
+  {
+    "report": "Ben66428",
+    "vtable_rva": "0x3e87eb0",
+    "saved": 1,
+    "next": 1,
+    "loaded": 0,
+    "target_exact_after_existing_vector_and_new_selector_repairs": true
+  },
+  {
+    "report": "Partner46296",
+    "vtable_rva": "0x3e87eb0",
+    "saved": 1,
+    "next": 1,
+    "loaded": 0,
+    "target_exact_after_existing_vector_and_new_selector_repairs": true
+  }
+]

@@ -8,6 +8,7 @@ class OwnedInputPublication {
     observation::Shared* shared_{};
     uint64_t session_{},round_{};unsigned event_{},owner_{},next_{};
     bool failed_{};
+    bool retired_{},transferred_{};LONG retired_count_{};
 public:
     bool complete()const{return shared_ && shared_->status==2;}
     bool bind(observation::Shared& shared,uint64_t session,unsigned round,unsigned event,unsigned first){
@@ -15,8 +16,26 @@ public:
             shared.schema!=observation::version || shared.status!=1 || shared.count!=0 || !shared.frequency)return false;
         shared_=&shared;session_=session;round_=round;event_=event;owner_=GetCurrentThreadId();next_=first;return true;
     }
+    bool retire(){
+        if(!shared_ || failed_ || GetCurrentThreadId()!=owner_ || shared_->nonce!=session_ || shared_->status!=1)return false;
+        if(retired_)return shared_->count==retired_count_;
+        const auto count=shared_->count;
+        const auto limit=shared_->reserved?observation::capacity:observation::limit;
+        if(count<0 || static_cast<unsigned>(count)>=limit)return false;
+        retired_count_=count;retired_=true;return true;
+    }
+    // Transfer the sole producer role without erasing records already visible
+    // to the network worker. The previous producer must never publish again.
+    bool bind_after(OwnedInputPublication& previous,observation::Shared& shared,uint64_t session,unsigned round,unsigned event,unsigned first){
+        if(shared_ || !previous.retired_ || previous.transferred_ || previous.failed_ || previous.shared_!=&shared ||
+            !round || first==UINT32_MAX || session!=previous.session_ || GetCurrentThreadId()!=previous.owner_ ||
+            (round==previous.round_ && event==previous.event_))return false;
+        if(shared.nonce!=session || shared.status!=1 || shared.count!=previous.retired_count_)return false;
+        previous.transferred_=true;
+        shared_=&shared;session_=session;round_=round;event_=event;owner_=GetCurrentThreadId();next_=first;return true;
+    }
     bool publish(uint64_t session,uint64_t round,unsigned frame,const CombatFrameInput& input){
-        if(!shared_ || failed_)return false;
+        if(!shared_ || failed_ || retired_)return false;
         const auto count=shared_->count;
         const auto limit=shared_->reserved?observation::capacity:observation::limit;
         if(GetCurrentThreadId()!=owner_ || session!=session_ || round!=round_ || frame!=next_ || frame==UINT32_MAX ||

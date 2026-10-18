@@ -1,0 +1,7 @@
+PredictionFrontier development build
+
+Includes the RestoreOptimized changes and read-only native input-frontier telemetry in the existing FullMatchReplay suite. NativeInputWords contains the Ghidra-audited held/pressed conversion model with local regression coverage.
+
+This is NOT the latency-reducing prediction milestone. Native waiting remains enabled. It still performs bounded verified replay of recorded inputs, using the existing first-lobby/no-warmup workflow and round safety checks. Reports explicitly state prediction_wait_bypass_enabled=0.
+
+Remaining integration: independent predicted input publication with correct frame mapping, rolling effect ownership and correction handling, and verified round reset. Do not interpret a passing run as proof of predictive run-ahead.

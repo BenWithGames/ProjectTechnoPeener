@@ -124,6 +124,7 @@ struct ConfigurationAccessFixture {
     static bool counter(uintptr_t,unsigned& out){out=battle;return true;}
 };
 struct PreparationResourcesFixture {
+    ReplayDependencySource source(){assert(false && "guard must reject before resource access");return {};}
     std::atomic<unsigned> deferred_callbacks{},last_deferred_thread{};
     inline static bool available{},cancel{};
     inline static unsigned releases{};
@@ -133,6 +134,14 @@ struct PreparationResourcesFixture {
     bool cancelled()const{return cancel;}
     const OwnershipCancellation& cancellation()const{return reason;}
     bool stop(){++releases;return true;}
+};
+struct MatchEndResourcesFixture : PreparationResourcesFixture {
+    inline static MatchEndObservation observation{};
+    inline static OwnershipCancellation end_cancellation;
+    const OwnershipCancellation& cancellation()const{return end_cancellation;}
+    inline static bool stop_ok=true;
+    MatchEndObservation match_end_observation()const{return observation;}
+    bool stop(){++releases;return stop_ok;}
 };
 struct ColdPreparationFixture : PreparationResourcesFixture {
     inline static bool confirmed{},confirm_ok{};
@@ -149,6 +158,35 @@ struct ReferenceWindowFixture {
     bool any_restore_invoked()const{return mutated;}
     bool rewind_started()const{return mutated;}
     bool release_owned_dependencies(){return true;}
+};
+struct RetainedReplayFixture {
+    inline static std::function<void()> on_capture,on_release;
+    void capture_failure_evidence(ReplayFailureEvidence& e){if(on_capture)on_capture();e.state.store(1,std::memory_order_release);}
+    inline static bool archive_ok=true;
+    bool capture_owned_recording(std::array<std::unique_ptr<ReplayFailureEvidence>,4>& out){
+        if(!archive_ok)return false;
+        for(auto& e:out){e=std::make_unique<ReplayFailureEvidence>();e->state=1;}return true;
+    }
+    enum class Stage {clean_rewind,reference_replay};Stage stage{};
+    struct Window {
+        inline static int removal=0;
+        inline static bool rewind_ok=true,replay_ok=true,release_ok=true;
+        inline static unsigned rewinds{},replays{},discards{},revivals{},round_finishes{};
+        inline static bool finish_ok=true;
+        bool finish_effect_round(){++round_finishes;return finish_ok;}
+        bool defer_derived{};
+        bool mutated{},quarantined{};
+        bool capture(const RollbackBoundaryKey&,uintptr_t,uintptr_t,NativeBoundarySnapshot::Mode m,bool,ReplayDependencySource*){assert(m==NativeBoundarySnapshot::Mode::general_combat);return !quarantined;}
+        int retained_removal(){return removal;}
+        uint64_t retained_revivals(){return revivals;}
+        bool discard_unmodified(){assert(!mutated);++discards;return true;}
+        bool rewind(const RollbackBoundaryKey&){assert(defer_derived);mutated=true;++rewinds;if(rewind_ok && removal)++revivals;return rewind_ok;}
+        bool replay_reference(SingleUpdateCall::Routine){++replays;return replay_ok;}
+        bool recycle(){mutated=false;return true;}
+        bool any_restore_invoked(){return mutated;}
+        bool rewind_started(){return mutated;}
+        bool release_owned_dependencies(){quarantined=true;if(RetainedReplayFixture::on_release)RetainedReplayFixture::on_release();return release_ok;}
+    } clean;
 };
 struct CorrectionExchangeFixture {
     std::atomic<bool> failed{};
@@ -256,6 +294,58 @@ struct HoldRehearsalFixture {
     bool run(uintptr_t,uint64_t){return service_ok;}
 };
 int main(){
+    {
+        struct Control {uintptr_t table{};LONG strong{1},weak{1};} control;
+        GeneratedSnapshotDependency prior,next,foreign;
+        assert(!next.retain_from(prior));
+        assert(prior.acquire(1,2,reinterpret_cast<uintptr_t>(&control),40,[](uintptr_t){},[](uintptr_t){}));
+        assert(!prior.retain_from(prior));
+        std::thread other([&]{assert(!foreign.retain_from(prior));});other.join();
+        assert(control.strong==2 && next.retain_from(prior) && control.strong==3);
+        assert(!next.retain_from(prior));
+        assert(prior.reset() && control.strong==2 && next.active());
+        assert(next.reset() && control.strong==1);
+        ReplayOwnedResources unstarted,successor;
+        assert(!successor.start_successor(unstarted));
+        NativeEffectSession effect;assert(effect.retired_on_owner());
+        std::thread foreign_effect([&]{assert(!effect.retired_on_owner());});foreign_effect.join();
+        effect.captures=1;assert(!effect.retired_on_owner());
+        effect.retirements=1;assert(effect.retired_on_owner());
+        effect.failure=2;assert(!effect.retired_on_owner());
+    }
+    {
+        CombatRuntimeStatus old,current;unsigned drained=0;
+        old.session=current.session=42;old.round_event=7;current.round_event=8;current.previous=&old;
+        old.context=&drained;old.drain=[](void* p,std::ostream& events,std::ostream& summary){
+            ++*static_cast<unsigned*>(p);events<<"old-event\n";summary<<"late_packets=3\n";
+        };
+        std::ostringstream events,summary;current.write_history(events,summary);
+        assert(drained==1 && events.str()=="old-event\n");
+        assert(summary.str().find("retired_event_7_late_packets=3")!=std::string::npos);
+        assert(summary.str().find("continuous_diagnostic_chain_invalid=0")!=std::string::npos);
+        // Repeated drains retain late-arriving evidence and do not mutate the chain.
+        current.write_history(events,summary);assert(drained==2 && current.previous==&old);
+        old.previous=&current;std::ostringstream invalid;
+        current.write_history(events,invalid);
+        assert(invalid.str().find("continuous_diagnostic_chain_invalid=1")!=std::string::npos);
+        old.previous=nullptr;old.session=43;std::ostringstream foreign;
+        current.write_history(events,foreign);
+        assert(foreign.str().find("continuous_diagnostic_generations=1")!=std::string::npos);
+        assert(foreign.str().find("old-event")==std::string::npos);
+    }
+    { // Timing preserves return values and records failed/throwing work without retrying it.
+        ReplayTiming timing;auto& sample=timing.rows[0][ReplayTiming::capture];
+        sample.add(10);sample.add(30);sample.add(20);
+        assert(sample.count==3 && sample.ticks==60 && sample.maximum==30);
+        unsigned called=0;
+        assert(!timing.measure(0,ReplayTiming::restore,[&]{++called;return false;}));
+        assert(called==1 && timing.rows[0][ReplayTiming::restore].count==1);
+        bool threw=false;try{timing.measure(1,ReplayTiming::replay,[&]()->void{throw 7;});}catch(int){threw=true;}
+        assert(threw && timing.rows[1][ReplayTiming::replay].count==1);
+        timing.measure(99,ReplayTiming::release,[]{});
+        assert(timing.rows[3][ReplayTiming::release].count==1 && ReplayTiming::frequency()>0);
+    }
+
     {
         std::array<RollbackBoundaryKey,4> keys;
         for(unsigned i=0;i<4;++i)keys[i]={1,2,3,4,5,100+i,1,GetCurrentThreadId()};
@@ -432,10 +522,30 @@ int main(){
         assert(diagnosis[301]==4 && diagnosis[302]==19 && diagnosis[305]==0x100000001ULL);
         ReplayFailureEvidence evidence;evidence.capture(*detail.probe);
         assert(evidence.state==1 && evidence.bytes.size()>RingSnapshot::byte_count*2);
+        assert(evidence.bytes.capacity()>=ReplayFailureEvidence::limit && evidence.bytes.size()<=ReplayFailureEvidence::limit);
+        ReplayFailureEvidence deferred;
+        auto scratch=std::make_shared<ReplayFailureEvidence::TraceScratch>();
+        deferred.prepare_deferred(scratch);deferred.capture(*detail.probe);
+        assert(deferred.state==1 && deferred.bytes.empty() && deferred.logical_size==evidence.bytes.size());
+        // Source/scratch reuse cannot change a published worker-owned artifact.
+        const auto old_rng=detail.probe->original_next.rng;detail.probe->original_next.rng^=123;
+        scratch->rng.schema=999;
+        auto path=std::filesystem::temp_directory_path()/"sc6-deferred-evidence-fixture.bin";
+        bool worker_ok=false;std::thread worker([&]{worker_ok=deferred.write(path);});worker.join();assert(worker_ok);
+        std::ifstream input(path,std::ios::binary);std::vector<char> emitted_bytes((std::istreambuf_iterator<char>(input)),{});input.close();
+        assert(emitted_bytes.size()==evidence.bytes.size() && !std::memcmp(emitted_bytes.data(),evidence.bytes.data(),emitted_bytes.size()));
+        std::filesystem::remove(path);detail.probe->original_next.rng=old_rng;
+        const auto arena_address=deferred.arena.get();
+        deferred.reset_after_write();assert(deferred.state==0 && deferred.used==0 && deferred.section_count==0);
+        deferred.capture(*detail.probe);assert(deferred.state==1 && deferred.arena.get()==arena_address);
+        assert(deferred.write(path));std::filesystem::remove(path);
+        ReplayFailureEvidence overflow;overflow.prepare_deferred(scratch);bool overflow_rejected=false;
+        try{overflow.section(std::string(96,'x'),nullptr,0);}catch(...){overflow_rejected=true;}
+        assert(overflow_rejected && overflow.section_count==0 && overflow.used==0);
         const auto evidence_size=evidence.bytes.size();evidence.capture(*detail.probe);assert(evidence.bytes.size()==evidence_size);
         ReplayFailureEvidence bounded;bool rejected=false;try{bounded.append(nullptr,ReplayFailureEvidence::limit+1);}catch(...){rejected=true;}assert(rejected);
         assert(diagnosis[313]==101 && diagnosis[315]==10 && diagnosis[316]==72 && diagnosis[318]==22);
-        assert(diagnosis.size()==327 && diagnosis[0]==0 && diagnosis[91]==31);
+        assert(diagnosis.size()==350 && diagnosis[0]==0 && diagnosis[91]==31);
         const std::array<uint64_t,15> expectedDetail={4,17,16,100,200,300,321,2,9,24,12,42,1,43,7};
         for(unsigned i=0;i<expectedDetail.size();++i)assert(diagnosis[23+i]==expectedDetail[i]);
         const std::array<uint64_t,7> expectedCamera={9,7,3,104,1,0,1065353216};
@@ -468,7 +578,7 @@ int main(){
     {
         StartupSuite combatSuite;assert(combatSuite.configure(9,60) && combatSuite.mask()==255);
         StartupSuite attackSuite;assert(attackSuite.configure(8,60) && attackSuite.mask()==255);
-        StartupSuite a,b;assert(!a.configure(11,60) && !a.configure(3,181));
+        StartupSuite a,b;assert(!a.configure(17,60) && !a.configure(3,181));
         assert(a.configure(3,1) && b.configure(3,1));
         a.observe(100,1,1);a.observe(200,2,2);a.observe(300,1,3);
         assert(a.round_changes==2 && a.rematches==1 && !a.elapsed(1099) && a.elapsed(1100));
@@ -492,6 +602,298 @@ int main(){
         StartupHistoryFixture::capture_ok=true;
     }
     {
+        TargetedRetentionCapture<StartupHistoryFixture> retention;ReplayDependencySource src;
+        RollbackBoundaryKey key{1,2,3,1,1,600,1,GetCurrentThreadId()};
+        const auto initial_releases=StartupHistoryFixture::releases;
+        for(unsigned i=0;i<1200;++i){
+            key.frame=600+i;retention.step(key,1,2,src);
+            assert(retention.captured==i+1);
+            assert(retention.windows==(i+1)/4);
+            assert(StartupHistoryFixture::releases==initial_releases+(i+1)/4);
+            assert(bool(retention.retired)==(i==1199));
+        }
+        assert(retention.retired && !retention.failed && retention.windows==300 && retention.captured==1200);
+        const auto calls=StartupHistoryFixture::calls;
+        key.round=2;retention.step(key,0,0,src);assert(StartupHistoryFixture::calls==calls);
+        TargetedRetentionCapture<StartupHistoryFixture> transition;
+        key.round=1;transition.step(key,1,2,src);key.round=2;transition.step(key,0,0,src);
+        assert(transition.round_cancelled && transition.retired && !transition.failed && transition.captured==1);
+        TargetedRetentionCapture<StartupHistoryFixture> rejected;StartupHistoryFixture::capture_ok=false;
+        rejected.step(key,1,2,src);assert(rejected.failed && rejected.retired);
+        StartupHistoryFixture::capture_ok=true;
+        StartupSuite retention_suite;assert(retention_suite.configure(11,30) && retention_suite.mask()==127);
+        assert(retention_suite.seal(63,0,64));
+        using F=RetainedReplayFixture::Window;
+        ReplayDependencySource replay_source;
+        RollbackBoundaryKey rk{1,2,3,1,1,700,1,GetCurrentThreadId()};
+        RetainedObjectReplay<RetainedReplayFixture> no_removal;
+        for(unsigned i=0;i<128;++i){rk.frame=700+i;no_removal.step(rk,1,2,replay_source,nullptr);}
+        assert(no_removal.retired && !no_removal.failed && no_removal.no_event==32 && !no_removal.verified);
+        assert(F::discards==32 && F::rewinds==0 && F::replays==0);
+        RetainedObjectReplay<RetainedReplayFixture> success;F::removal=1;
+        for(unsigned i=0;i<12;++i){rk.frame=700+i;success.step(rk,1,2,replay_source,nullptr);if(i<11)assert(!success.verified && !success.terminal());}
+        assert(success.verified && success.revived==3 && success.completed_cycles==3 && success.restored && success.retired && !success.restart);
+        const auto replay_count=F::replays;rk.round=2;success.step(rk,0,0,replay_source,nullptr);assert(F::replays==replay_count);
+        RetainedObjectReplay<RetainedReplayFixture> boundary;rk.round=1;boundary.step(rk,1,2,replay_source,nullptr);
+        rk.round=2;boundary.step(rk,0,0,replay_source,nullptr);assert(boundary.round_cancelled && boundary.retired && !boundary.restored);
+        RetainedObjectReplay<RetainedReplayFixture> replay_failure;F::replay_ok=false;
+        unsigned publication_order=0;
+        RetainedReplayFixture::on_capture=[&]{assert(!replay_failure.terminal() && !replay_failure.failed && replay_failure.restart);publication_order=1;};
+        RetainedReplayFixture::on_release=[&]{assert(publication_order==1 && !replay_failure.terminal() && replay_failure.evidence.state.load()==1);publication_order=2;};
+        for(unsigned i=0;i<4;++i){rk.frame=700+i;replay_failure.step(rk,1,2,replay_source,nullptr);}
+        assert(replay_failure.failed && replay_failure.restart && replay_failure.retired && !replay_failure.verified);
+        assert(publication_order==2 && replay_failure.terminal() && replay_failure.animation_ready && replay_failure.evidence.state.load()==1);
+        RetainedReplayFixture::on_capture={};RetainedReplayFixture::on_release={};
+        F::replay_ok=true;F::release_ok=false;
+        RetainedObjectReplay<RetainedReplayFixture> cleanup_failure;
+        for(unsigned i=0;i<12;++i){rk.frame=700+i;cleanup_failure.step(rk,1,2,replay_source,nullptr);}
+        assert(cleanup_failure.failed && cleanup_failure.restart && !cleanup_failure.retired && !cleanup_failure.verified && cleanup_failure.terminal());
+        F::release_ok=true;assert(cleanup_failure.release());
+        RetainedObjectReplay<RetainedReplayFixture> evidence_failure;
+        RetainedReplayFixture::on_capture=[] {throw 1;};
+        evidence_failure.stop(6);
+        assert(evidence_failure.terminal() && evidence_failure.failed && evidence_failure.retired && evidence_failure.evidence.state.load()==2);
+        RetainedReplayFixture::on_capture={};
+
+        // A verified first cycle must not hide a later failure or round change.
+        RetainedObjectReplay<RetainedReplayFixture> later_failure;F::removal=1;
+        for(unsigned i=0;i<4;++i){rk.frame=800+i;later_failure.step(rk,1,2,replay_source,nullptr);}
+        assert(later_failure.completed_cycles==1 && !later_failure.terminal() && later_failure.cycles[0].ready);
+        F::replay_ok=false;
+        for(unsigned i=0;i<4;++i){rk.frame=804+i;later_failure.step(rk,1,2,replay_source,nullptr);}
+        assert(later_failure.failed && later_failure.restart && !later_failure.verified && later_failure.completed_cycles==1);
+        const auto stopped_replays=F::replays;later_failure.step(rk,1,2,replay_source,nullptr);assert(F::replays==stopped_replays);
+        F::replay_ok=true;
+        RetainedObjectReplay<RetainedReplayFixture> between_rounds;
+        for(unsigned i=0;i<4;++i){rk.frame=900+i;between_rounds.step(rk,1,2,replay_source,nullptr);}
+        ++rk.round;between_rounds.step(rk,1,2,replay_source,nullptr);
+        assert(between_rounds.round_cancelled && between_rounds.terminal() && !between_rounds.verified && between_rounds.completed_cycles==1);
+        RetainedObjectReplay<RetainedReplayFixture> exhausted;
+        for(unsigned i=0;i<4;++i){rk.frame=1000+i;exhausted.step(rk,1,2,replay_source,nullptr);}
+        F::removal=0;
+        for(unsigned i=0;i<128;++i){rk.frame=1004+i;exhausted.step(rk,1,2,replay_source,nullptr);}
+        assert(exhausted.terminal() && !exhausted.verified && !exhausted.failed && exhausted.completed_cycles==1 && exhausted.windows==33);
+        F::removal=1;
+
+        // Same-session recording requires one verified replay, not removal.
+        F::removal=0;rk.round=1;
+        RetainedObjectReplay<RetainedReplayFixture> recording(true);
+        for(unsigned i=0;i<4;++i){rk.frame=1200+i;recording.step(rk,1,2,replay_source,nullptr);}
+        assert(recording.verified && recording.retired && recording.completed_cycles==1 && recording.revived==0);
+        assert(recording.recording_ready && recording.terminal() && recording.cycles[0].replay_evidence.state==1);
+        const auto once=F::replays;rk.frame=1204;recording.step(rk,1,2,replay_source,nullptr);assert(F::replays==once);
+        RetainedObjectReplay<RetainedReplayFixture> recording_round(true);
+        recording_round.step(rk,1,2,replay_source,nullptr);++rk.round;recording_round.step(rk,1,2,replay_source,nullptr);
+        assert(recording_round.round_cancelled && recording_round.retired && !recording_round.restored && !recording_round.verified);
+        RetainedReplayFixture::archive_ok=false;
+        RetainedObjectReplay<RetainedReplayFixture> recording_archive_failure(true);
+        const auto before_archive=F::rewinds;
+        for(unsigned i=0;i<4;++i){rk.frame=1300+i;recording_archive_failure.step(rk,1,2,replay_source,nullptr);}
+        assert(recording_archive_failure.failed && recording_archive_failure.failure_reason==11 && F::rewinds==before_archive);
+        RetainedReplayFixture::archive_ok=true;F::replay_ok=false;
+        RetainedObjectReplay<RetainedReplayFixture> recording_replay_failure(true);
+        for(unsigned i=0;i<4;++i){rk.frame=1400+i;recording_replay_failure.step(rk,1,2,replay_source,nullptr);}
+        assert(recording_replay_failure.failed && recording_replay_failure.restart && recording_replay_failure.terminal());
+        F::replay_ok=true;F::removal=1;
+        // Repeated recording preserves each archive and never captures in the gap.
+        F::removal=0;rk.round=1;
+        RetainedObjectReplay<RetainedReplayFixture> spaced(true,true);
+        const auto initial_replays=F::replays;
+        for(unsigned cycle=0;cycle<3;++cycle){
+            const unsigned start=1500+cycle*123;
+            for(unsigned i=0;i<4;++i){rk.frame=start+i;spaced.step(rk,1,2,replay_source,nullptr);}
+            assert(spaced.completed_cycles==cycle+1 && F::replays==initial_replays+cycle+1);
+            if(cycle<2){
+                assert(!spaced.terminal() && !spaced.verified);
+                const auto captures=spaced.captured.load();
+                for(unsigned i=4;i<123;++i){rk.frame=start+i;spaced.step(rk,1,2,replay_source,nullptr);}
+                assert(spaced.captured==captures);
+            }
+        }
+        assert(spaced.verified && spaced.retired && spaced.captured==12 && spaced.revived==0);
+        assert(spaced.cycles[1].snapshots_ready && spaced.cycles[2].snapshots_ready);
+        for(const auto& c:spaced.cycles)assert(c.ready && c.replay_evidence.state==1);
+        assert(spaced.evidence.state==0); // Failure channel not occupied by successes.
+        RetainedObjectReplay<RetainedReplayFixture> gap_round(true,true);
+        for(unsigned i=0;i<4;++i){rk.frame=2000+i;gap_round.step(rk,1,2,replay_source,nullptr);}
+        ++rk.round;rk.frame=1;gap_round.step(rk,1,2,replay_source,nullptr);
+        assert(gap_round.round_cancelled && gap_round.retired && !gap_round.verified && gap_round.completed_cycles==1);
+        RetainedObjectReplay<RetainedReplayFixture> second_fail(true,true);
+        for(unsigned i=0;i<4;++i){rk.frame=2100+i;second_fail.step(rk,1,2,replay_source,nullptr);}
+        F::replay_ok=false;
+        for(unsigned i=0;i<4;++i){rk.frame=2223+i;second_fail.step(rk,1,2,replay_source,nullptr);}
+        assert(second_fail.failed && second_fail.restart && !second_fail.verified && second_fail.completed_cycles==1);
+        assert(second_fail.cycles[0].replay_evidence.state==1 && second_fail.evidence.state==1 && second_fail.cycles[1].snapshots_ready);
+        F::replay_ok=true;F::removal=1;
+        // Three distinct rounds, no captures in the gap, and immutable per-round evidence.
+        F::removal=0;rk.round=1;rk.generation=100;
+        sc6::RoundFightReadiness fight;
+        auto activate=[&](unsigned frame){fight={rk.generation,rk.round,frame,rk.thread,0x3E873D0,0x384EE0,3};};
+        RetainedObjectReplay<RetainedReplayFixture> boundary_policy(true,true,true);
+        assert(!boundary_policy.clean_match_end_boundary());
+        boundary_policy.completed_cycles=2;boundary_policy.waiting_round_=true;
+        assert(boundary_policy.clean_match_end_boundary());
+        boundary_policy.failed=true;assert(!boundary_policy.clean_match_end_boundary());
+        boundary_policy.failed=false;boundary_policy.restart=true;assert(!boundary_policy.clean_match_end_boundary());
+        boundary_policy.restart=false;boundary_policy.waiting_round_=false;assert(!boundary_policy.clean_match_end_boundary());
+        RetainedObjectReplay<RetainedReplayFixture> multi(true,true,true);
+        for(unsigned round=1;round<=3;++round){
+            rk.round=round;rk.generation=99+round;
+            rk.frame=50;multi.step(rk,1,2,replay_source,nullptr,fight);
+            assert(multi.captured==(round-1)*4);activate(99);
+            for(unsigned i=0;i<4;++i){rk.frame=100+i;activate(rk.frame);multi.step(rk,1,2,replay_source,nullptr,fight);}
+            assert(multi.completed_cycles==round && multi.cycles[round-1].round==round);
+            rk.frame=200;multi.step(rk,1,2,replay_source,nullptr,fight);assert(multi.captured==round*4);
+        }
+        assert(multi.verified && multi.round_transitions==2 && !multi.restart);
+        RetainedObjectReplay<RetainedReplayFixture> partial(true,true,true);
+        rk.round=1;rk.generation=200;rk.frame=10;activate(10);partial.step(rk,1,2,replay_source,nullptr,fight);
+        rk.round=2;rk.generation=201;rk.frame=1;partial.step(rk,1,2,replay_source,nullptr,fight);
+        assert(partial.partial_round_discards==1 && partial.completed_cycles==0 && !partial.failed);
+        F::finish_ok=false;
+        rk.round=3;rk.generation=202;partial.step(rk,1,2,replay_source,nullptr,fight);
+        assert(partial.failed && partial.failure_reason==16 && !partial.restored);
+        F::finish_ok=true;
+        RetainedObjectReplay<RetainedReplayFixture> rematch(true,true,true);
+        rk.round=3;rk.generation=300;rematch.step(rk,1,2,replay_source,nullptr);
+        rk.round=1;rk.generation=301;rematch.step(rk,1,2,replay_source,nullptr);
+        assert(rematch.round_cancelled && !rematch.verified);
+        RetainedObjectReplay<RetainedReplayFixture> interrupted(true,true,true);
+        rk.round=1;rk.generation=400;rk.frame=10;activate(10);
+        interrupted.step(rk,1,2,replay_source,nullptr,fight);assert(interrupted.captured==1);
+        fight.status=1;rk.frame=11;
+        interrupted.step(rk,1,2,replay_source,nullptr,fight);
+        assert(interrupted.fight_partial_discards==1 && !interrupted.restored && !interrupted.failed);
+        rk.frame=1000;interrupted.step(rk,1,2,replay_source,nullptr,fight);assert(interrupted.captured==1);
+        rk.round=2;rk.generation=401;rk.frame=1001;
+        interrupted.step(rk,1,2,replay_source,nullptr,fight);assert(interrupted.round_transitions==1 && interrupted.captured==1);
+        activate(1001);
+        for(unsigned i=0;i<4;++i){rk.frame=1002+i;activate(rk.frame);interrupted.step(rk,1,2,replay_source,nullptr,fight);}
+        assert(interrupted.completed_cycles==1 && interrupted.cycles[0].fight_frame==1002 && interrupted.cycles[0].first_frame==1002);
+        for(unsigned marker=0;marker<2;++marker){
+            RetainedObjectReplay<RetainedReplayFixture> playback_guard(true,true,true,true);
+            rk.round=1;rk.generation=450;rk.frame=10;activate(10);
+            playback_guard.step(rk,1,2,replay_source,nullptr,fight);
+            for(unsigned f=11;f<20;++f){
+                rk.frame=f;activate(f);
+                if(marker==0)fight.native_playback=1;else fight.round_result=1;
+                playback_guard.step(rk,1,2,replay_source,nullptr,fight);
+            }
+            assert(playback_guard.captured==1 && playback_guard.fight_partial_discards==1);
+            assert(!playback_guard.restored && !playback_guard.failed && !playback_guard.restart);
+            assert(marker==0?playback_guard.fight_playback_wait_frames==9:playback_guard.fight_result_wait_frames==9);
+            for(unsigned f=20;f<24;++f){rk.frame=f;activate(f);playback_guard.step(rk,1,2,replay_source,nullptr,fight);}
+            assert(playback_guard.completed_cycles==1 && !playback_guard.failed);
+        }
+        // Repeated combat keeps the same fight and round guards without waiting a round per cycle.
+        RetainedObjectReplay<RetainedReplayFixture> combat(true,true,true,true);
+        rk.round=1;rk.generation=500;
+        for(unsigned cycle=0;cycle<3;++cycle){
+            const unsigned start=100+cycle*123;
+            if(cycle){rk.frame=start-1;activate(rk.frame);combat.step(rk,1,2,replay_source,nullptr,fight);assert(combat.captured==cycle*4);}
+            for(unsigned i=0;i<4;++i){rk.frame=start+i;activate(rk.frame);combat.step(rk,1,2,replay_source,nullptr,fight);}
+            assert(combat.completed_cycles==cycle+1 && combat.cycles[cycle].round==1);
+            assert(combat.cycles[cycle].first_frame==start && !combat.waiting_round_);
+            assert(combat.clean_match_end_boundary());
+        }
+        assert(combat.verified && combat.retired && !combat.failed && !combat.restart);
+        RetainedObjectReplay<RetainedReplayFixture> combat_transition(true,true,true,true);
+        rk.round=1;rk.generation=600;
+        for(unsigned i=0;i<4;++i){rk.frame=100+i;activate(rk.frame);combat_transition.step(rk,1,2,replay_source,nullptr,fight);}
+        rk.frame=223;activate(223);combat_transition.step(rk,1,2,replay_source,nullptr,fight);
+        assert(!combat_transition.clean_match_end_boundary());
+        rk.round=2;rk.generation=601;rk.frame=1;fight.status=1;
+        combat_transition.step(rk,1,2,replay_source,nullptr,fight);
+        assert(combat_transition.partial_round_discards==1 && combat_transition.completed_cycles==1 && !combat_transition.failed);
+        for(unsigned i=0;i<4;++i){rk.frame=50+i;activate(rk.frame);combat_transition.step(rk,1,2,replay_source,nullptr,fight);}
+        assert(combat_transition.completed_cycles==2 && combat_transition.cycles[1].round==2);
+        F::replay_ok=false;
+        for(unsigned i=0;i<4;++i){rk.frame=173+i;activate(rk.frame);combat_transition.step(rk,1,2,replay_source,nullptr,fight);}
+        assert(combat_transition.failed && combat_transition.restart && combat_transition.completed_cycles==2);
+        F::replay_ok=true;
+        // Full-match mode wraps its bounded evidence queue; a slow worker never overwrites it.
+        {
+            auto full=std::make_unique<RetainedObjectReplay<RetainedReplayFixture>>(true,true,true,true,true);
+            rk.round=1;rk.generation=700;
+            auto play=[&](unsigned start){for(unsigned i=0;i<4;++i){rk.frame=start+i;activate(rk.frame);full->step(rk,1,2,replay_source,nullptr,fight);}};
+            play(100);play(223);play(346);
+            assert(full->completed_cycles==3 && !full->terminal() && !full->verified && full->target_cycles()==0);
+            const auto count=full->captured.load();play(469);
+            assert(full->captured==count && full->evidence_wait_frames==4);
+            auto directory=std::filesystem::temp_directory_path()/("sc6-full-match-"+std::to_string(GetCurrentProcessId()));
+            std::filesystem::create_directories(directory);
+            std::ostringstream report;
+            std::thread writer([&]{full->report(report,directory/"test.txt");});writer.join();
+            assert(full->evidence_flushed==3 && !full->evidence_io_failures);
+            play(500);assert(full->completed_cycles==4 && full->cycles[0].number==4 && !full->terminal());
+            // Partial pre-fight window must not survive into the next round.
+            rk.frame=623;activate(rk.frame);full->step(rk,1,2,replay_source,nullptr,fight);
+            rk.round=2;rk.generation=701;rk.frame=1;fight.status=1;
+            full->step(rk,1,2,replay_source,nullptr,fight);
+            assert(full->partial_round_discards==1 && full->round_transitions==1 && !full->failed);
+            play(100);assert(full->completed_cycles==5);
+            rk.frame=223;activate(rk.frame);full->step(rk,1,2,replay_source,nullptr,fight);
+            assert(full->clean_match_end_boundary());
+            assert(full->finish_match() && full->terminal() && full->verified && full->match_completed && full->match_end_discards==1);
+            full->report(report,directory/"test.txt");assert(full->evidence_flushed==5);
+            assert(std::filesystem::exists(directory/"test-cycle-5-summary.txt"));
+            assert(std::filesystem::exists(directory/"test-cycle-1-animation-copy.bin"));
+            assert(!std::filesystem::exists(directory/"test-cycle-2-animation-copy.bin"));
+            assert(std::filesystem::exists(directory/"test-cycle-2-summary.txt"));
+            assert(std::filesystem::exists(directory/"test-cycle-3-animation-copy.bin"));
+            {std::ofstream unverified(directory/"test-cycle-9-animation-copy.bin");unverified<<"keep";}
+            assert(prune_verified_cycle(directory/"test.txt",12));
+            assert(std::filesystem::exists(directory/"test-cycle-9-animation-copy.bin"));
+            std::filesystem::remove_all(directory);
+        }
+        {
+            auto io=std::make_unique<RetainedObjectReplay<RetainedReplayFixture>>(true,true,true,true,true);
+            rk.round=1;rk.generation=800;
+            for(unsigned i=0;i<4;++i){rk.frame=100+i;activate(rk.frame);io->step(rk,1,2,replay_source,nullptr,fight);}
+            std::ostringstream report;io->report(report,"Z:/nonexistent-sc6-directory/test.txt");
+            assert(io->evidence_io_failures && io->evidence_flushed==0 && !io->cycles[0].available);
+            rk.frame=223;activate(rk.frame);io->step(rk,1,2,replay_source,nullptr,fight);
+            assert(!io->failed && io->storage_blocked && io->captured==4 && !io->verified);
+            auto directory=std::filesystem::temp_directory_path()/("sc6-storage-retry-"+std::to_string(GetCurrentProcessId()));
+            std::filesystem::create_directories(directory);
+            io->report(report,directory/"test.txt");
+            assert(!io->storage_blocked && io->evidence_flushed==1 && io->cycles[0].available);
+            for(unsigned i=0;i<4;++i){rk.frame=224+i;activate(rk.frame);io->step(rk,1,2,replay_source,nullptr,fight);}
+            assert(io->completed_cycles==2 && !io->failed);
+            std::filesystem::remove_all(directory);
+        }
+        {
+            auto empty=std::make_unique<RetainedObjectReplay<RetainedReplayFixture>>(true,true,true,true,true);
+            assert(empty->finish_match() && empty->match_completed && !empty->verified);
+            auto bad_release=std::make_unique<RetainedObjectReplay<RetainedReplayFixture>>(true,true,true,true,true);
+            F::release_ok=false;assert(!bad_release->finish_match() && bad_release->terminal() && bad_release->failed && !bad_release->verified);F::release_ok=true;
+            auto abort=std::make_unique<RetainedObjectReplay<RetainedReplayFixture>>(true,true,true,true,true);
+            rk.round=1;rk.generation=900;
+            for(unsigned i=0;i<4;++i){rk.frame=100+i;activate(rk.frame);abort->step(rk,1,2,replay_source,nullptr,fight);}
+            assert(abort->release() && !abort->verified && !abort->match_completed);
+        }
+        // Startup identity may change only after bilateral admission and release.
+        {
+            StartupBoundaryPairs pairs;pairs.count=120;pairs.rows[0]={};
+            pairs.rows[0].identity=7;pairs.rows[0].clock=10;pairs.rows[0].battle=20;
+            StartupBoundaryAgreement a,b;assert(a.begin(pairs,1) && b.begin(pairs,2));
+            assert(a.runtime_rejection(15,3,false,false,8,7,900)==2);
+            assert(a.receive(b.outgoing()) && b.receive(a.outgoing()) && a.receive(b.outgoing()));
+            assert(a.ready());
+            assert(a.runtime_rejection(15,3,false,false,8,7,900)==0);
+            assert(a.runtime_rejection(14,3,false,false,8,7,900)==2);
+            assert(a.runtime_rejection(15,2,false,false,8,7,900)==2);
+            assert(a.runtime_rejection(15,0,false,false,7,7,900)==4);
+            auto bad=b.outgoing();bad[1]++;assert(!a.receive(bad));
+            assert(a.runtime_rejection(15,3,false,false,8,7,900)==3);
+        }
+        StartupSuite fullMatch;assert(fullMatch.configure(16,0) && fullMatch.first_match_start() && fullMatch.mask()==255);
+        StartupSuite multiround;assert(multiround.configure(15,30) && multiround.mask()==255 && multiround.first_match_start());
+        for(unsigned profile=1;profile<15;++profile){StartupSuite legacy;assert(legacy.configure(profile,30) && !legacy.first_match_start());}
+        StartupSuite repeated_recording_suite;assert(repeated_recording_suite.configure(14,30) && repeated_recording_suite.mask()==255);
+        StartupSuite recording_suite;assert(recording_suite.configure(13,30) && recording_suite.mask()==255 && recording_suite.seal(255,0,0));
+        StartupSuite old_suite;assert(old_suite.configure(12,30) && !old_suite.receive(recording_suite.outgoing()));
+        StartupSuite replay_suite;assert(replay_suite.configure(12,30) && replay_suite.mask()==255 && replay_suite.seal(63,0,192));
         StartupSuite baseline_suite,immediate_suite;
         assert(baseline_suite.configure(10,60) && immediate_suite.configure(9,60));
         assert(baseline_suite.seal(255,0,0) && immediate_suite.seal(255,0,0));
@@ -610,8 +1012,28 @@ int main(){
         assert(R::thread_decision(10,11,true)==D::reject);
     }
     {
+        {
+            auto guard=std::make_unique<CombatResourcePreparation<PreparationResourcesFixture>>();
+            guard->enable_cycles(false,true,100);
+            assert(guard->cycles->arm(1,1,100,200,1));
+            auto* cycle=guard->cycles->current();cycle->entry.state=3;
+            RollbackBoundaryKey oldKey{1,2,3,4,5,200,1,GetCurrentThreadId()};
+            auto nextKey=oldKey;nextKey.round=5;nextKey.frame=1;
+            guard->owner_cycle_=1;guard->cycle_identity_=oldKey;
+            cycle->runner.retired=true;cycle->runner.reference_verified=true;cycle->runner.no_divergence=true;
+            cycle->runner.stop_outcome=1;
+            guard->replay_boundary(nextKey,0,0,nullptr);
+            assert(cycle->runner.retired && !cycle->runner.failed && cycle->runner.failure_reason==0);
+            assert(cycle->runner.reference_verified && cycle->runner.no_divergence && cycle->runner.stop_outcome==1);
+            assert(guard->cycle_identity_.same_round(oldKey));
+            // Still-active old-round work must be rejected before any native call.
+            cycle->runner.retired=false;cycle->runner.reference_verified=false;cycle->runner.no_divergence=false;
+            guard->replay_boundary(nextKey,0,0,nullptr);
+            assert(cycle->runner.failed && cycle->runner.failure_reason==8 && cycle->runner.retired);
+        }
         CombatResourcePreparation<ColdPreparationFixture> cold;
-        assert(cold.start(1,true));ColdPreparationFixture::available=true;
+        StartupSuite first_match_suite;assert(first_match_suite.configure(15,30));
+        assert(cold.start(1,first_match_suite.first_match_start()));ColdPreparationFixture::available=true;
         cold.frame(1,false);assert(!cold.ready && !ColdPreparationFixture::confirmed);
         cold.frame(2,true);assert(cold.ready && ColdPreparationFixture::confirmed);
         cold.request_stop();cold.frame(3,true);assert(cold.retired && ColdPreparationFixture::releases==1);
@@ -647,6 +1069,38 @@ int main(){
         observed.clock.frame=13;preparation.clock_entry(observed,125,100);assert(preparation.clock_frame==1);
         preparation.frame(13,true);assert(preparation.retired.load() && !preparation.failed.load());
         preparation.frame(14,true);assert(PreparationResourcesFixture::releases==1);
+        // Exercise owner-thread cleanup and ensure cancellation details survive classification.
+        for(unsigned variant=0;variant<8;++variant){
+            auto end=std::make_unique<CombatResourcePreparation<MatchEndResourcesFixture>>();
+            assert(end->start(1));MatchEndResourcesFixture::available=true;
+            end->frame(10,true);
+            end->retained_replay=std::make_unique<RetainedObjectReplay<>>(true,true,true);
+            end->retained_replay_enabled=true;
+            end->retained_replay->completed_cycles=2;end->retained_replay->waiting_round_=true;
+            MatchEndResourcesFixture::observation={0x3E87428,0x2D2BC0,GetCurrentThreadId(),0x301590};
+            MatchEndResourcesFixture::stop_ok=variant!=3;
+            if(variant==1)MatchEndResourcesFixture::observation.vtable=0x3E873D0;
+            if(variant==2)end->retained_replay->waiting_round_=false;
+            if(variant==4)end->failed=true;
+            if(variant==7)MatchEndResourcesFixture::observation={0x3E87530,0x387530,GetCurrentThreadId(),0x301470};
+            if(variant==5 || variant==6){
+                MatchEndResourcesFixture::end_cancellation.reason=variant==5?7:8;
+                MatchEndResourcesFixture::cancel=true;
+            }
+            // Test both proactive match end and native-clear cancellation.
+            end->frame(20,true);
+            if(variant==0 || variant==5)assert(end->match_end_clean && end->retired && !end->failed && end->stop_requested());
+            else assert(!end->match_end_clean);
+            if(variant==3)assert(end->failed && !end->retired);
+            if(variant==5)assert(end->cancellation==7);
+            if(variant==6)assert(end->failed && end->cancellation==8);
+            if(variant==7){
+                assert(!end->stop_requested() && !end->retired && !end->failed);
+                MatchEndResourcesFixture::observation={0x3E87428,0x2D2BC0,GetCurrentThreadId(),0x301590};
+                end->frame(30,true);assert(end->match_end_clean && end->retired);
+            }
+        }
+        MatchEndResourcesFixture::stop_ok=true;
         CombatResourcePreparation<PreparationResourcesFixture> cancelled;
         assert(cancelled.start(1));PreparationResourcesFixture::cancel=true;
         cancelled.frame(15,true);assert(cancelled.failed.load() && cancelled.retired.load() && !cancelled.ready.load());
@@ -665,6 +1119,20 @@ int main(){
         config.caller=2;config.original=nativeUpdate;shared->reserved=sc6::observation::owned_mode;
         config.offer={1,2,9,10,4,5,500,1,0,3,sc6::observation::capacity};
         assert(NativeCombatSession::valid_config(config));
+        auto next_round=config;
+        ++next_round.identity.round;++next_round.identity.event;
+        next_round.offer.round=next_round.identity.round;next_round.offer.event=next_round.identity.event;
+        ++next_round.offer.ticket;
+        assert(NativeCombatArming::valid_successor(config,next_round,address));
+        auto stale_round=next_round;stale_round.offer.ticket=config.offer.ticket;
+        assert(!NativeCombatArming::valid_successor(config,stale_round,address));
+        stale_round=next_round;stale_round.identity.event=stale_round.offer.event=config.identity.event;
+        assert(!NativeCombatArming::valid_successor(config,stale_round,address));
+        stale_round=next_round;--stale_round.identity.generation;
+        assert(!NativeCombatArming::valid_successor(config,stale_round,address));
+        stale_round=next_round;stale_round.identity.slot=stale_round.offer.slot=2;
+        assert(!NativeCombatArming::valid_successor(config,stale_round,address));
+        assert(!NativeCombatArming::valid_successor(config,next_round,address+16));
         // Regression: a valid offer must not acquire a hold for a backend
         // that can capture unrestricted combat but cannot rewind it.
         NativeCombatArming unsupported;
@@ -766,6 +1234,22 @@ int main(){
         assert(!left.consume());
         for(unsigned offset:{0u,4u,8u,56u,64u}){auto corrupt=first;corrupt[offset]=255;assert(!CombatStartPacket::decode(corrupt,80));}
         auto roundtrip=CombatStartPacket::decode(first,80);assert(roundtrip && roundtrip->offer==a);
+        auto next_a=a,next_b=b;next_a.round=next_b.round=4;next_a.event=next_b.event=5;
+        next_a.first_frame=next_b.first_frame=0;++next_a.ticket;++next_b.ticket;
+        CombatStartExchange next_left,next_right;
+        CombatStartMailbox next_mailbox(GetCurrentThreadId());assert(next_left.attach(next_mailbox));
+        assert(next_left.begin(22,next_a,&left) && next_right.begin(11,next_b));
+        assert(next_left.receive(22,true,held,80) && next_left.retired_packets()==1);
+        auto wrong_old=CombatStartPacket{b,3,a.ticket+1}.encode();
+        assert(!next_left.receive(22,true,wrong_old,80));
+        assert(next_left.report_local_hold(next_a.ticket) && next_right.report_local_hold(next_b.ticket));
+        for(unsigned n=0;n<3;++n){
+            auto packet=next_right.outgoing();assert(next_left.receive(22,true,packet,80));
+            packet=next_left.outgoing();assert(next_right.receive(11,true,packet,80));
+        }
+        CombatStartAgreement new_agreement;
+        assert(next_mailbox.take(new_agreement) && new_agreement.activation_ready() && new_agreement.consume(next_a));
+        CombatStartExchange reused;assert(!reused.begin(22,a,&left));
     }
     {
         CombatStartAgreement::Offer local{1,2,100,77,3,4,500,1,0,3,7200};
@@ -785,6 +1269,8 @@ int main(){
         auto shared=std::make_unique<sc6::observation::Shared>();
         assert(!session->prepare(*shared) && !session->ready());
         CombatStartAgreement agreement;assert(!session->activate(agreement) && !combat_routes.load());
+        PostBattleContinuation incomplete;
+        assert(!session->retire_after_continuation(incomplete) && !session->retired());
         assert(!session->prepare(*shared));
         assert(!exclusive_battle_route.load() && !sc6::scheduler_input_sink.load());
     }
@@ -956,6 +1442,20 @@ int main(){
         assert(!stale.run(history,first,last,1) && stale.stage==decltype(stale)::Stage::ownership);
         NativeHistoryRestore<> nativeRestore;assert(!nativeRestore.run(history,first,last,1));
     }
+    {
+        // Rolling restore must reject an unpaired or unowned effect binding
+        // before any native load, rather than silently use the old path.
+        HistoryFixture history;
+        RollbackBoundaryKey first{1,2,3,4,5,100,1,GetCurrentThreadId()},last=first;last.frame=103;
+        history.states[1]->effects=std::make_unique<NativeEffectSession::Binding>();
+        RestoreFixture::calls.clear();RestoreFixture::prepareCount=RestoreFixture::loadCount=RestoreFixture::structuralCount=0;
+        RestoreFixture::reject=RestoreFixture::rejectLoad=99;
+        NativeHistoryRestore<RestoreFixture> missing;
+        assert(!missing.run(history,first,last,1) && RestoreFixture::loadCount==0);
+        for(auto& state:history.states)state->effects=std::make_unique<NativeEffectSession::Binding>();
+        NativeHistoryRestore<RestoreFixture> unowned;
+        assert(!unowned.run(history,first,last,1) && RestoreFixture::loadCount==0);
+    }
     assert(NativeWindowReuseProbe::topology_retry_allowed(2,2,false));
     {
         using M=NativeBoundarySnapshot::Mode;
@@ -1126,6 +1626,7 @@ int main(){
     request.frame=saved.frame=200;NativeWindowReuseProbe::validated(probe.get(),request,saved);assert(probe->confirmed[0]);
     std::cout<<"PASS: native window identity, all-hop preflight, reverse load order, depth limits and failure stop\n";
 }
+
 
 
 

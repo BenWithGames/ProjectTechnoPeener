@@ -1,0 +1,69 @@
+﻿Status: retained_object_replay_failed_restart_required
+Reason: retained_object_replay_failed_restart_required
+Restart required by failure: True
+
+Side  Stage                                 Result                                                                     
+----  -----                                 ------                                                                     
+local Transport                             Not completed                                                              
+local Resources and cleanup                 Not completed                                                              
+local Frame pairs                           Not completed                                                              
+local Boundary agreement                    Not completed                                                              
+local Hold and release                      Not completed                                                              
+local Retained recordings                   Not completed                                                              
+local Bounded original-input replay         Not completed                                                              
+local Replay cycles verified and cleaned up Not completed                                                              
+peer  Transport                             Report unavailable                                                         
+peer  Resources and cleanup                 Report unavailable                                                         
+peer  Frame pairs                           Report unavailable                                                         
+peer  Boundary agreement                    Report unavailable                                                         
+peer  Hold and release                      Report unavailable                                                         
+peer  Retained recordings                   Report unavailable                                                         
+peer  Bounded original-input replay         Report unavailable                                                         
+peer  Replay cycles verified and cleaned up Report unavailable                                                         
+both  Continuous rollback                   Unavailable in this runner                                                 
+local Fight-ready capture gate              Native Normal mode required on each snapshot; waited 0 boundaries; disca...
+peer  Fight-ready capture gate              See peer raw report; not inferred from transport PASS                      
+local Camera calculation diagnostics        Installed: 1; events: 5424; dropped: 0; overwritten: 4912. Six stages re...
+local Animation timer evidence              Installed: 1; events: 6125; invalid: 0; dropped: 0; overwritten: 2029; w...
+peer  Animation timer evidence              Requires peer report and timer-lookup.bin                                  
+local Diagnostic capture                    Preallocated immutable evidence; report worker serializes. Arena limit: ...
+local Wind emitter state                    Check: 0; emitters: 1; restores: 7; comparisons: 25. See raw wind.emitte...
+local Effect capture gate                   Entered; attempts: 37; contentions: 0; stops: 0; last rejection: 0; thre...
+local Scoped resource clears                Seen: 0; unrelated ignored: 0; related: 0; unknown: 0; last reason: 0. E...
+peer  Scoped resource clears                Requires peer raw report; not inferred from transport PASS                 
+local Cycle 1 timing: step                  Count 4; total 48.373 ms; max 43.410 ms                                    
+local Cycle 1 timing: capture               Count 4; total 6.590 ms; max 1.691 ms                                      
+local Cycle 1 timing: archive               Count 1; total 7.130 ms; max 7.130 ms                                      
+local Cycle 1 timing: restore               Count 1; total 21.522 ms; max 21.522 ms                                    
+local Cycle 1 timing: replay                Count 1; total 5.435 ms; max 5.435 ms                                      
+local Cycle 1 timing: evidence              Count 1; total 3.238 ms; max 3.238 ms                                      
+local Cycle 1 timing: traces                Count 1; total 0.432 ms; max 0.432 ms                                      
+local Cycle 1 timing: retire                Count 1; total 1.982 ms; max 1.982 ms                                      
+local Cycle 1 timing: round_cleanup         Count 1; total 0.003 ms; max 0.003 ms                                      
+local Cycle 1 timing: callback_gap          Count 3; total 49.873 ms; max 16.742 ms                                    
+local Cycle 2 timing: step                  Count 123; total 46.796 ms; max 41.872 ms                                  
+local Cycle 2 timing: capture               Count 4; total 6.420 ms; max 1.675 ms                                      
+local Cycle 2 timing: archive               Count 1; total 6.899 ms; max 6.899 ms                                      
+local Cycle 2 timing: restore               Count 1; total 21.183 ms; max 21.183 ms                                    
+local Cycle 2 timing: replay                Count 1; total 5.288 ms; max 5.288 ms                                      
+local Cycle 2 timing: evidence              Count 1; total 2.451 ms; max 2.451 ms                                      
+local Cycle 2 timing: traces                Count 1; total 0.397 ms; max 0.397 ms                                      
+local Cycle 2 timing: retire                Count 1; total 2.136 ms; max 2.136 ms                                      
+local Cycle 2 timing: round_cleanup         Count 1; total 0.003 ms; max 0.003 ms                                      
+local Cycle 2 timing: callback_gap          Count 123; total 2081.001 ms; max 47.911 ms                                
+local Cycle 3 timing: step                  Count 123; total 30.731 ms; max 25.819 ms                                  
+local Cycle 3 timing: capture               Count 4; total 6.437 ms; max 1.631 ms                                      
+local Cycle 3 timing: archive               Count 1; total 7.291 ms; max 7.291 ms                                      
+local Cycle 3 timing: restore               Count 1; total 9.731 ms; max 9.731 ms                                      
+local Cycle 3 timing: callback_gap          Count 123; total 2078.881 ms; max 45.576 ms                                
+local Session timing: release               Count 1; total 3.394 ms; max 3.394 ms                                      
+local Session timing: report_io             Count 12; total 58.571 ms; max 22.819 ms                                   
+local Timing interpretation                 Wall time, not GPU/display frame time. Step includes its child phases; d...
+local Full-match reference replay           Cycles: 2; native match end: 0; clean retirement: 0; spacing: 120 frames...
+local Bounded evidence queue                Flushed: 2; wait frames: 0; I/O failures: 0. Full per-cycle files retained.
+local Latest selector restoration           Enabled: 1; restored: 0; endpoint verified: 0; phase/reason: 4/0; side/o...
+
+
+Round changes: 0; rematch candidates: 0
+Zero events means not observed, not passed. Restart SC6 before another suite.
+Raw report: C:\Program Files (x86)\Steam\steamapps\common\SoulcaliburVI\SoulcaliburVI\Binaries\Win64\Mods\SC6Rollback\captures\steam-inputs-43780.txt

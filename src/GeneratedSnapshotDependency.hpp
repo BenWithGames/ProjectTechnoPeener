@@ -7,6 +7,11 @@ class GeneratedSnapshotDependency {
 public:
  uintptr_t root{},buffer{},control{},size{};
  bool active()const{return lease_.active();}
+ bool retain_from(const GeneratedSnapshotDependency& previous){
+  // The old strong lease guarantees control-block lifetime during acquisition.
+  if(this==&previous || active() || !previous.active() || previous.owner_!=GetCurrentThreadId())return false;
+  return acquire(previous.root,previous.buffer,previous.control,previous.size,previous.object_,previous.dispose_);
+ }
  bool acquire(uintptr_t query,uintptr_t bytes,uintptr_t owner,uintptr_t length,ResourceReferenceLease::Dispose object,ResourceReferenceLease::Dispose dispose){
   if(active())return root==query && buffer==bytes && control==owner && size==length;
   if(!query || !bytes || !length || !lease_.acquire(owner,GetCurrentThreadId(),0,object,dispose))return false;

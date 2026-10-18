@@ -1,0 +1,18 @@
+Multi-round reference replay, profile 15
+
+One bounded three-frame original-input replay in each of three distinct rounds.
+All four snapshots retire and the effect route detaches after each cycle.
+A partial unmodified window is discarded at the next guarded round boundary.
+Only the same peer/session/side/thread and consecutive increasing round identities may resume.
+Rematches, resource invalidation and unsafe failures still stop the suite.
+Cycle archives include round, generation, frame range and all existing diagnostics.
+No continuous prediction or latency reduction; no coverage claim for unobserved rounds.
+Both players install, warm up, return to lobby, start suite, then play through three rounds.
+Keep games open for 30-second observation and report exchange.
+
+Admission fix: after bilateral agreement and a released startup hold, profile 15
+uses the game-thread round runner for identity changes, rather than comparing
+every later round to the startup clock. Other profiles retain the old check.
+Failed agreement and missed initial target guards remain active. Reports include
+rejection bits (1 agreement, 2 startup identity, 4 missed target), both identities
+and hold state. Mixed pre-fix/fixed profile-15 builds reject the handshake.

@@ -1,0 +1,58 @@
+[
+  {
+    "report": "SC6Rollback-Report-steam-inputs-62172-1314cc08.zip",
+    "evidence": "steam-inputs-62172-retained-evidence.bin",
+    "record": 5,
+    "fields": [
+      {
+        "offset": "0x188",
+        "saved": "0x38a06ea0",
+        "loaded": "0xbe7fffbc"
+      },
+      {
+        "offset": "0x18c",
+        "saved": "0x3d9cac08",
+        "loaded": "0x3e7ffd60"
+      },
+      {
+        "offset": "0x1b8",
+        "saved": "0x3fc00000",
+        "loaded": "0x3f000000"
+      },
+      {
+        "offset": "0x1bc",
+        "saved": "0x40900000",
+        "loaded": "0x437a0000"
+      }
+    ],
+    "exact_after_four_scalar_repairs": true
+  },
+  {
+    "report": "SC6Rollback-Report-steam-inputs-37016-21dd869e.zip",
+    "evidence": "steam-inputs-37016-retained-evidence.bin",
+    "record": 5,
+    "fields": [
+      {
+        "offset": "0x188",
+        "saved": "0x38a06ea0",
+        "loaded": "0xbe7fffbc"
+      },
+      {
+        "offset": "0x18c",
+        "saved": "0x3d9cac08",
+        "loaded": "0x3e7ffd60"
+      },
+      {
+        "offset": "0x1b8",
+        "saved": "0x3fc00000",
+        "loaded": "0x3f000000"
+      },
+      {
+        "offset": "0x1bc",
+        "saved": "0x40900000",
+        "loaded": "0x437a0000"
+      }
+    ],
+    "exact_after_four_scalar_repairs": true
+  }
+]

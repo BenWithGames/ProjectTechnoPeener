@@ -8,9 +8,12 @@ namespace sc6::research {
 class EffectMemoryGate {
     std::mutex mutex_;
 public:
-    template<class Access> bool try_access(const std::atomic<bool>& stopped,Access&& access) {
+    enum class AccessOutcome : unsigned {not_attempted=0,entered=1,contended=2,stopped=3};
+    template<class Access> bool try_access(const std::atomic<bool>& stopped,Access&& access,AccessOutcome* outcome=nullptr) {
         std::unique_lock guard(mutex_,std::try_to_lock);
-        if(!guard.owns_lock() || stopped.load(std::memory_order_acquire))return false;
+        if(!guard.owns_lock()){if(outcome)*outcome=AccessOutcome::contended;return false;}
+        if(stopped.load(std::memory_order_acquire)){if(outcome)*outcome=AccessOutcome::stopped;return false;}
+        if(outcome)*outcome=AccessOutcome::entered;
         access();return true;
     }
     template<class Decision> bool release_decision(Decision&& decision) {

@@ -9,14 +9,17 @@ public:
     using Original=void(*)(uintptr_t);
     using Admit=bool(*)(void*,const typename Clock::State&) noexcept;
     using Notify=void(*)(void*,typename Clock::Result) noexcept;
+    using Service=bool(*)(void*) noexcept;
 private:
     Clock clock_;
     uintptr_t object_{};
     void* context_{};
     Admit admit_{};
     Notify notify_{};
+    Service service_{};
     bool active_{},entered_{},failed_{};
 public:
+    bool attach_service(Service service){if(active_ || failed_ || service_ || !service)return false;service_=service;return true;}
     bool bind(uintptr_t base,uintptr_t object,DWORD owner,bool image_verified,
               bool bilateral_private,bool boundaries_owned,void* context,Admit admit,Notify notify){
         if(active_ || failed_ || !admit || !notify)return false;
@@ -35,8 +38,11 @@ public:
         entered_=true;
         auto result=clock_.service();
         if(result==R::ready || result==R::native_wait){
+            // Drain authoritative confirmations even while native SC6 is waiting.
+            // This never reserves a step or overrides the native wait decision.
+            if(service_ && !service_(context_))failed_=true;
             // Do not consume a scheduler reservation while stock SC6 is waiting.
-            const bool admit=result==R::ready && admit_(context_,clock_.last_serviced_state());
+            const bool admit=!failed_ && result==R::ready && admit_(context_,clock_.last_serviced_state());
             if(!failed_)result=clock_.finish(admit);
         }
         if(failed_ || result==R::restart_required || result==R::unbound){

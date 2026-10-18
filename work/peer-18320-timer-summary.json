@@ -1,0 +1,24 @@
+{
+  "1": {
+    "dropped": 0,
+    "replay_events": 30,
+    "sites": {
+      "before_replay": 6,
+      "controller_entry": 6,
+      "lookup_entry": 6,
+      "weight_input": 6,
+      "after_replay": 6
+    }
+  },
+  "2": {
+    "dropped": 0,
+    "replay_events": 30,
+    "sites": {
+      "before_replay": 6,
+      "controller_entry": 6,
+      "lookup_entry": 6,
+      "weight_input": 6,
+      "after_replay": 6
+    }
+  }
+}

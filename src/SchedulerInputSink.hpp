@@ -1,7 +1,7 @@
 #pragma once
 #include "NetworkGameHandoff.hpp"
 namespace sc6 {
-enum class SchedulerPublish {accepted,full,rejected};
+enum class SchedulerPublish {accepted,full,rejected,retired};
 // Immutable process-lifetime sink, installed before the associated capture.
 // The network worker is the sole producer. No game memory is touched here.
 struct SchedulerInputSink {
@@ -14,7 +14,7 @@ inline SchedulerPublish submit_scheduler_input(const SchedulerInputSink& sink,
     if(delivered)return SchedulerPublish::accepted;
     if(!sink.context || !sink.send)return SchedulerPublish::rejected;
     const auto result=sink.send(sink.context,input);
-    if(result==SchedulerPublish::accepted)delivered=true;
+    if(result==SchedulerPublish::accepted || result==SchedulerPublish::retired)delivered=true;
     return result;
 }
 }

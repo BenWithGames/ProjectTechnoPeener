@@ -1,0 +1,124 @@
+00333c20: mov rax, rsp
+00333c23: push rdi
+00333c24: sub rsp, 0x90
+00333c2b: movss xmm2, dword ptr [rdx + 4]
+00333c30: mov rdi, r9
+00333c33: movss xmm3, dword ptr [rdx + 8]
+00333c38: mov qword ptr [rax + 8], rbx
+00333c3c: movaps xmm1, xmm3
+00333c3f: mulss xmm1, dword ptr [rcx + 0x180]
+00333c47: mov rbx, rcx
+00333c4a: movaps xmmword ptr [rax - 0x28], xmm7
+00333c4e: movss xmm7, dword ptr [rdx]
+00333c52: movaps xmmword ptr [rax - 0x48], xmm9
+00333c57: movaps xmm0, xmm7
+00333c5a: mulss xmm0, dword ptr [rcx + 0x160]
+00333c62: movaps xmm9, xmm7
+00333c66: mulss xmm9, dword ptr [rcx + 0x164]
+00333c6f: mulss xmm7, dword ptr [rcx + 0x168]
+00333c77: movaps xmmword ptr [rax - 0x68], xmm11
+00333c7c: movaps xmm11, xmm2
+00333c80: mulss xmm11, dword ptr [rcx + 0x170]
+00333c89: addss xmm11, xmm0
+00333c8e: movaps xmm0, xmm2
+00333c91: mulss xmm0, dword ptr [rcx + 0x174]
+00333c99: mulss xmm2, dword ptr [rcx + 0x178]
+00333ca1: addss xmm9, xmm0
+00333ca6: addss xmm11, xmm1
+00333cab: movaps xmm1, xmm3
+00333cae: mulss xmm1, dword ptr [rcx + 0x184]
+00333cb6: addss xmm7, xmm2
+00333cba: mulss xmm3, dword ptr [rcx + 0x188]
+00333cc2: addss xmm11, dword ptr [rcx + 0x190]
+00333ccb: addss xmm9, xmm1
+00333cd0: addss xmm7, xmm3
+00333cd4: movaps xmm1, xmm11
+00333cd8: addss xmm9, dword ptr [rcx + 0x194]
+00333ce1: addss xmm7, dword ptr [rcx + 0x198]
+00333ce9: mulss xmm1, xmm11
+00333cee: movaps xmm0, xmm9
+00333cf2: mulss xmm0, xmm9
+00333cf7: movaps xmm2, xmm7
+00333cfa: mulss xmm2, xmm7
+00333cfe: addss xmm0, xmm1
+00333d02: addss xmm0, xmm2
+00333d06: call 0x14311c1ae
+00333d0b: movss xmm1, dword ptr [rbx + 0x118]
+00333d13: comiss xmm1, xmm0
+00333d16: jbe 0x140333e46
+00333d1c: movaps xmmword ptr [rsp + 0x80], xmm6
+00333d24: movaps xmmword ptr [rsp + 0x60], xmm8
+00333d2a: movss xmm8, dword ptr [rip + 0x3b56655]
+00333d33: movaps xmmword ptr [rsp + 0x40], xmm10
+00333d39: movss xmm10, dword ptr [rip + 0x3b565da]
+00333d42: comiss xmm10, xmm0
+00333d46: movaps xmmword ptr [rsp + 0x20], xmm12
+00333d4c: xorps xmm12, xmm12
+00333d50: jbe 0x140333d58
+00333d52: movaps xmm6, xmm10
+00333d56: jmp 0x140333d65
+00333d58: movaps xmm6, xmm8
+00333d5c: subss xmm6, xmm0
+00333d60: maxss xmm6, xmm12
+00333d65: mulss xmm7, dword ptr [rbx + 0x140]
+00333d6d: xorps xmm7, xmmword ptr [rip + 0x3b56a9c]
+00333d74: comiss xmm7, dword ptr [rip + 0x3b5621d]
+00333d7b: jbe 0x140333dd6
+00333d7d: movaps xmm1, xmm7
+00333d80: movaps xmm2, xmm10
+00333d84: mulss xmm1, dword ptr [rbx + 0x114]
+00333d8c: addss xmm1, xmm10
+00333d91: divss xmm2, xmm1
+00333d95: mulss xmm9, xmm2
+00333d9a: mulss xmm11, xmm2
+00333d9f: mulss xmm9, xmm9
+00333da4: mulss xmm11, xmm11
+00333da9: addss xmm9, xmm11
+00333dae: movaps xmm0, xmm9
+00333db2: call 0x14311c1ae
+00333db7: comiss xmm0, xmm10
+00333dbb: movaps xmm1, xmm10
+00333dbf: subss xmm1, xmm7
+00333dc3: jbe 0x140333dda
+00333dc5: subss xmm8, xmm0
+00333dca: maxss xmm8, xmm12
+00333dcf: mulss xmm1, xmm8
+00333dd4: jmp 0x140333dda
+00333dd6: movaps xmm1, xmm12
+00333dda: maxss xmm6, xmm1
+00333dde: mulss xmm6, dword ptr [rip + 0x3b5643a]
+00333de6: mulss xmm6, dword ptr [rip + 0x3b5660a]
+00333dee: movaps xmm0, xmm6
+00333df1: call 0x14311c106
+00333df6: movaps xmm12, xmmword ptr [rsp + 0x20]
+00333dfc: lea rax, [rbx + 0x40]
+00333e00: movaps xmm10, xmmword ptr [rsp + 0x40]
+00333e06: movaps xmm1, xmm0
+00333e09: mulss xmm1, dword ptr [rbx + 0x50]
+00333e0e: movaps xmm2, xmm0
+00333e11: movaps xmm8, xmmword ptr [rsp + 0x60]
+00333e17: movaps xmm6, xmmword ptr [rsp + 0x80]
+00333e1f: movss dword ptr [rax], xmm1
+00333e23: movaps xmm1, xmm0
+00333e26: mulss xmm2, dword ptr [rbx + 0x54]
+00333e2b: movss dword ptr [rax + 4], xmm2
+00333e30: mulss xmm1, dword ptr [rbx + 0x58]
+00333e35: movss dword ptr [rax + 8], xmm1
+00333e3a: mulss xmm0, dword ptr [rbx + 0x5c]
+00333e3f: movss dword ptr [rax + 0xc], xmm0
+00333e44: jmp 0x140333e53
+00333e46: lea rax, [rbx + 0x40]
+00333e4a: xor ecx, ecx
+00333e4c: mov qword ptr [rax], rcx
+00333e4f: mov qword ptr [rax + 8], rcx
+00333e53: movaps xmm11, xmmword ptr [rsp + 0x30]
+00333e59: movaps xmm9, xmmword ptr [rsp + 0x50]
+00333e5f: movaps xmm7, xmmword ptr [rsp + 0x70]
+00333e64: mov rbx, qword ptr [rsp + 0xa0]
+00333e6c: test rdi, rdi
+00333e6f: je 0x140333e77
+00333e71: movups xmm0, xmmword ptr [rax]
+00333e74: movaps xmmword ptr [rdi], xmm0
+00333e77: add rsp, 0x90
+00333e7e: pop rdi
+00333e7f: ret 

@@ -1,4 +1,7 @@
 #pragma once
+#include "TimerLookupTrace.hpp"
+#include "SharedRngTrace.hpp"
+#include "InlineRngTrace.hpp"
 #include "NativeSnapshotPool.hpp"
 #include "NativeAdjacentRestore.hpp"
 #include "OwnedWindowRestorePreparation.hpp"
@@ -82,6 +85,31 @@ class NativeRollbackWindow {
     }
 public:
     bool defer_derived{};
+    uint64_t retained_revivals()const{return effect_session_?effect_session_->revival_count():0;}
+    // Classify recorded list removal only. Restore still validates generations,
+    // ownership, dependencies and every native hop independently.
+    int retained_removal(){
+        if(count_!=4 || fault_ || rewind_attempted_ || keys_[0].thread!=GetCurrentThreadId())return -1;
+        bool removed=false;
+        for(unsigned i=0;i<3;++i){
+            const bool ok=pool_.visit(handles_[i],[&](NativeBoundarySnapshot& a){
+                return pool_.visit(handles_[3],[&](NativeBoundarySnapshot& b){
+                    if(!a.effects || !b.effects || !a.effects->owner || a.effects->owner!=b.effects->owner ||
+                       !a.effects->owner->validate(*a.effects) || !b.effects->owner->validate(*b.effects))return false;
+                    for(unsigned x=0;x<a.effects->image.count;++x){
+                        const auto& saved=a.effects->image.objects[x];bool found=false;
+                        for(unsigned y=0;y<b.effects->image.count;++y){const auto& live=b.effects->image.objects[y];
+                            found|=saved.address==live.address && saved.generation==live.generation;
+                        }
+                        removed|=!found;
+                    }
+                    return true;
+                });
+            });
+            if(!ok)return -1;
+        }
+        return removed?1:0;
+    }
     unsigned last_hop{},capture_stage{},capture_exception{};
     unsigned captured_rng{},captured_rng_after_save{};
     TransformSnapshot::TopologyDifference topology;
@@ -145,12 +173,24 @@ public:
                     q.blends[1]=b.blends[0];q.transforms[1]=b.transforms[0];q.cameras[1]=b.cameras[0];
                     rng_trace::Scope rng_phase(2);
                     SingleUpdateCall call;RecordedInput delivery;
-                    if(!call.run(original,delivery.assign(source.data->delayed_inputs),
-                        reinterpret_cast<volatile uint32_t*>(base_+0x470D0C4),keys_[i].frame,keys_[i].thread))return false;
+                    if(source.effects && !q.effect_rng_boundary.before(source.data->transforms[0],b.transforms[0],base_))return false;
+                    if(!inline_rng::boundary(base_,source.data->measurements[0].rng,false))return false;
+                    timer_lookup::boundary(base_,false);
+                    shared_rng::record(0,0,keys_[i].frame);
+                    if(source.effects && (!reference.effects ||
+                        !source.effects->owner->begin_birth_replay(*source.effects,*reference.effects)))return false;
+                    const bool ran=call.run(original,delivery.assign(source.data->delayed_inputs),
+                        reinterpret_cast<volatile uint32_t*>(base_+0x470D0C4),keys_[i].frame,keys_[i].thread);
+                    const bool births_ok=!source.effects || source.effects->owner->end_birth_replay();
+                    if(!ran || !births_ok)return false;
+                    shared_rng::record(0,3,keys_[i].frame);
+                    timer_lookup::boundary(base_,true);
+                    if(source.effects)q.effect_rng_boundary.finish(base_);
+                    inline_rng::boundary(base_,b.measurements[0].rng,true);
                     hop.replay_delivered=true;
                     const bool matched=hop.replay_step(source,base_,guard_.assign(source.mode==NativeBoundarySnapshot::Mode::general_combat?source.data->delayed_inputs:reference.data->delayed_inputs),true);
                     if(q.motion_zero_evidence[0]){auto total=motion_zero_summary[0]+q.motion_zero_evidence[0];motion_zero_summary=q.motion_zero_evidence;motion_zero_summary[0]=total;}
-                    return matched && verify_effects(reference);
+                    return verify_replay_effects(matched,[&]{return verify_effects(reference);});
                 });
             });
             if(!ok){fault_=true;return false;}
@@ -169,8 +209,14 @@ public:
         if(fault_ || !replayed_ || keys_[0].thread!=GetCurrentThreadId())return false;
         for(unsigned i=0;i<count_-1;++i)if(!hops_[i]->recycle_after_replay()){fault_=true;return false;}
         for(unsigned i=0;i<count_;++i)if(!pool_.retire(handles_[i])){fault_=true;return false;}
-        handles_={};keys_={};dependency_guards_={};count_=0;base_=0;rewind_attempted_=rewound_=replayed_=false;
+        handles_={};keys_={};dependency_guards_={};count_=0;base_=0;rewind_attempted_=effect_rewind_started_=rewound_=replayed_=false;
         return true;
+    }
+    // Only a fully retired window may detach the round's allocation route.
+    bool finish_effect_round(){
+        if(fault_ || count_ || rewind_attempted_ || rewound_ || replayed_)return false;
+        if(effect_session_ && !effect_session_->finish())return false;
+        effect_session_=nullptr;return true;
     }
     bool capture(const RollbackBoundaryKey& key,uintptr_t base,uintptr_t argument,
         NativeBoundarySnapshot::Mode mode=NativeBoundarySnapshot::Mode::idle,bool retain_descriptors=false,ReplayDependencySource* ownership=nullptr){
@@ -277,6 +323,7 @@ private:
             return pool_.visit(handles_[i+1],[&](NativeBoundarySnapshot& next){
                 hops_[i]->probe->defer_inactive_animation_weights=defer_derived;
                 if(!OwnedWindowRestorePreparation::before_load(*hops_[i],source,next))return false;
+                if(source.data->selector_enabled && !source.data->selectors[0].dependencies(hops_[i]->probe->selector_diagnostic))return false;
                 if(source.effects){
                     if(!source.effects->owner->restore(*source.effects)){
                         effect_rewind_started_=source.effects->owner->mutated;return false;

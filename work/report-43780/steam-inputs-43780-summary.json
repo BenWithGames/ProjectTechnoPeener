@@ -1,0 +1,303 @@
+﻿{
+    "status":  "retained_object_replay_failed_restart_required",
+    "reason":  "retained_object_replay_failed_restart_required",
+    "restartRequired":  true,
+    "roundChanges":  "0",
+    "rematchCandidates":  "0",
+    "stages":  [
+                   {
+                       "Side":  "local",
+                       "Stage":  "Transport",
+                       "Result":  "Not completed"
+                   },
+                   {
+                       "Side":  "local",
+                       "Stage":  "Resources and cleanup",
+                       "Result":  "Not completed"
+                   },
+                   {
+                       "Side":  "local",
+                       "Stage":  "Frame pairs",
+                       "Result":  "Not completed"
+                   },
+                   {
+                       "Side":  "local",
+                       "Stage":  "Boundary agreement",
+                       "Result":  "Not completed"
+                   },
+                   {
+                       "Side":  "local",
+                       "Stage":  "Hold and release",
+                       "Result":  "Not completed"
+                   },
+                   {
+                       "Side":  "local",
+                       "Stage":  "Retained recordings",
+                       "Result":  "Not completed"
+                   },
+                   {
+                       "Side":  "local",
+                       "Stage":  "Bounded original-input replay",
+                       "Result":  "Not completed"
+                   },
+                   {
+                       "Side":  "local",
+                       "Stage":  "Replay cycles verified and cleaned up",
+                       "Result":  "Not completed"
+                   },
+                   {
+                       "Side":  "peer",
+                       "Stage":  "Transport",
+                       "Result":  "Report unavailable"
+                   },
+                   {
+                       "Side":  "peer",
+                       "Stage":  "Resources and cleanup",
+                       "Result":  "Report unavailable"
+                   },
+                   {
+                       "Side":  "peer",
+                       "Stage":  "Frame pairs",
+                       "Result":  "Report unavailable"
+                   },
+                   {
+                       "Side":  "peer",
+                       "Stage":  "Boundary agreement",
+                       "Result":  "Report unavailable"
+                   },
+                   {
+                       "Side":  "peer",
+                       "Stage":  "Hold and release",
+                       "Result":  "Report unavailable"
+                   },
+                   {
+                       "Side":  "peer",
+                       "Stage":  "Retained recordings",
+                       "Result":  "Report unavailable"
+                   },
+                   {
+                       "Side":  "peer",
+                       "Stage":  "Bounded original-input replay",
+                       "Result":  "Report unavailable"
+                   },
+                   {
+                       "Side":  "peer",
+                       "Stage":  "Replay cycles verified and cleaned up",
+                       "Result":  "Report unavailable"
+                   },
+                   {
+                       "Side":  "both",
+                       "Stage":  "Continuous rollback",
+                       "Result":  "Unavailable in this runner"
+                   },
+                   {
+                       "Side":  "local",
+                       "Stage":  "Fight-ready capture gate",
+                       "Result":  "Native Normal mode required on each snapshot; waited 0 boundaries; discarded 0 partial windows; playback waits 0, round-result waits 0; latest playback=0, result=0"
+                   },
+                   {
+                       "Side":  "peer",
+                       "Stage":  "Fight-ready capture gate",
+                       "Result":  "See peer raw report; not inferred from transport PASS"
+                   },
+                   {
+                       "Side":  "local",
+                       "Stage":  "Camera calculation diagnostics",
+                       "Result":  "Installed: 1; events: 5424; dropped: 0; overwritten: 4912. Six stages retained in camera.calculations binary evidence; not a replay pass."
+                   },
+                   {
+                       "Side":  "local",
+                       "Stage":  "Animation timer evidence",
+                       "Result":  "Installed: 1; events: 6125; invalid: 0; dropped: 0; overwritten: 2029; written: 1. Evidence only, not a replay pass."
+                   },
+                   {
+                       "Side":  "peer",
+                       "Stage":  "Animation timer evidence",
+                       "Result":  "Requires peer report and timer-lookup.bin"
+                   },
+                   {
+                       "Side":  "local",
+                       "Stage":  "Diagnostic capture",
+                       "Result":  "Preallocated immutable evidence; report worker serializes. Arena limit: 33554432 bytes per bundle. Full verification remains enabled."
+                   },
+                   {
+                       "Side":  "local",
+                       "Stage":  "Wind emitter state",
+                       "Result":  "Check: 0; emitters: 1; restores: 7; comparisons: 25. See raw wind.emitters evidence; no peer outcome inferred."
+                   },
+                   {
+                       "Side":  "local",
+                       "Stage":  "Effect capture gate",
+                       "Result":  "Entered; attempts: 37; contentions: 0; stops: 0; last rejection: 0; thread/owner: 19184/19184; capture key: 37. Diagnostic only."
+                   },
+                   {
+                       "Side":  "local",
+                       "Stage":  "Scoped resource clears",
+                       "Result":  "Seen: 0; unrelated ignored: 0; related: 0; unknown: 0; last reason: 0. Evidence only, not a replay pass."
+                   },
+                   {
+                       "Side":  "peer",
+                       "Stage":  "Scoped resource clears",
+                       "Result":  "Requires peer raw report; not inferred from transport PASS"
+                   },
+                   {
+                       "Side":  "local",
+                       "Stage":  "Cycle 1 timing: step",
+                       "Result":  "Count 4; total 48.373 ms; max 43.410 ms"
+                   },
+                   {
+                       "Side":  "local",
+                       "Stage":  "Cycle 1 timing: capture",
+                       "Result":  "Count 4; total 6.590 ms; max 1.691 ms"
+                   },
+                   {
+                       "Side":  "local",
+                       "Stage":  "Cycle 1 timing: archive",
+                       "Result":  "Count 1; total 7.130 ms; max 7.130 ms"
+                   },
+                   {
+                       "Side":  "local",
+                       "Stage":  "Cycle 1 timing: restore",
+                       "Result":  "Count 1; total 21.522 ms; max 21.522 ms"
+                   },
+                   {
+                       "Side":  "local",
+                       "Stage":  "Cycle 1 timing: replay",
+                       "Result":  "Count 1; total 5.435 ms; max 5.435 ms"
+                   },
+                   {
+                       "Side":  "local",
+                       "Stage":  "Cycle 1 timing: evidence",
+                       "Result":  "Count 1; total 3.238 ms; max 3.238 ms"
+                   },
+                   {
+                       "Side":  "local",
+                       "Stage":  "Cycle 1 timing: traces",
+                       "Result":  "Count 1; total 0.432 ms; max 0.432 ms"
+                   },
+                   {
+                       "Side":  "local",
+                       "Stage":  "Cycle 1 timing: retire",
+                       "Result":  "Count 1; total 1.982 ms; max 1.982 ms"
+                   },
+                   {
+                       "Side":  "local",
+                       "Stage":  "Cycle 1 timing: round_cleanup",
+                       "Result":  "Count 1; total 0.003 ms; max 0.003 ms"
+                   },
+                   {
+                       "Side":  "local",
+                       "Stage":  "Cycle 1 timing: callback_gap",
+                       "Result":  "Count 3; total 49.873 ms; max 16.742 ms"
+                   },
+                   {
+                       "Side":  "local",
+                       "Stage":  "Cycle 2 timing: step",
+                       "Result":  "Count 123; total 46.796 ms; max 41.872 ms"
+                   },
+                   {
+                       "Side":  "local",
+                       "Stage":  "Cycle 2 timing: capture",
+                       "Result":  "Count 4; total 6.420 ms; max 1.675 ms"
+                   },
+                   {
+                       "Side":  "local",
+                       "Stage":  "Cycle 2 timing: archive",
+                       "Result":  "Count 1; total 6.899 ms; max 6.899 ms"
+                   },
+                   {
+                       "Side":  "local",
+                       "Stage":  "Cycle 2 timing: restore",
+                       "Result":  "Count 1; total 21.183 ms; max 21.183 ms"
+                   },
+                   {
+                       "Side":  "local",
+                       "Stage":  "Cycle 2 timing: replay",
+                       "Result":  "Count 1; total 5.288 ms; max 5.288 ms"
+                   },
+                   {
+                       "Side":  "local",
+                       "Stage":  "Cycle 2 timing: evidence",
+                       "Result":  "Count 1; total 2.451 ms; max 2.451 ms"
+                   },
+                   {
+                       "Side":  "local",
+                       "Stage":  "Cycle 2 timing: traces",
+                       "Result":  "Count 1; total 0.397 ms; max 0.397 ms"
+                   },
+                   {
+                       "Side":  "local",
+                       "Stage":  "Cycle 2 timing: retire",
+                       "Result":  "Count 1; total 2.136 ms; max 2.136 ms"
+                   },
+                   {
+                       "Side":  "local",
+                       "Stage":  "Cycle 2 timing: round_cleanup",
+                       "Result":  "Count 1; total 0.003 ms; max 0.003 ms"
+                   },
+                   {
+                       "Side":  "local",
+                       "Stage":  "Cycle 2 timing: callback_gap",
+                       "Result":  "Count 123; total 2081.001 ms; max 47.911 ms"
+                   },
+                   {
+                       "Side":  "local",
+                       "Stage":  "Cycle 3 timing: step",
+                       "Result":  "Count 123; total 30.731 ms; max 25.819 ms"
+                   },
+                   {
+                       "Side":  "local",
+                       "Stage":  "Cycle 3 timing: capture",
+                       "Result":  "Count 4; total 6.437 ms; max 1.631 ms"
+                   },
+                   {
+                       "Side":  "local",
+                       "Stage":  "Cycle 3 timing: archive",
+                       "Result":  "Count 1; total 7.291 ms; max 7.291 ms"
+                   },
+                   {
+                       "Side":  "local",
+                       "Stage":  "Cycle 3 timing: restore",
+                       "Result":  "Count 1; total 9.731 ms; max 9.731 ms"
+                   },
+                   {
+                       "Side":  "local",
+                       "Stage":  "Cycle 3 timing: callback_gap",
+                       "Result":  "Count 123; total 2078.881 ms; max 45.576 ms"
+                   },
+                   {
+                       "Side":  "local",
+                       "Stage":  "Session timing: release",
+                       "Result":  "Count 1; total 3.394 ms; max 3.394 ms"
+                   },
+                   {
+                       "Side":  "local",
+                       "Stage":  "Session timing: report_io",
+                       "Result":  "Count 12; total 58.571 ms; max 22.819 ms"
+                   },
+                   {
+                       "Side":  "local",
+                       "Stage":  "Timing interpretation",
+                       "Result":  "Wall time, not GPU/display frame time. Step includes its child phases; do not sum nested timings. Callback gaps may include normal gameplay or loading. Peer timings require peer report."
+                   },
+                   {
+                       "Side":  "local",
+                       "Stage":  "Full-match reference replay",
+                       "Result":  "Cycles: 2; native match end: 0; clean retirement: 0; spacing: 120 frames. Not every-frame prediction."
+                   },
+                   {
+                       "Side":  "local",
+                       "Stage":  "Bounded evidence queue",
+                       "Result":  "Flushed: 2; wait frames: 0; I/O failures: 0. Full per-cycle files retained."
+                   },
+                   {
+                       "Side":  "local",
+                       "Stage":  "Latest selector restoration",
+                       "Result":  "Enabled: 1; restored: 0; endpoint verified: 0; phase/reason: 4/0; side/offset: 0/0. Earlier cycles remain in raw reports and binary evidence."
+                   }
+               ],
+    "windLifecycleEvents":  [
+
+                            ],
+    "rawReport":  "C:\\Program Files (x86)\\Steam\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\Mods\\SC6Rollback\\captures\\steam-inputs-43780.txt"
+}

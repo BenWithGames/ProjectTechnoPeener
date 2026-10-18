@@ -12,10 +12,14 @@ template<class Session,class Clock=NativeClockAccess<>> class CombatClockBridge 
     uint64_t session_id_{},round_{};
     bool bound_{};
     void* confirmations_{};bool (*drain_)(void*){};
-    static bool admit(void* context,const typename Clock::State& state) noexcept {
+    static bool service_confirmations(void* context) noexcept {
         auto& self=*static_cast<CombatClockBridge*>(context);
         try {if(self.drain_ && !self.drain_(self.confirmations_)){self.stop();return false;}}
         catch(...){self.stop();return false;}
+        return true;
+    }
+    static bool admit(void* context,const typename Clock::State& state) noexcept {
+        auto& self=*static_cast<CombatClockBridge*>(context);
         const bool accepted=self.reservation_.reserve_from(self.session_,self.session_id_,self.round_,GetCurrentThreadId(),state.identity,state.frame);
         if(self.reservation_.restart_required())self.stop();
         return accepted;
@@ -39,7 +43,7 @@ public:
         if(bound_ || dispatch_.restart_required() || !image_verified || !bilateral_private || !boundaries_owned || owner!=GetCurrentThreadId())return false;
         if(!reservation_.bind(session,round,owner,identity,clock_frame,battle_frame))return false;
         session_id_=session;round_=round;
-        if(!dispatch_.bind(base,object,owner,image_verified,bilateral_private,boundaries_owned,this,admit,notify)){stop();return false;}
+        if(!dispatch_.attach_service(service_confirmations) || !dispatch_.bind(base,object,owner,image_verified,bilateral_private,boundaries_owned,this,admit,notify)){stop();return false;}
         bound_=true;return true;
     }
     NativeClockDispatch<Clock>& dispatch(){return dispatch_;}

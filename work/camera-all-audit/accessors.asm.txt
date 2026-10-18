@@ -1,0 +1,258 @@
+33fa00: movss dword ptr [rcx + 0x60], xmm1
+33fa05: movss dword ptr [rcx + 0x64], xmm2
+33fa0a: movss dword ptr [rcx + 0x68], xmm3
+33fa0f: ret 
+33fa10: movss dword ptr [rcx + 0xc], xmm1
+33fa15: ret 
+33fa16: int3 
+33fa17: int3 
+33fa18: int3 
+33fa19: int3 
+33fa1a: int3 
+33fa1b: int3 
+33fa1c: int3 
+33fa1d: int3 
+33fa1e: int3 
+33fa1f: int3 
+33fa20: movss dword ptr [rcx + 0x110], xmm1
+33fa28: movss dword ptr [rcx + 0x114], xmm2
+33fa30: movss dword ptr [rcx + 0x118], xmm3
+33fa38: ret 
+33fa39: int3 
+33fa3a: int3 
+33fa3b: int3 
+33fa3c: int3 
+33fa3d: int3 
+33fa3e: int3 
+33fa3f: int3 
+33fa40: movss dword ptr [rcx + 8], xmm1
+33fa45: ret 
+33fa46: int3 
+33fa47: int3 
+33fa48: int3 
+33fa49: int3 
+33fa4a: int3 
+33fa4b: int3 
+33fa4c: int3 
+33fa4d: int3 
+33fa4e: int3 
+33fa4f: int3 
+33fa50: movss dword ptr [rcx + 0x20], xmm1
+33fa55: ret 
+33fa56: int3 
+33fa57: int3 
+33fa58: int3 
+33fa59: int3 
+33fa5a: int3 
+33fa5b: int3 
+33fa5c: int3 
+33fa5d: int3 
+33fa5e: int3 
+33fa5f: int3 
+33fa60: movss dword ptr [rcx + 0x24], xmm1
+33fa65: ret 
+33fa66: int3 
+33fa67: int3 
+33fa68: int3 
+33fa69: int3 
+33fa6a: int3 
+33fa6b: int3 
+33fa6c: int3 
+33fa6d: int3 
+33fa6e: int3 
+33fa6f: int3 
+33fa70: movss dword ptr [rcx + 0x28], xmm1
+33fa75: ret 
+33fa76: int3 
+33fa77: int3 
+33fa78: int3 
+33fa79: int3 
+33fa7a: int3 
+33fa7b: int3 
+33fa7c: int3 
+33fa7d: int3 
+33fa7e: int3 
+33fa7f: int3 
+33fa80: movss dword ptr [rcx + 0x20], xmm1
+33fa85: movss dword ptr [rcx + 0x24], xmm2
+33fa8a: movss dword ptr [rcx + 0x28], xmm3
+33fa8f: ret 
+33fa90: addss xmm1, dword ptr [rcx + 0x20]
+33fa95: movss dword ptr [rcx + 0x20], xmm1
+33fa9a: ret 
+33fa9b: int3 
+33fa9c: int3 
+33fa9d: int3 
+33fa9e: int3 
+33fa9f: int3 
+33faa0: addss xmm1, dword ptr [rcx + 0x24]
+33faa5: movss dword ptr [rcx + 0x24], xmm1
+33faaa: ret 
+33faab: int3 
+33faac: int3 
+33faad: int3 
+33faae: int3 
+33faaf: int3 
+33fab0: addss xmm1, dword ptr [rcx + 0x28]
+33fab5: movss dword ptr [rcx + 0x28], xmm1
+33faba: ret 
+33fabb: int3 
+33fabc: int3 
+33fabd: int3 
+33fabe: int3 
+33fabf: int3 
+33fac0: addss xmm1, dword ptr [rcx + 0x20]
+33fac5: addss xmm2, dword ptr [rcx + 0x24]
+33faca: addss xmm3, dword ptr [rcx + 0x28]
+33facf: movss dword ptr [rcx + 0x20], xmm1
+33fad4: movss dword ptr [rcx + 0x24], xmm2
+33fad9: movss dword ptr [rcx + 0x28], xmm3
+33fade: ret 
+33fadf: int3 
+33fae0: addss xmm1, dword ptr [rcx + 0x110]
+33fae8: movss dword ptr [rcx + 0x110], xmm1
+33faf0: ret 
+33faf1: int3 
+33faf2: int3 
+33faf3: int3 
+33faf4: int3 
+33faf5: int3 
+33faf6: int3 
+33faf7: int3 
+33faf8: int3 
+33faf9: int3 
+33fafa: int3 
+33fafb: int3 
+33fafc: int3 
+33fafd: int3 
+33fafe: int3 
+33faff: int3 
+33fb00: addss xmm1, dword ptr [rcx + 0x114]
+33fb08: movss dword ptr [rcx + 0x114], xmm1
+33fb10: ret 
+33fb11: int3 
+33fb12: int3 
+33fb13: int3 
+33fb14: int3 
+33fb15: int3 
+33fb16: int3 
+33fb17: int3 
+33fb18: int3 
+33fb19: int3 
+33fb1a: int3 
+33fb1b: int3 
+33fb1c: int3 
+33fb1d: int3 
+33fb1e: int3 
+33fb1f: int3 
+33fb20: addss xmm1, dword ptr [rcx + 0x118]
+33fb28: movss dword ptr [rcx + 0x118], xmm1
+33fb30: ret 
+33fb31: int3 
+33fb32: int3 
+33fb33: int3 
+33fb34: int3 
+33fb35: int3 
+33fb36: int3 
+33fb37: int3 
+33fb38: int3 
+33fb39: int3 
+33fb3a: int3 
+33fb3b: int3 
+33fb3c: int3 
+33fb3d: int3 
+33fb3e: int3 
+33fb3f: int3 
+33fb40: movss dword ptr [rcx + 0x14], xmm1
+33fb45: ret 
+33fb46: int3 
+33fb47: int3 
+33fb48: int3 
+33fb49: int3 
+33fb4a: int3 
+33fb4b: int3 
+33fb4c: int3 
+33fb4d: int3 
+33fb4e: int3 
+33fb4f: int3 
+33fb50: movss xmm0, dword ptr [rcx + 8]
+33fb55: ret 
+33fb56: int3 
+33fb57: int3 
+33fb58: int3 
+33fb59: int3 
+33fb5a: int3 
+33fb5b: int3 
+33fb5c: int3 
+33fb5d: int3 
+33fb5e: int3 
+33fb5f: int3 
+33fb60: movss xmm0, dword ptr [rcx + 0x14]
+33fb65: ret 
+33fb66: int3 
+33fb67: int3 
+33fb68: int3 
+33fb69: int3 
+33fb6a: int3 
+33fb6b: int3 
+33fb6c: int3 
+33fb6d: int3 
+33fb6e: int3 
+33fb6f: int3 
+33fb70: movss xmm0, dword ptr [rcx + 0x20]
+33fb75: ret 
+33fb76: int3 
+33fb77: int3 
+33fb78: int3 
+33fb79: int3 
+33fb7a: int3 
+33fb7b: int3 
+33fb7c: int3 
+33fb7d: int3 
+33fb7e: int3 
+33fb7f: int3 
+33fb80: movss xmm0, dword ptr [rcx + 0x24]
+33fb85: ret 
+33fb86: int3 
+33fb87: int3 
+33fb88: int3 
+33fb89: int3 
+33fb8a: int3 
+33fb8b: int3 
+33fb8c: int3 
+33fb8d: int3 
+33fb8e: int3 
+33fb8f: int3 
+33fb90: movss xmm0, dword ptr [rcx + 0x28]
+33fb95: ret 
+33fb96: int3 
+33fb97: int3 
+33fb98: int3 
+33fb99: int3 
+33fb9a: int3 
+33fb9b: int3 
+33fb9c: int3 
+33fb9d: int3 
+33fb9e: int3 
+33fb9f: int3 
+33fba0: mov eax, dword ptr [rcx + 0x20]
+33fba3: mov dword ptr [rdx], eax
+33fba5: mov eax, dword ptr [rcx + 0x24]
+33fba8: mov dword ptr [rdx + 4], eax
+33fbab: mov eax, dword ptr [rcx + 0x28]
+33fbae: mov dword ptr [rdx + 8], eax
+33fbb1: ret 
+33fbb2: int3 
+33fbb3: int3 
+33fbb4: int3 
+33fbb5: int3 
+33fbb6: int3 
+33fbb7: int3 
+33fbb8: int3 
+33fbb9: int3 
+33fbba: int3 
+33fbbb: int3 
+33fbbc: int3 
+33fbbd: int3 
+33fbbe: int3 
+33fbbf: int3 

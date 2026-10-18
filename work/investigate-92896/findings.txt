@@ -1,0 +1,29 @@
+Investigation: Ben 92896 versus partner 43424 (ScopedClear)
+
+Evidence selection
+Ben terminal failure: captures/steam-inputs-92896-retained-evidence.bin.
+Do NOT use Ben cycle-1-replay-evidence.bin for the failure: that is the successful first round.
+Partner: steam-inputs-43424-cycle-2-replay-evidence.bin from supplied ZIP.
+Parsed JSON: 92896-failure.json and 43424.json in this directory.
+
+Confirmed
+Ben failed on the first replayed step of cycle 2. Phase-2 timer events cover 2765 -> 2766 only; report source_frame=2767/next_frame=2768 is not sufficient to infer the failed hop.
+Native record 2 (6208 bytes) and record 9 (4592 bytes) each differ at offsets 1968,1969,1972,1973,1976,1977,1978. These are the same three float components at +0x7B0, +0x7B4, +0x7B8 in ring/cache. Fourth component remains 1.
+Ben saved/restored/replayed: (-1.9874995946884155,1.0110000371932983,0.010875001549720764).
+Ben expected next: (-1.9863121509552002,1.0103750228881836,0.011937501840293407).
+Thus the replay retained the previous values; this is not merely tiny floating-point rounding variation.
+Her corresponding P1 vector is constant across natural and replayed steps: (-1.999999761581421,1.0130000114440918,2.3283064365386963e-10). Her successful replay therefore does not demonstrate reproduction of Ben's changing local vector.
+Ben ring differs by exactly7 bytes. Blend, transform and camera comparisons are byte-identical. RNG and sampled player scalars match. Timer weight_input events are zero on both sides/natural and replay; matching controller scalars. No observed different selected sample explains this failure.
+Animation copy trace has entry events with entry_mask=0 in natural/replay. Ben vector is already different at entry during replay. There are no before/after conditional-copy events for this path.
+
+Ghidra machine-code evidence
+Fresh focused headless run: workspace/work/ghidra-sc6-focus/seven-bytes/instructions.txt (script SC6SevenBytes.java).
+RVA30A9EC calls serializer with length0x1840; return address30A9F0 is a save-site marker, NOT the computation producing the values.
+RVA2F0F57 tests cache+0xB18; zero jumps at2F0F66 to2F3674, bypassing the conditional copy block.
+Conditional block2F355D tests stack+0x3758 and copies matrix at+0x780 through+0x7BF between ring/cache; it cannot explain this run because entry-mask zero bypasses it.
+Ghidra did not have full function bodies for the two newly inspected addresses. Instruction decoding is used here; no claim of complete decompilation.
+
+Conclusion and next work
+Failure is narrowed to a changing P1 matrix translation already stale before the observed animation-copy entry. The old blend-weight/sample-selection hypothesis is unsupported for this run.
+The missing producer/update branch before this entry must be identified and its inputs compared with native replay scheduling. Existing trace does not observe that producer, so exact root cause (omitted update, external state, scheduling) remains unproven. Do not fix by copying expected-next values or loosening comparison.
+No mod/source changes, guard changes, or new live test performed in this investigation.

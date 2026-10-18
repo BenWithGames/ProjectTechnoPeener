@@ -1,3 +1,4 @@
+#include <source_location>
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <Windows.h>
@@ -20,7 +21,7 @@ using T=sc6::research::FullRestoreStream;
 using P=sc6::research::FullStateProbe;
 using S=sc6::research::SaveStream;
 uintptr_t base;int mode;unsigned saves,loads,checks;
-void require(bool v){if(!v){std::fprintf(stderr,"Full restore test failed mode=%d\n",mode);std::exit(1);}}
+void require(bool v,const std::source_location where=std::source_location::current()){if(!v){std::fprintf(stderr,"Full restore test failed mode=%d line=%u\n",mode,where.line());std::exit(1);}}
 bool check(uintptr_t){++checks;return mode!=1 && !(mode==7 && checks==3);}
 void* save(S* s){++saves;if(mode==12 && saves==2)++*reinterpret_cast<unsigned*>(base+0x485EB28);s->slots->write(s,reinterpret_cast<void*>(base+P::key_rvas[1]),4);return s;}
 void* load(S* s){
@@ -204,6 +205,32 @@ int main(){
     {
         auto p=std::make_unique<P>();
         auto players=std::make_unique<std::array<std::array<std::byte,0x973E8>,2>>();
+        auto put=[](auto& v,unsigned off,unsigned value){std::memcpy(v.data()+off,&value,4);};
+        p->blend_timer_source.valid_mask=63;
+        auto& a=p->blend_timer_source.slots[1][0];
+        uintptr_t header=0x100000,descriptors=header+0x40,data=0x200000;
+        std::memcpy(a.data(),&header,8);std::memcpy(a.data()+8,&descriptors,8);std::memcpy(a.data()+16,&data,8);
+        put(a,0x1C,524);put(a,0x3C,207);put(a,0x44,0x3F800000);put(a,0x48,1);
+        auto next=p->blend_timer_source;put(next.slots[1][0],0x3C,204);put(next.slots[1][0],0x40,0x40800000);put(next.slots[1][0],0x48,2);
+        p->blend_timer_next=next;assert(p->timer_transition_ready());
+        P::TimerDiagnostic d{};assert(!P::timer_compatible(p->blend_timer_source,next,d,2));
+        for(unsigned off:{0u,8u,16u,0x1Cu,0x38u,0x44u,0x4Cu,0x58u,0x68u}){auto bad=next;bad.slots[1][0][off]^=std::byte{1};assert(!P::timer_pair(p->blend_timer_source,bad));}
+        for(unsigned v:{524u,0xFFFFFFFFu}){auto bad=next;put(bad.slots[1][0],0x3C,v);assert(!P::timer_pair(p->blend_timer_source,bad));}
+        for(unsigned v:{0u,0x40000000u,0x80000000u,0x7F800000u,0x7FC00000u}){auto bad=next;put(bad.slots[1][0],0x40,v);assert(!P::timer_pair(p->blend_timer_source,bad));}
+        auto bad_source=p->blend_timer_source;put(bad_source.slots[1][0],0x3C,524);assert(!P::timer_pair(bad_source,next));
+        put(bad_source.slots[1][0],0x3C,207);put(bad_source.slots[1][0],0x58,1);auto bad_next=next;put(bad_next.slots[1][0],0x58,1);assert(!P::timer_pair(bad_source,bad_next));
+        p->measurements[0].valid=p->measurements[2].valid=true;
+        for(unsigned side=0;side<2;++side){p->measurements[0].players[side]=p->measurements[2].players[side]=reinterpret_cast<uintptr_t>((*players)[side].data());
+            for(unsigned i=0;i<3;++i)std::memcpy((*players)[side].data()+0x97268+i*128,next.slots[side][i].data(),128);}
+        assert(p->timer_endpoint_ready() && p->restore_blend_timers());
+        P::BlendTimerSample restored{};P::read_blend_timers(restored,p->measurements[0],0);assert(restored.slots==p->blend_timer_source.slots);
+        // Reject stale resource identity before touching any of the six slots.
+        for(unsigned side=0;side<2;++side)for(unsigned i=0;i<3;++i)std::memcpy((*players)[side].data()+0x97268+i*128,next.slots[side][i].data(),128);
+        (*players)[1][0x97268+8]^=std::byte{1};const auto before=std::make_unique<std::array<std::array<std::byte,0x973E8>,2>>(*players);assert(!p->restore_blend_timers() && *players==*before);
+    }
+    {
+        auto p=std::make_unique<P>();
+        auto players=std::make_unique<std::array<std::array<std::byte,0x973E8>,2>>();
         p->measurements[0].valid=p->measurements[2].valid=true;
         for(unsigned side=0;side<2;++side){
             p->measurements[0].players[side]=p->measurements[2].players[side]=reinterpret_cast<uintptr_t>((*players)[side].data());
@@ -277,7 +304,7 @@ int main(){
         x.traces[1].writer=y.traces[1].writer=image_base+0x30AA96;
         b->saved.writes=2;b->saved.traces[1].reader=image_base+0x30AFD8;
         b->restore_completed=b->general_combat_requested=true;
-        unsigned tiny=0x34AEB852;int16_t slot=20;
+        unsigned tiny=0x34AF0A3D;int16_t slot=20; // Bilateral MatrixUpdate record357.
         for(auto* stream:{&x,&y}){
             std::memcpy(stream->stream.payload.data()+0x2020-0x90,&slot,2);
             std::memcpy(stream->stream.payload.data()+0x2030-0x90,&tiny,4);
@@ -286,6 +313,13 @@ int main(){
         require(!R::native_equal(*a,*b,image_base,&d) && d.bytes==60 && !d.deferred_bytes);
         b->defer_inactive_animation_weights=true;
         require(R::native_equal(*a,*b,image_base,&d) && d.deferred_bytes==60 && !d.records);
+        // Deferral must never accept these same 60 bytes at a replay endpoint.
+        b->after_save=x;b->replay=y;
+        sc6::research::TwoFrameIdleReplay::NativeDifference endpoint;
+        require(!sc6::research::TwoFrameIdleReplay::native_equal(*b,image_base,&endpoint));
+        require(endpoint.record==1 && endpoint.offset==0x1120);
+        b->replay=x;
+        require(sc6::research::TwoFrameIdleReplay::native_equal(*b,image_base,&endpoint));
         // Active masks, unknown writes, changed control, and unrelated bytes remain failures.
         y.stream.payload[0x3510+0x1118]=std::byte{1};require(!R::native_equal(*a,*b,image_base,&d));
         y.stream.payload[0x3510+0x1118]=std::byte{};
@@ -375,6 +409,34 @@ int main(){
     source_identity_audit();
     base=reinterpret_cast<uintptr_t>(VirtualAlloc(nullptr,0x4900000,MEM_COMMIT|MEM_RESERVE,PAGE_READWRITE));require(base!=0);
     {
+        using Boundary=sc6::research::EffectRngBoundary;
+        static_assert(sizeof(Boundary)==548);
+        auto a=std::make_unique<sc6::research::TransformSnapshot>();a->valid=true;a->count=2;
+        for(unsigned i=0;i<2;++i){auto& r=a->records[i];r.side=2;r.kind=10+i;r.address=base+(i?0x470E2B0:0x485EB30);r.size=i?24:104;}
+        auto b=std::make_unique<sc6::research::TransformSnapshot>(*a);
+        unsigned next=1;std::memcpy(b->records[0].bytes.data()+100,&next,4);
+        for(unsigned changed=0;changed<33;++changed){
+            std::memset(reinterpret_cast<void*>(base+0x485EB30),0,104);
+            std::memset(reinterpret_cast<void*>(base+0x470E2B0),0,24);
+            auto address=base+(changed<26?0x485EB30+changed*4:0x470E2B0+(changed-26)*4);
+            if(changed<32)*reinterpret_cast<unsigned*>(address)=1;
+            Boundary d;require(d.before(*a,*b,base)==(changed==32));
+            if(changed<32)require(*reinterpret_cast<unsigned*>(address)==1 && d.check==3);
+            else {require(d.entry_match);d.finish(base);require(d.after_valid && !d.after_match);
+                *reinterpret_cast<unsigned*>(base+0x485EB94)=1;d.finish(base);require(d.after_match);}
+        }
+        Boundary::State state;
+        a->records[1].address+=4;require(!Boundary::archived(*a,base,state));a->records[1].address-=4;
+        a->count=1;require(!Boundary::archived(*a,base,state));a->count=2;
+        unsigned invalid=26;std::memcpy(a->records[0].bytes.data()+100,&invalid,4);require(!Boundary::archived(*a,base,state));
+        bool called=false;require(!sc6::research::verify_replay_effects(false,[&]{called=true;return true;}));require(called);
+        require(!sc6::research::verify_replay_effects(true,[]{return false;}));
+        require(sc6::research::verify_replay_effects(true,[]{return true;}));
+        std::memset(reinterpret_cast<void*>(base+0x485EB30),0,104);std::memset(reinterpret_cast<void*>(base+0x470E2B0),0,24);
+        std::puts("PASS: both shared RNG states checked before replay; all 32 word mismatches reject without writes; independent effect comparison retained");
+    }
+
+    {
         auto stream=std::make_unique<T>();sc6::research::CameraSnapshot camera;
         constexpr unsigned sites[]={0x33FC68,0x33FC7B,0x33FC8E,0x33FE69,0x33FE7F,0x33FE95};
         constexpr unsigned offsets[]={0x50,0x60,0x70,0x110,0x120,0x130};
@@ -401,6 +463,7 @@ int main(){
         auto ca=std::make_unique<sc6::research::CameraSnapshot>(),cb=std::make_unique<sc6::research::CameraSnapshot>();
         *reinterpret_cast<unsigned*>(owner+0x1E0)=0;
         *reinterpret_cast<unsigned*>(owner+0x154)=0x40600000;
+        *reinterpret_cast<unsigned*>(owner+0x2AC)=0; // valid two-player index after raw capture-layout test
         *reinterpret_cast<unsigned*>(owner+0x29C)=20;
         std::memset(reinterpret_cast<void*>(owner+0x1E8),0,116);
         for(unsigned off:{0x230u,0x234u,0x238u,0x240u,0x244u,0x248u})*reinterpret_cast<float*>(owner+off)=2.5f;
@@ -509,6 +572,107 @@ int main(){
             std::memset(ca->records[0].targets.data()+112,0,4);std::memset(cb->records[0].targets.data()+112,0,4);
             std::puts("PASS: all 225 camera mode pairs restore saved value; invalid domains reject without writes");
         }
+        // Both observed post-load decision-counter sentinels. Exercise full
+        // guarded restoration, validate-only, and stale-live rejection.
+        {
+            using C=sc6::research::CameraSnapshot;
+            const auto savedA=*ca,savedB=*cb,savedC=camera;
+            std::array<std::byte,0x2B0> originalLive{};
+            std::memcpy(originalLive.data(),reinterpret_cast<void*>(owner),originalLive.size());
+            for(unsigned counterOffset:{116u,120u})for(unsigned source:{0xFFFFFFFFu,0u,1u,26u})for(bool resetNext:{false,true}){
+                *ca=savedA;*cb=savedB;camera=savedC;
+                std::memcpy(reinterpret_cast<void*>(owner),originalLive.data(),originalLive.size());
+                const unsigned next=resetNext?0xFFFFFFFFu:source+1,reset=0xFFFFFFFFu;
+                std::memcpy(ca->records[0].targets.data()+counterOffset,&source,4);
+                std::memcpy(cb->records[0].targets.data()+counterOffset,&next,4);
+                std::memcpy(camera.records[0].targets.data()+counterOffset,&reset,4);
+                const auto address=owner+0x2A4+counterOffset-116;
+                *reinterpret_cast<unsigned*>(address)=reset;
+                require(ca->restore_smoothing(*cb,camera,base,false,false,true,false,nullptr,true));
+                require(*reinterpret_cast<unsigned*>(address)==reset);
+                // Live memory must still agree with the post-load observation.
+                *reinterpret_cast<unsigned*>(address)=7;
+                C::RestoreDiagnostic detail{};
+                require(!ca->restore_smoothing(*cb,camera,base,false,false,false,false,&detail,true));
+                require(detail.section==5 && detail.offset==counterOffset);
+                require(*reinterpret_cast<unsigned*>(address)==7);
+                *reinterpret_cast<unsigned*>(address)=reset;
+                require(ca->restore_smoothing(*cb,camera,base,false,false,false,false,nullptr,true));
+                require(*reinterpret_cast<unsigned*>(address)==source);
+            }
+            *ca=savedA;*cb=savedB;camera=savedC;
+            std::memcpy(reinterpret_cast<void*>(owner),originalLive.data(),originalLive.size());
+            require(C::decision_counter_loaded(26,27,0xFFFFFFFFu));
+            require(!C::decision_counter_loaded(26,28,0xFFFFFFFFu));
+            require(!C::decision_counter_loaded(26,27,0xFFFFFFFEu));
+            require(!C::decision_counter_loaded(26,27,0));
+            require(!C::decision_counter_loaded(0x7FFFFFFFu,0x80000000u,0xFFFFFFFFu));
+            std::puts("PASS: camera counter reset sentinel restores saved values; adjacency and live checks remain strict");
+        }
+        // Native +2AC reset loses the previous selected player. Exercise all
+        // source/next side pairs, exact restore, validate-only and no-write rejects.
+        {
+            using C=sc6::research::CameraSnapshot;
+            const auto savedA=*ca,savedB=*cb,savedC=camera;
+            std::array<std::byte,0x2B0> originalLive{};
+            std::memcpy(originalLive.data(),reinterpret_cast<void*>(owner),originalLive.size());
+            for(unsigned a=0;a<2;++a)for(unsigned b=0;b<2;++b){
+                *ca=savedA;*cb=savedB;camera=savedC;
+                std::memcpy(reinterpret_cast<void*>(owner),originalLive.data(),originalLive.size());
+                std::memcpy(ca->records[0].targets.data()+124,&a,4);
+                std::memcpy(cb->records[0].targets.data()+124,&b,4);
+                require(ca->restore_smoothing(*cb,camera,base,false,false,true,false,nullptr,true));
+                require(!std::memcmp(originalLive.data(),reinterpret_cast<void*>(owner),originalLive.size()));
+                *reinterpret_cast<unsigned*>(owner+0x2AC)=1;
+                C::RestoreDiagnostic detail{};
+                require(!ca->restore_smoothing(*cb,camera,base,false,false,false,false,&detail,true));
+                require(detail.section==5 && detail.offset==124);
+                *reinterpret_cast<unsigned*>(owner+0x2AC)=0;
+                require(ca->restore_smoothing(*cb,camera,base,false,false,false,false,nullptr,true));
+                require(*reinterpret_cast<unsigned*>(owner+0x2AC)==a);
+            }
+            for(unsigned field=0;field<3;++field)for(unsigned bad:{2u,15u,0xFFFFFFFFu}){
+                *ca=savedA;*cb=savedB;camera=savedC;
+                std::memcpy(reinterpret_cast<void*>(owner),originalLive.data(),originalLive.size());
+                auto* r=field==0?&ca->records[0]:field==1?&cb->records[0]:&camera.records[0];
+                std::memcpy(r->targets.data()+124,&bad,4);
+                if(field==2)*reinterpret_cast<unsigned*>(owner+0x2AC)=bad;
+                std::array<std::byte,0x2B0> before{};std::memcpy(before.data(),reinterpret_cast<void*>(owner),before.size());
+                require(!ca->restore_smoothing(*cb,camera,base,false,false,false,false,nullptr,true));
+                require(!std::memcmp(before.data(),reinterpret_cast<void*>(owner),before.size()));
+            }
+            *ca=savedA;*cb=savedB;camera=savedC;
+            std::memcpy(reinterpret_cast<void*>(owner),originalLive.data(),originalLive.size());
+            unsigned one=1;std::memcpy(ca->records[0].targets.data()+124,&one,4);std::memcpy(cb->records[0].targets.data()+124,&one,4);
+            require(!ca->restore_smoothing(*cb,camera,base)); // opt-in required
+            require(!std::memcmp(originalLive.data(),reinterpret_cast<void*>(owner),originalLive.size()));
+            *ca=savedA;*cb=savedB;camera=savedC;
+            require(!C::player_selection_loaded(0,1,1)); // not reset or saved provenance
+            std::puts("PASS: all four camera player-selection pairs restore exactly; invalid indices, stale live state and opt-out reject without writes");
+        }
+        // Both forced camera directions have the same native reset as auto.
+        {
+            using C=sc6::research::CameraSnapshot;
+            const auto savedA=*ca,savedB=*cb,savedC=camera;
+            std::array<std::byte,0x2B0> originalLive{};std::memcpy(originalLive.data(),reinterpret_cast<void*>(owner),originalLive.size());
+            for(unsigned a:{0u,1u,0xFFFFFFFFu})for(unsigned b:{0u,1u,0xFFFFFFFFu}){
+                *ca=savedA;*cb=savedB;camera=savedC;std::memcpy(reinterpret_cast<void*>(owner),originalLive.data(),originalLive.size());
+                std::memcpy(ca->records[0].targets.data(),&a,4);std::memcpy(cb->records[0].targets.data(),&b,4);
+                require(ca->restore_smoothing(*cb,camera,base,false,false,true,false,nullptr,true));
+                require(!std::memcmp(originalLive.data(),reinterpret_cast<void*>(owner),originalLive.size()));
+                require(ca->restore_smoothing(*cb,camera,base,false,false,false,false,nullptr,true));
+                require(*reinterpret_cast<unsigned*>(owner+0x1E8)==a);
+            }
+            *ca=savedA;*cb=savedB;camera=savedC;std::memcpy(reinterpret_cast<void*>(owner),originalLive.data(),originalLive.size());
+            require(!C::forced_selection_loaded(1,0,0xFFFFFFFFu));
+            for(unsigned bad:{2u,0xFFFFFFFEu,0x7FFFFFFFu}){
+                std::memcpy(ca->records[0].targets.data(),&bad,4);
+                require(!ca->restore_smoothing(*cb,camera,base,false,false,false,false,nullptr,true));
+                require(!std::memcmp(originalLive.data(),reinterpret_cast<void*>(owner),originalLive.size()));
+            }
+            *ca=savedA;*cb=savedB;camera=savedC;
+            std::puts("PASS: nine forced camera selection pairs restore exact signed values; invalid selection and wrong loaded provenance rejected");
+        }
         // Camera +258: known stable saved value reset by native load.
         ca->records[0].targets[112]=cb->records[0].targets[112]=std::byte{1};
         require(!ca->restore_smoothing(*cb,camera,base));
@@ -533,7 +697,10 @@ int main(){
         for(auto* r:{&ca->records[0],&cb->records[0],&camera.records[0]})
             std::memset(r->targets.data()+116,0,8);
         std::memset(reinterpret_cast<void*>(owner+0x2A4),0,8);
-        require(!sc6::research::CameraSnapshot::decision_counter_pair(26,0xFFFFFFFFu));
+        require(sc6::research::CameraSnapshot::decision_counter_pair(26,0xFFFFFFFFu));
+        require(sc6::research::CameraSnapshot::decision_counter_pair(0xFFFFFFFFu,0));
+        require(!sc6::research::CameraSnapshot::decision_counter_pair(0xFFFFFFFFu,1));
+        require(!sc6::research::CameraSnapshot::decision_counter_pair(0xFFFFFFFEu,0xFFFFFFFEu));
         require(!sc6::research::CameraSnapshot::decision_counter_pair(0x7FFFFFFFu,0x80000000u));
         require(!sc6::research::CameraSnapshot::decision_counter_pair(26,28));
         require(*reinterpret_cast<unsigned*>(owner+0x1E8)==0xFFFFFFFFu);
@@ -612,6 +779,36 @@ int main(){
             require(!ca->adjacent_combat_ready(*cb,base,false,&d) && d.reason==8 && d.section==2 && d.offset==4 && d.side==1);
             cb->records[0]=saved;
             require(ca->adjacent_combat_ready(*cb,base,false,&d) && d.reason==0);
+        }
+
+        {
+            const auto saved_a=ca->records[0],saved_b=cb->records[0];
+            for(auto* r:{&ca->records[0],&cb->records[0]})
+                for(unsigned off:{0x68u,0x6Cu})std::memset(r->targets.data()+off,0,4);
+            // Moving targets/response prevent the old idle-only shortcut.
+            require(!ca->adjacent_idle_ready(*cb,base));
+            require(ca->adjacent_combat_ready(*cb,base,true));
+            require(ca->restore_smoothing(*cb,camera,base,false,true,true,true));
+            auto bad_loaded=camera;
+            std::memset(bad_loaded.records[0].targets.data()+0x68,0,4);
+            require(!ca->restore_smoothing(*cb,bad_loaded,base,false,true,true,true));
+            require(ca->restore_smoothing(*cb,camera,base,false,true,false,true));
+            require(*reinterpret_cast<unsigned*>(owner+0x250)==0 && *reinterpret_cast<unsigned*>(owner+0x254)==0);
+            require(!ca->restore_smoothing(*cb,camera,base,false,true,false,true));
+            // Restore the mock native post-load state for subsequent tests.
+            std::memcpy(reinterpret_cast<void*>(owner),camera.records[0].bytes.data(),0x1C8);
+            std::memcpy(reinterpret_cast<void*>(owner+0x1E0),camera.records[0].smoothing.data(),8);
+            std::memcpy(reinterpret_cast<void*>(owner+0x25C),camera.records[0].smoothing.data()+8,72);
+            std::memcpy(reinterpret_cast<void*>(owner+0x1E8),camera.records[0].targets.data(),116);
+            std::memcpy(reinterpret_cast<void*>(owner+0x2A4),camera.records[0].targets.data()+116,12);
+            std::memcpy(reinterpret_cast<void*>(owner+0x1D0),camera.records[0].response.data(),12);
+            ca->records[0]=saved_a;cb->records[0]=saved_b;
+            using C=sc6::research::CameraSnapshot;
+            require(C::replay_factor(0,0) && !C::rising_factor(0,0));
+            require(C::replay_factor(0,0x3DCCCCCDu));
+            for(unsigned bad:{0x80000000u,0x7FC00000u,0x7F800000u,0xBF000000u,0x3F000000u,0x3F800001u}){
+                require(!C::replay_factor(bad,bad));require(!C::replay_factor(0,bad));
+            }
         }
 
         {
@@ -724,6 +921,34 @@ int main(){
         if(mode==7)require(!p->postflight_ok && saves==1);
         require(*reinterpret_cast<std::uint64_t*>(base+0x470E870)==1234);
         auto old=saves;p->run(base,save,load,check);require(saves==old);
+    }
+    // Exact native +54 reset, both sides, with no guessed saved-value range.
+    for(unsigned value:{0x3F333333u,0u,0x80000000u,0xBF800000u,0x7F7FFFFFu,0x7FC12345u}){
+        auto q=std::make_unique<P>();
+        for(unsigned side=0;side<2;++side){
+            auto player=P::ptr(base+0x470DE90+side*8);
+            std::memset(reinterpret_cast<void*>(player+0x971E8),0,96);
+            std::memset(reinterpret_cast<void*>(player+0x97100),0,120);
+            *reinterpret_cast<uintptr_t*>(player+0x43DF0)=player;
+            *reinterpret_cast<unsigned*>(player+0x9723C)=value;
+        }
+        *reinterpret_cast<unsigned*>(base+0x485EB28)=123;q->measure(base,0);q->measure(base,1);
+        *reinterpret_cast<unsigned*>(base+0x485EB28)=P::advance_rng(123);
+        for(unsigned side=0;side<2;++side)*reinterpret_cast<unsigned*>(P::ptr(base+0x470DE90+side*8)+0x9723C)=0x3F800000;
+        q->measure(base,2);require(q->preserve(base) && q->preserve_verified);
+        for(unsigned side=0;side<2;++side){require(q->scalar_resets[side].restored==1);require(*reinterpret_cast<unsigned*>(P::ptr(base+0x470DE90+side*8)+0x9723C)==value);}
+    }
+    for(unsigned rejection=0;rejection<3;++rejection){
+        auto q=std::make_unique<P>();
+        for(unsigned side=0;side<2;++side){auto player=P::ptr(base+0x470DE90+side*8);std::memset(reinterpret_cast<void*>(player+0x971E8),0,96);*reinterpret_cast<unsigned*>(player+0x9723C)=0x3F333333;}
+        *reinterpret_cast<unsigned*>(base+0x485EB28)=123;q->measure(base,0);q->measure(base,1);
+        *reinterpret_cast<unsigned*>(base+0x485EB28)=P::advance_rng(123);
+        auto player=P::ptr(base+0x470DE90);
+        *reinterpret_cast<unsigned*>(player+0x9723C)=rejection==0?0x40000000:0x3F800000;
+        if(rejection==2)*reinterpret_cast<unsigned*>(player+0x97240)=1; // adjacent unknown bytes
+        q->measure(base,2);
+        if(rejection==1)*reinterpret_cast<unsigned*>(player+0x9723C)=0x40000000; // changed since measurement
+        require(!q->preserve(base) && !q->preserve_applied);
     }
     for(mode=9;mode<=43;++mode){
         *reinterpret_cast<unsigned*>(base+0x485EB28)=123;
@@ -2028,6 +2253,24 @@ int main(){
                 z->general_combat_requested=false;require(!Two::native_equal(*z,base));z->general_combat_requested=true;
                 z->restore_completed=false;require(!Two::native_equal(*z,base));z->restore_completed=true;
                 a.stream.payload[0x1CF]=std::byte{};b.stream.payload[0x1CF]=std::byte{0x80};require(Two::native_equal(*z,base));
+                // Each newly observed W field accepts either zero sign only.
+                for(unsigned word:{0x11Cu,0x12Cu,0x1CCu}){
+                    std::memset(a.stream.payload.data(),0,0x370);std::memset(b.stream.payload.data(),0,0x370);
+                    a.stream.payload[word+3]=std::byte{0x80};
+                    require(Two::native_equal(*z,base) && z->motion_zero_evidence[2]==word);
+                    b.stream.payload[word]=std::byte{1};require(!Two::native_equal(*z,base));
+                    b.stream.payload[word]=std::byte{};
+                    a.stream.payload[word+3]=std::byte{};b.stream.payload[word+3]=std::byte{0x80};
+                    require(Two::native_equal(*z,base));
+                    b.stream.payload[word+3]=std::byte{0x3f};require(!Two::native_equal(*z,base));
+                    b.stream.payload[word+3]=std::byte{0x7f};require(!Two::native_equal(*z,base));
+                }
+                std::memset(a.stream.payload.data(),0,0x370);std::memset(b.stream.payload.data(),0,0x370);
+                a.stream.payload[0x11F]=a.stream.payload[0x12F]=a.stream.payload[0x1CF]=std::byte{0x80};
+                require(Two::native_equal(*z,base) && z->motion_zero_evidence[0]==3);
+                b.stream.payload[0x11B]=std::byte{0x80};require(!Two::native_equal(*z,base));
+                b.stream.payload[0x11B]=std::byte{};
+                b.stream.payload[0x1CF]=std::byte{0x80};
                 // A later nonzero divergence is still rejected after an accepted zero.
                 b.stream.payload[0x1CF]=std::byte{0x3f};require(!Two::native_equal(*z,base));
             }
@@ -2788,6 +3031,44 @@ int main(){
             require(*reinterpret_cast<float*>(target+0x80)==0.0f && correction->count==(failure>=23?7u:6u));
             require(*reinterpret_cast<unsigned*>(camera+0x144)==archived144);
         } else if(failure>=23 && failure!=35)require(*reinterpret_cast<unsigned*>(camera+0x144)==0);
+    }
+    // Audited 3E885E0 camera limits: exact restoration, transactional rejection.
+    for(unsigned scenario=0;scenario<13;++scenario){
+        auto a=std::make_unique<P>(),b=std::make_unique<P>(),c=std::make_unique<P>();
+        a->transforms[0].valid=b->transforms[0].valid=c->transforms[3].valid=true;
+        a->rings[0].valid=b->rings[0].valid=c->restored_rings.valid=true;
+        for(auto& h:b->rings[0].headers)h.index=2;
+        a->blends[0].valid=b->blends[0].valid=c->blends[3].valid=true;
+        for(unsigned side=0;side<2;++side){auto owner=base+0x710000+side*0x10000;
+            a->blends[0].owners[side]=b->blends[0].owners[side]=c->blends[3].owners[side]=owner;
+            std::memset(reinterpret_cast<void*>(owner+0x22A8),0,8);
+        }
+        auto& ca=a->cameras[0];ca.valid=true;ca.count=1;
+        auto& r=ca.records[0];r.owner=base+0x704000;
+        auto vt=base+0x3E885E0;std::memcpy(r.bytes.data(),&vt,8);
+        constexpr unsigned offsets[]={0x188,0x18C,0x1B8,0x1BC};
+        constexpr unsigned defaults[]={0xBE7FFFBC,0x3E7FFD60,0x3F000000,0x437A0000};
+        for(unsigned j=0;j<4;++j){float value=float(j+1);std::memcpy(r.bytes.data()+offsets[j],&value,4);}
+        b->cameras[0]=ca;c->cameras[4]=ca;
+        auto& live=c->cameras[4].records[0];
+        for(unsigned j=0;j<4;++j)std::memcpy(live.bytes.data()+offsets[j],&defaults[j],4);
+        if(scenario>=1 && scenario<=4)live.bytes[offsets[scenario-1]]^=std::byte{1};
+        if(scenario==5)live.bytes[0x190]^=std::byte{1};
+        if(scenario==6)b->cameras[0].records[0].owner+=8;
+        if(scenario==7)live.bytes[0]^=std::byte{1};
+        if(scenario==8){unsigned nan=0x7FC00000;std::memcpy(r.bytes.data()+0x188,&nan,4);}
+        if(scenario==9)r.smoothing_valid=true;
+        if(scenario==10)b->cameras[0].records[0].bytes[0]^=std::byte{1};
+        if(scenario==12){unsigned negativeZero=0x80000000;std::memcpy(r.bytes.data()+0x188,&negativeZero,4);}
+        std::memcpy(reinterpret_cast<void*>(r.owner),live.bytes.data(),456);
+        if(scenario==11)*reinterpret_cast<unsigned char*>(r.owner+0x18C)^=1;
+        std::array<std::byte,456> before{};std::memcpy(before.data(),reinterpret_cast<void*>(r.owner),456);
+        auto correction=std::make_unique<sc6::research::ImmediateIdleCorrection>();
+        bool ok=correction->apply(*a,*b,*c,base);
+        if(ok!=(scenario==0 || scenario==12))std::fprintf(stderr,"camera limits scenario=%u section=%u line=%u\n",scenario,correction->section,correction->failure_line);
+        require(ok==(scenario==0 || scenario==12));
+        require(!std::memcmp(reinterpret_cast<void*>(r.owner),ok?r.bytes.data():before.data(),456));
+        require(ok?correction->count==4:!correction->verified);
     }
     {
         sc6::research::IdleBlendSettle settle;

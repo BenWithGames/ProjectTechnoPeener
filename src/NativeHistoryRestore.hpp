@@ -26,6 +26,9 @@ public:
         for(hop=0;hop<depth;++hop){
             if(!history.visit(keys[hop],[&](NativeBoundarySnapshot& a){return history.visit(keys[hop+1],[&](NativeBoundarySnapshot& b){
                 if(a.module!=base || b.module!=base)return false;
+                if(bool(a.effects)!=bool(b.effects))return false;
+                if(a.effects && (!a.effects->owner || a.effects->owner!=b.effects->owner ||
+                    !a.effects->owner->validate(*a.effects) || !a.effects->owner->validate(*b.effects)))return false;
                 source_mode=static_cast<unsigned>(a.mode);next_mode=static_cast<unsigned>(b.mode);
                 if(a.mode==NativeBoundarySnapshot::Mode::general_combat || b.mode==NativeBoundarySnapshot::Mode::general_combat)
                     return work_[hop]->preflight_general(a,b);
@@ -38,13 +41,24 @@ public:
             // Recheck every retained dependency before each native mutation.
             for(unsigned j=0;j<=depth;++j)if(!history.validate_owned(keys[j]))return false;
             if(!history.visit(keys[i],[&](NativeBoundarySnapshot& a){return history.visit(keys[i+1],[&](NativeBoundarySnapshot& b){
+                if(bool(a.effects)!=bool(b.effects))return false;
+                if(a.effects && (!a.effects->owner || a.effects->owner!=b.effects->owner ||
+                    !a.effects->owner->validate(*a.effects) || !a.effects->owner->validate(*b.effects)))return false;
                 source_mode=static_cast<unsigned>(a.mode);next_mode=static_cast<unsigned>(b.mode);
                 if(a.mode==NativeBoundarySnapshot::Mode::general_combat){
                     stage=Stage::prepare;
                     if(!work_[i]->prepare_captured(a,b,false,false,true))return false;
                     stage=Stage::load;
                 }
-                return work_[i]->restore_captured(a,base,input_.assign(b.data->delayed_inputs));
+                if constexpr(requires {work_[i]->probe->defer_inactive_animation_weights;})
+                    work_[i]->probe->defer_inactive_animation_weights=true;
+                if(a.data->selector_enabled){
+                    if constexpr(requires {work_[i]->probe->selector_diagnostic;})
+                        if(!a.data->selectors[0].dependencies(work_[i]->probe->selector_diagnostic))return false;
+                }
+                if(a.effects && !a.effects->owner->restore(*a.effects))return false;
+                return work_[i]->restore_captured(a,base,input_.assign(b.data->delayed_inputs)) &&
+                    (!a.effects || a.effects->owner->compare(*a.effects));
             });}))return false;
         }
         loaded=true;stage=Stage::restored;return true;

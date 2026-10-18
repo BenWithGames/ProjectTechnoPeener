@@ -51,6 +51,7 @@ inline void poll() {
     static sc6::research::StartupSuite suite;
     static sc6::research::RepeatedCorrectionSession repeated;
     static sc6::research::StartupBoundaryAgreement boundary_agreement;
+    static unsigned boundary_rejection_mask{},boundary_rejection_live_identity{},boundary_rejection_startup_identity{},boundary_rejection_hold{};
     static ULONGLONG boundary_sent=0,boundary_agreed_at=0;
     static ULONGLONG correction_sent=0;
     static steam_inputs::Capture capture;
@@ -78,7 +79,7 @@ inline void poll() {
                 if(continuous_events)sc6::research::RollbackJournal<>::header(continuous_events);
             }
             std::ofstream summary(report_path.parent_path()/(report_path.stem().string()+"-continuous.txt"));
-            if(continuous_events && summary){runtime->write(continuous_events,summary);continuous_events.flush();}
+            if(continuous_events && summary){runtime->write_history(continuous_events,summary);continuous_events.flush();}
         }
     }
     if(prepare_mode && stopped && capture.owned_nonce && abort_combat_recording)abort_combat_recording(capture.owned_nonce);
@@ -92,9 +93,14 @@ inline void poll() {
         const auto* runtime=sc6::research::combat_runtime_status.load(std::memory_order_acquire);
         const bool live_runtime=continuous_mode && runtime && runtime->session==protocol.local_nonce;
         if(continuous_mode)out<<"continuous_restore_supported="<<sc6::research::NativeBoundarySnapshot::general_restore_implemented
-            <<"\ncontinuous_activation_blocker="<<(sc6::research::NativeBoundarySnapshot::general_restore_implemented?"none":"general_combat_restore_unimplemented")
+            <<"\ncontinuous_activation_blocker="<<(sc6::research::NativeBoundarySnapshot::general_restore_implemented?"native_input_delivery_and_round_commit_not_connected":"general_combat_restore_unimplemented")
+            <<"\ncontinuous_native_wait_bypass=0\ncontinuous_round_rearm=0"
             <<"\ncontinuous_requested=1\ncontinuous_start_state="<<(continuous_start_state?continuous_start_state():0)
             <<"\ncontinuous_report="<<report_path.stem().string()<<"-continuous.txt\n";
+        if(continuous_mode){
+            const auto* start=sc6::research::combat_start_exchange.load(std::memory_order_acquire);
+            out<<"continuous_retired_start_packets="<<(start?start->retired_packets():0)<<'\n';
+        }
         const auto* prepared=sc6::research::combat_resource_preparation.load();
         bool correction_restore=prepared && prepared->correction_enabled.load() && prepared->correction->restored.load();
         bool correction_injected=prepared && prepared->correction_enabled.load() && prepared->correction->injected.load();
@@ -102,12 +108,13 @@ inline void poll() {
             correction_restore=correction_restore || prepared->cycles->at(i).runner.restored.load();
             correction_injected=correction_injected || prepared->cycles->at(i).runner.injected.load();
         }
-        const bool reference_restore=correction_restore || (prepared && prepared->replay_enabled.load() && prepared->replay->restored.load());
+        const bool reference_restore=(prepared && prepared->retained_replay_enabled.load() && prepared->retained_replay->restored.load()) || correction_restore || (prepared && prepared->replay_enabled.load() && prepared->replay->restored.load());
         if(suite_mode){
-            out<<"suite_prediction_fixture="<<(suite.profile>=9?"remote_neutral_real_inputs":(suite.profile==7 || suite.profile==8)?"one_frame_A":suite.profile>=5?"screen_right":"none")<<"\n";
+            if(prepared && suite.profile==11)prepared->retention.report(out);
+            out<<"suite_prediction_fixture="<<((suite.profile==9 || suite.profile==10)?"remote_neutral_real_inputs":(suite.profile==7 || suite.profile==8)?"one_frame_A":suite.profile>=5 && suite.profile!=11 && suite.profile!=12 && suite.profile!=13 && suite.profile!=14 && suite.profile!=15 && suite.profile!=16?"screen_right":"none")<<"\n";
             out<<"suite_minimum_hold_ms="<<(suite.profile==9?0:100)<<"\nsuite_timing_mode="<<(suite.profile==9?"immediate":"baseline_100ms")<<"\n";
             out<<"suite_schema=1\nsuite_profile="<<suite.profile<<"\nsuite_observe_seconds="<<suite.seconds
-               <<"\nsuite_reason="<<suite.reason<<"\nsuite_replay=controlled_correction_available\nsuite_restart_required="
+               <<"\nsuite_reason="<<suite.reason<<"\nsuite_replay="<<(suite.profile==11?"disabled_retention_only":(suite.profile>=13 && suite.profile<=16)?"owned_recording_reference_replay":"controlled_correction_available")<<"\nsuite_restart_required="
                <<(prepared && (prepared->hold_test.state.load()==5 || prepared->replay_restart()))
                <<"\nsuite_local_pass="<<suite.local[3]<<"\nsuite_local_fail="<<suite.local[4]<<"\nsuite_local_skip="<<suite.local[5]
                <<"\nsuite_peer_received="<<suite.peer_seen<<"\nsuite_peer_ack="<<suite.peer_ack
@@ -116,6 +123,7 @@ inline void poll() {
         }
         if(prepare_mode && !continuous_mode)out<<"startup_buffer_attached="<<bool(capture.owned_nonce)
             <<"\nstartup_activation_blocker=replay_activation_not_connected\n"
+            <<"startup_boundary_rejection_mask="<<boundary_rejection_mask<<"\nstartup_boundary_rejection_live_identity="<<boundary_rejection_live_identity<<"\nstartup_boundary_rejection_startup_identity="<<boundary_rejection_startup_identity<<"\nstartup_boundary_rejection_hold="<<boundary_rejection_hold<<'\n'
             <<"startup_boundary_agreed="<<boundary_agreement.ready()
             <<"\nstartup_boundary_failed="<<boundary_agreement.failed()
             <<"\nstartup_target_clock="<<boundary_agreement.target_clock()
@@ -148,8 +156,9 @@ inline void poll() {
                    <<"\nsuite_confirmation_hold_state="<<resources->confirmation_hold.state.load()
                    <<"\nsuite_confirmation_hold_services="<<resources->confirmation_hold.services.load()<<'\n';
             }
-            if(resources->cycles_enabled.load()){resources->cycles->write_report(out);resources->cycles->write_evidence(out,report_path);}
+            if(resources->cycles_enabled.load()){resources->cycles->write_report(out);resources->cycles->write_evidence(out,report_path);out<<"suite_fresh_retry_boundaries="<<repeated.fresh_retries<<"\nsuite_retry_proposal_cycle="<<repeated.proposal_cycle<<"\nsuite_retry_proposal_phase="<<repeated.proposal_phase<<'\n';}
             resources->wind_report(out);
+            if(resources->retained_replay_enabled.load())resources->retained_replay->report(out,report_path);
             if(resources->replay_enabled.load(std::memory_order_acquire)){
                 const auto& replay=*resources->replay;
                 out<<"suite_reference_captured="<<replay.captured.load()<<"\nsuite_reference_stage="<<replay.stage.load()
@@ -161,6 +170,10 @@ inline void poll() {
             }
             out<<"startup_resource_stop_requested="<<resources->stop_requested()<<"\n";
             out<<"startup_resource_ready="<<resources->ready.load()<<"\nstartup_resource_retired="<<resources->retired.load()
+               <<"\nsuite_match_end_schema=2\nsuite_match_end_state_query="<<resources->match_end_state_query.load()
+               <<"\nsuite_match_end_requested="<<resources->match_end_requested.load()<<"\nsuite_match_end_clean="<<resources->match_end_clean.load()
+               <<"\nsuite_match_end_vtable="<<resources->match_end_vtable.load()<<"\nsuite_match_end_handler="<<resources->match_end_handler.load()
+               <<"\nsuite_match_end_thread="<<resources->match_end_thread.load()<<"\nsuite_match_end_frame="<<resources->match_end_frame.load()
                <<"\nstartup_resource_failed="<<resources->failed.load()<<"\nstartup_resource_cancel_reason="<<resources->cancellation.load()
                <<"\nstartup_resource_frame="<<resources->boundary_frame.load()<<"\nstartup_resource_thread="<<resources->owner_thread.load()
                <<"\nstartup_resource_cancel_thread="<<resources->cancel_thread.load()<<"\nstartup_resource_cancel_expected="<<resources->cancel_expected.load()
@@ -189,6 +202,7 @@ inline void poll() {
                <<"\nstartup_battle_samples="<<resources->battle_samples.load()
                <<"\nstartup_battle_first="<<resources->battle_first.load()
                <<"\nstartup_battle_last="<<resources->battle_last.load()<<'\n';
+            resources->prediction_frontier.report(out);
             const auto count=resources->pairs.count.load(std::memory_order_acquire);
             out<<"startup_pairs_schema=1\nstartup_pairs_count="<<count
                <<"\nstartup_pairs_duplicates="<<resources->pairs.duplicates.load()
@@ -418,7 +432,14 @@ inline void poll() {
         if(prepare_mode)protocol.expected_signature=0x003053433648534bULL;
         if(continuous_mode)protocol.expected_signature=0x004753433648534bULL;
         if(suite_mode)protocol.expected_signature=0x004253433648534bULL^(uint64_t(suite.profile)<<40)^(uint64_t(suite.seconds)<<48);
-        if(suite_mode && suite.profile>=9)protocol.expected_signature^=0x0000001500000000ULL; // reference-first methodology; reject older builds
+        if(suite_mode && (suite.profile>=12 && suite.profile<=16))protocol.expected_signature^=0x0000000800000000ULL; // reusable retirement between retained replay cycles
+        if(suite_mode && suite.first_match_start())protocol.expected_signature^=0x0000180000000000ULL; // first-match ownership plus emitter restoration; reject older replay peers
+        if(suite_mode && suite.profile==16)protocol.expected_signature^=0x0000B40000000000ULL; // rolling effect retention and confirmation servicing; native wait remains enabled
+        if(suite_mode && (suite.profile==15 || suite.profile==16))protocol.expected_signature^=0x0000040000000000ULL; // repeated combat windows; reject older one-cycle-per-round peers
+        if(suite_mode && suite.profile==13)protocol.expected_signature^=0x0000001000000000ULL; // owned same-session recorder
+        if(suite_mode && (suite.profile==14 || (suite.profile==15 || suite.profile==16)))protocol.expected_signature^=0x0000002000000000ULL; // spaced owned recordings, per-cycle immutable evidence
+        if(suite_mode && suite.profile==11)protocol.expected_signature^=0x0000000200000000ULL; // retention coverage revision 2
+        if(suite_mode && (suite.profile==9 || suite.profile==10))protocol.expected_signature^=0x0000001600000000ULL; // reference-first methodology; reject older builds
         HMODULE api=GetModuleHandleW(L"steam_api64.dll");if(!api){report("steam_missing");return;}
         using Handle=int(*)();using Factory=void*(*)(const char*);using Network=void*(*)(void*,int,int,const char*);
         auto user=reinterpret_cast<Handle>(GetProcAddress(api,"SteamAPI_GetHSteamUser"));
@@ -441,11 +462,11 @@ inline void poll() {
         start=now;running=true;stopped=false;report("running");return;
     }
     const auto phase_start=input_mode && capture.armed?capture.armed_at:start;
-    const auto phase_limit=input_mode?(capture.armed?240000u:600000u):60000u;
-    if(!data_done && now-phase_start>=phase_limit){running=false;stopped=true;report(!input_mode&&protocol.mutual?"PASS":input_mode&&!capture.armed?"lobby_wait_timeout":"timeout");return;}
+    const auto phase_limit=input_mode?(capture.armed?(suite_mode && (suite.profile==15 || suite.profile==16)?600000u:240000u):600000u):60000u;
+    if(!data_done && now-phase_start>=phase_limit){if(suite_mode && suite.profile==16)abort_combat_recording(protocol.local_nonce);running=false;stopped=true;report(!input_mode&&protocol.mutual?"PASS":input_mode&&!capture.armed?"lobby_wait_timeout":"timeout");return;}
     auto stop_file=report_path.parent_path()/L"steam-telemetry-stop.arm";
-    if(std::filesystem::exists(stop_file)){std::filesystem::remove(stop_file);running=false;stopped=true;if(!data_done)report("stopped_by_user");return;}
-    if(!state(net,protocol.expected_peer,&session)||!session.active){running=false;stopped=true;if(!data_done)report("peer_disconnected");return;}
+    if(std::filesystem::exists(stop_file)){std::filesystem::remove(stop_file);if(suite_mode && suite.profile==16)abort_combat_recording(protocol.local_nonce);running=false;stopped=true;if(!data_done)report("stopped_by_user");return;}
+    if(!state(net,protocol.expected_peer,&session)||!session.active){if(suite_mode && suite.profile==16)abort_combat_recording(protocol.local_nonce);running=false;stopped=true;if(!data_done)report("peer_disconnected");return;}
     if(data_done && last_peer && now-last_peer>15000){running=false;stopped=true;return;}
     // Bounded work once per host update; no additional 16ms input-mode gate.
     for(unsigned i=0;i<(input_mode?128u:8u);++i){
@@ -463,7 +484,7 @@ inline void poll() {
             const auto packet_received_us=clock_us();
             if(!protocol.mutual||sender!=protocol.expected_peer||size!=sizeof(packet)||packet.nonce!=protocol.remote_nonce||packet.echo!=protocol.local_nonce){++rejected;continue;}
             if(packet.magic!=steam_inputs::signature){++rejected;continue;}
-            if(suite_mode && (suite.profile==6 || suite.profile==8 || suite.profile>=9) && (packet.kind==8 || packet.kind==9 || packet.kind==10)){
+            if(suite_mode && (suite.profile==6 || suite.profile==8 || (suite.profile==9 || suite.profile==10)) && (packet.kind==8 || packet.kind==9 || packet.kind==10)){
                 auto* r=sc6::research::combat_resource_preparation.load();bool accepted=false;
                 if(r && r->cycles_enabled.load(std::memory_order_acquire) && !packet.own_hash && !packet.received_hash){
                     accepted=packet.kind==10?repeated.receive(packet.index,packet.record.data):
@@ -552,10 +573,10 @@ inline void poll() {
             if(send(net,protocol.expected_peer,&announcement,sizeof(announcement),1,channel))++sent;else ++send_failed;
             }
             if(prepare_mode && !(continuous_mode && sc6::research::combat_routes.load(std::memory_order_acquire))){
-                if(suite_mode && (suite.profile==6 || suite.profile==8 || suite.profile>=9)){auto* r=sc6::research::combat_resource_preparation.load();
+                if(suite_mode && (suite.profile==6 || suite.profile==8 || (suite.profile==9 || suite.profile==10))){auto* r=sc6::research::combat_resource_preparation.load();
                     if(r && r->cycles_enabled.load(std::memory_order_acquire) && r->cycles->active()){
                         auto& bank=*r->cycles;auto* c=bank.current();c->runner.exchange.update();
-                        repeated.update(bank,r->clock_identity.load(),r->clock_frame.load());
+                        repeated.update(bank,r->clock_identity.load(),r->clock_frame.load(),r->retry_observation.read(now));
                         c=bank.current();
                         if(now-correction_sent>=20){correction_sent=now;
                             for(unsigned i=0;i<4;++i){sc6::research::StartupCorrectionExchange::Words words{};
@@ -571,7 +592,7 @@ inline void poll() {
                                 if(send(net,protocol.expected_peer,&message,sizeof(message),1,channel))++sent;else ++send_failed;
                             }
                         }
-                        if(repeated.failed){suite.reason="repeated_correction_failed_restart_required";suite_finishing=true;abort_combat_recording(protocol.local_nonce);}
+                        if(repeated.failed){suite.reason=r->replay_restart()?"repeated_correction_failed_restart_required":"correction_protocol_failed";suite_finishing=true;abort_combat_recording(protocol.local_nonce);}
                     }
                 }
                 if(suite_mode && (suite.profile==5 || suite.profile==7)){auto* r=sc6::research::combat_resource_preparation.load();
@@ -587,11 +608,27 @@ inline void poll() {
                         }
                     }
                 }
+                if(suite_mode && (suite.profile>=12 && suite.profile<=16)){auto* r=sc6::research::combat_resource_preparation.load();
+                    if(r && r->retained_replay_enabled.load(std::memory_order_acquire)){
+                        const auto& rr=*r->retained_replay;
+                        if((rr.restart.load() || rr.failed.load() || rr.retired.load()) && !rr.terminal()){
+                            if(now-last_report>=1000){last_report=now;report("waiting_for_retained_failure_evidence");}return;
+                        }
+                    }
+                }
                 if(suite_mode){auto* r=sc6::research::combat_resource_preparation.load();if(r && r->replay_restart()){
-                    suite.reason=suite.profile>=5?"prediction_correction_failed_restart_required":"reference_replay_failed_restart_required";running=false;stopped=true;
+                    suite.reason=(suite.profile>=12 && suite.profile<=16)?"retained_object_replay_failed_restart_required":suite.profile>=5?"prediction_correction_failed_restart_required":"reference_replay_failed_restart_required";running=false;stopped=true;
                     abort_combat_recording(protocol.local_nonce);
                     report(suite.reason);return;
                 }}
+                // Completion must not depend on the combat clock remaining alive at match end.
+                if(suite_mode){auto* r=sc6::research::combat_resource_preparation.load();
+                    if(r && r->match_end_requested.load()){
+                        suite.reason=r->failed.load()?"match_end_cleanup_failed":
+                            (r->retained_replay && r->retained_replay->verified.load()?"match_ended_after_verified_cycles":"match_ended_before_target");
+                        suite_finishing=true;
+                    }
+                }
                 if(suite_mode && suite_finishing){
                     auto* r=sc6::research::combat_resource_preparation.load();
                     abort_combat_recording(protocol.local_nonce);
@@ -600,6 +637,12 @@ inline void poll() {
                     }
                     const auto round=round_event::snapshot();suite.observe(now,round.round,round.counter);
                     if(!suite.elapsed(now)){if(now-last_report>=1000){last_report=now;report("observing_suite_gameplay");}return;}
+                    if(suite.profile==16 && r && r->retained_replay){
+                        auto& rr=*r->retained_replay;
+                        if(rr.evidence_flushed.load()<rr.completed_cycles.load()){
+                            report("flushing_full_match_evidence");return;
+                        }
+                    }
                     if(!suite.sealed){
                         unsigned pass=1,fail=0,skip=0;
                         if(r && r->ready.load() && !r->failed.load())pass|=2;else fail|=2;
@@ -608,7 +651,7 @@ inline void poll() {
                         if(suite.profile<2)skip|=16;else if(r && r->hold_test.state.load()==3)pass|=16;else if(r && r->hold_test.state.load()>=4)fail|=16;else skip|=16;
                         if(suite.profile<3)skip|=32;else if(r && r->snapshots.captured.load()==4 && r->snapshots.retired.load() && !r->snapshots.failed.load())pass|=32;
                         else if(r && r->snapshots.failed.load())fail|=32;else if(suite.profile==4 && r && r->replay_enabled.load()){if(r->replay->captured.load()==4)pass|=32;else fail|=32;}else skip|=32;
-                        if(suite.profile<4)skip|=64;else if(r && r->replay_enabled.load() && r->replay->verified.load())pass|=64;else fail|=64;
+                        if(suite.profile<4 || suite.profile==11)skip|=64;else if(r && r->replay_enabled.load() && r->replay->verified.load())pass|=64;else fail|=64;
                         if((suite.profile==5 || suite.profile==7)){
                             pass&=~(32u|64u);fail&=~(32u|64u);skip&=~(32u|64u);
                             if(r && r->correction_enabled.load()){
@@ -618,7 +661,7 @@ inline void poll() {
                                 if(c.verified.load() && c.changed.load() && c.exchange.ready.load() && !c.exchange.failed.load())pass|=128;else fail|=128;
                             }else fail|=32|64|128;
                         }
-                        if((suite.profile==6 || suite.profile==8 || suite.profile>=9)){
+                        if((suite.profile==6 || suite.profile==8 || (suite.profile==9 || suite.profile==10))){
                             pass&=~(16u|32u|64u|128u);fail&=~(16u|32u|64u|128u);skip&=~(16u|32u|64u|128u);
                             bool holds=true,saves=true;
                             if(!r || !r->cycles_enabled.load())holds=saves=false;
@@ -629,7 +672,26 @@ inline void poll() {
                             (holds?pass:fail)|=16;(saves?pass:fail)|=32;
                             const bool verified=r && r->cycles_enabled.load() && r->cycles->all_verified() && repeated.complete && !repeated.failed;
                             (verified?pass:fail)|=64|128;
-                            if(suite.profile>=9 && repeated.exhausted){pass&=~(16u|32u|64u|128u);fail&=~(16u|32u|64u|128u);skip|=16|32|64|128;}
+                            if((suite.profile==9 || suite.profile==10) && repeated.exhausted){pass&=~(16u|32u|64u|128u);fail&=~(16u|32u|64u|128u);skip|=16|32|64|128;}
+                        }
+                        if(suite.profile==11){
+                            pass&=~(32u|64u);fail&=~(32u|64u);skip&=~(32u|64u);
+                            if(!r || r->retention.failed.load() || !r->retired.load())fail|=32|64;
+                            else {
+                                if(r->retention.windows.load())pass|=32;else skip|=32;
+                                const auto result=r->retention_result();
+                                if(result==1)pass|=64;else if(result==2)fail|=64;else skip|=64;
+                            }
+                        }
+                        if((suite.profile>=12 && suite.profile<=16)){
+                            pass&=~(32u|64u|128u);fail&=~(32u|64u|128u);skip&=~(32u|64u|128u);
+                            if(!r || !r->retained_replay_enabled.load())fail|=32|64|128;
+                            else {
+                                const auto& rr=*r->retained_replay;
+                                if(rr.captured.load()>=4 && rr.retired.load())pass|=32;else if(rr.failed.load())fail|=32;else skip|=32;
+                                if(rr.verified.load() && !rr.failed.load() && !rr.restart.load() && !rr.evidence_io_failures.load() && (suite.profile!=16 || (rr.match_completed.load() && r->match_end_clean.load())))pass|=64|128;
+                                else if(rr.failed.load() || rr.evidence_io_failures.load())fail|=64|128;else skip|=64|128;
+                            }
                         }
                         suite.seal(pass,fail,skip);
                     }
@@ -641,10 +703,10 @@ inline void poll() {
                     if(!suite.complete()){if(now-last_report>=1000){last_report=now;report("waiting_for_suite_peer_result");}return;}
                     if(!suite.agreed_at)suite.agreed_at=now;
                     if(now-suite.agreed_at<1000)return;
-                    running=false;stopped=true;report((suite.local[4] || suite.peer[4])?"SUITE_COMPLETED_WITH_FAILURES":(suite.profile>=9 && repeated.exhausted)?"SUITE_NO_SUITABLE_WINDOW":"SUITE_COMPLETE");return;
+                    running=false;stopped=true;report((suite.local[4] || suite.peer[4])?"SUITE_COMPLETED_WITH_FAILURES":((suite.profile==15 || suite.profile==16) && r && r->match_end_clean.load() && ((suite.local[5]|suite.peer[5])&192))?"SUITE_MATCH_ENDED_INCOMPLETE":((suite.profile==9 || suite.profile==10) && repeated.exhausted)?"SUITE_NO_SUITABLE_WINDOW":((suite.profile==11 || (suite.profile>=12 && suite.profile<=16)) && ((suite.local[5]|suite.peer[5])&224))?"SUITE_RETENTION_NOT_OBSERVED":"SUITE_COMPLETE");return;
                 }
                 if(!capture.armed){
-                    const auto prepared=capture.prepare_owned(protocol.local_nonce,continuous_mode);
+                    const auto prepared=capture.prepare_owned(protocol.local_nonce,continuous_mode || (suite_mode && suite.first_match_start()));
                     if(prepared!=steam_inputs::Capture::OwnedStart::attached){running=false;stopped=true;report("combat_buffer_start_failed");return;}
                 }
                 sc6::research::NativeClockDiscovery::Observation clock;
@@ -654,7 +716,7 @@ inline void poll() {
                 if(clock.clock.local_mask!=capture.composition.local_slot){running=false;stopped=true;abort_combat_recording(protocol.local_nonce);report("combat_clock_slot_mismatch");return;}
                 auto* resources=sc6::research::combat_resource_preparation.load();
                 if(resources && continuous_mode)resources->capture_enabled=false;
-                if(resources && suite_mode){resources->capture_enabled.store(suite.profile==3);if(suite.profile==4)resources->enable_replay();if((suite.profile==5 || suite.profile==7))resources->enable_correction(suite.profile==7,suite.profile>=9);if((suite.profile==6 || suite.profile==8 || suite.profile>=9))resources->enable_cycles(suite.profile==8,suite.profile>=9,suite.profile==10?100:0);}
+                if(resources && suite_mode){resources->capture_enabled.store(suite.profile==3);if(suite.profile==11)resources->enable_retention();if((suite.profile>=12 && suite.profile<=16))resources->enable_retained_replay(suite.profile>=13 && suite.profile<=16,(suite.profile==14 || (suite.profile==15 || suite.profile==16)),(suite.profile==15 || suite.profile==16),suite.profile==16);if(suite.profile==4)resources->enable_replay();if((suite.profile==5 || suite.profile==7))resources->enable_correction(suite.profile==7,(suite.profile==9 || suite.profile==10));if((suite.profile==6 || suite.profile==8 || (suite.profile==9 || suite.profile==10)))resources->enable_cycles(suite.profile==8,(suite.profile==9 || suite.profile==10),suite.profile==10?100:0);}
                 if(!resources || resources->failed.load()){
                     abort_combat_recording(protocol.local_nonce);if(suite_mode){suite.reason="startup_resource_failed";suite_finishing=true;return;}running=false;stopped=true;report("startup_resource_failed");return;
                 }
@@ -666,8 +728,13 @@ inline void poll() {
                 if(!boundary_agreement.bound() && !boundary_agreement.begin(resources->pairs,capture.composition.local_slot)){
                     abort_combat_recording(protocol.local_nonce);if(suite_mode){suite.reason="boundary_pairs_rejected";suite_finishing=true;return;}running=false;stopped=true;report("boundary_pairs_rejected");return;
                 }
-                if(boundary_agreement.failed() || clock.clock.identity!=resources->pairs.rows[0].identity ||
-                    (!continuous_queued && !repeated.started && resources->hold_test.state.load()==0 && clock.clock.frame>=boundary_agreement.target_clock())){
+                const auto boundary_hold=resources->hold_test.state.load();
+                const auto boundary_rejection=boundary_agreement.runtime_rejection(suite_mode?suite.profile:0,
+                    boundary_hold,repeated.started,continuous_queued,clock.clock.identity,
+                    resources->pairs.rows[0].identity,clock.clock.frame);
+                if(boundary_rejection){
+                    boundary_rejection_mask=boundary_rejection;boundary_rejection_live_identity=clock.clock.identity;
+                    boundary_rejection_startup_identity=resources->pairs.rows[0].identity;boundary_rejection_hold=boundary_hold;
                     abort_combat_recording(protocol.local_nonce);if(suite_mode){suite.reason="boundary_agreement_rejected_or_expired";suite_finishing=true;return;}running=false;stopped=true;report("boundary_agreement_rejected_or_expired");return;
                 }
                 if(now-boundary_sent>=100){
@@ -702,9 +769,9 @@ inline void poll() {
                     if(now-boundary_agreed_at<1000)return;
                     suite_finishing=true;abort_combat_recording(protocol.local_nonce);return;
                 }
-                if(suite_mode && (suite.profile==6 || suite.profile==8 || suite.profile>=9)){
+                if(suite_mode && (suite.profile==6 || suite.profile==8 || (suite.profile==9 || suite.profile==10))){
                     if(!repeated.begin(*resources->cycles,resources->pairs.rows[0].identity,boundary_agreement.target_clock(),
-                        boundary_agreement.target_battle(),capture.composition.local_slot)){
+                        boundary_agreement.target_battle(),capture.composition.local_slot,(suite.profile==9 || suite.profile==10))){
                         suite.reason="repeated_correction_start_failed";suite_finishing=true;abort_combat_recording(protocol.local_nonce);return;
                     }
                     if(repeated.complete){if(repeated.exhausted)suite.reason="no_suitable_window_observed";suite_finishing=true;abort_combat_recording(protocol.local_nonce);return;}
@@ -737,6 +804,21 @@ inline void poll() {
                         suite_finishing=true;abort_combat_recording(protocol.local_nonce);return;
                     }
                     if(now-last_report>=1000){last_report=now;report("waiting_for_reference_replay");}return;
+                }
+                if(suite_mode && (suite.profile>=12 && suite.profile<=16)){
+                    const auto& rr=*resources->retained_replay;
+                    if(rr.terminal() && (rr.retired.load() || rr.failed.load())){
+                        if(rr.failed.load())suite.reason="retained_object_replay_failed";
+                        suite_finishing=true;abort_combat_recording(protocol.local_nonce);return;
+                    }
+                    if(now-last_report>=1000){last_report=now;report("observing_retained_object_replay");}return;
+                }
+                if(suite_mode && suite.profile==11){
+                    if(resources->retention.retired.load() || resources->retention.failed.load()){
+                        if(resources->retention.failed.load())suite.reason="retention_capture_or_cleanup_failed";
+                        suite_finishing=true;abort_combat_recording(protocol.local_nonce);return;
+                    }
+                    if(now-last_report>=1000){last_report=now;report("observing_targeted_retention");}return;
                 }
                 if(resources->snapshots.failed.load()){
                     if(suite_mode){suite.reason="snapshot_capture_failed";suite_finishing=true;abort_combat_recording(protocol.local_nonce);return;}
@@ -829,6 +911,8 @@ inline void poll() {
     if(!data_done && now-last_report>=1000){last_report=now;report(continuous_mode && sc6::research::combat_routes.load()?"continuous_running":"running");}
 }
 }
+
+
 
 
 

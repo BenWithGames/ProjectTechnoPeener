@@ -37,8 +37,8 @@ public:
            !probe->camera_restore_verified || probe->saved.stream.failures ||
            probe->after_save.stream.failures || probe->restored.stream.failures)return false;
         auto snapshot=std::move(current.data),scratch=std::move(probe);
-        std::destroy_at(snapshot.get());std::construct_at(snapshot.get());
-        std::destroy_at(scratch.get());std::construct_at(scratch.get());
+        snapshot->reset_for_reuse();
+        scratch->reset_for_reuse();
         // Rebuild flags, patch-list pointers and owned input headers in place.
         // Constructor overrides both allocating member initializers.
         std::destroy_at(this);
@@ -101,9 +101,13 @@ public:
         replay_stage=3;
         probe->delayed_step(base,replay_delivery.assign(source.data->delayed_inputs),writer,reader,check);
         replay_stage=4;
+        if(probe->selector_enabled){
+            if(!probe->selectors[3].capture(probe->after_players,probe->selector_diagnostic))return fail();
+            probe->selector_endpoint_verified=probe->selectors[1].same(probe->selectors[3],probe->selector_diagnostic);
+        }
         replay_comparison_mask=TwoFrameIdleReplay::comparison_mask(*probe,base);
         TwoFrameIdleReplay::native_equal(*probe,base,&replay_native_difference);
-        replay_verified=TwoFrameIdleReplay::comparison_ok(*probe,base);
+        replay_verified=TwoFrameIdleReplay::comparison_ok(*probe,base) && (!probe->selector_enabled || probe->selector_endpoint_verified);
         if(!replay_verified)return fail();
         replay_stage=5;return true;
     }
@@ -127,6 +131,9 @@ public:
         if(a.mode!=NativeBoundarySnapshot::Mode::general_combat || b.mode!=a.mode){rejection=NativeBoundarySnapshot::Rejection::mode;return fail();}
         rejection=a.structural_readiness(b);
         if(rejection!=NativeBoundarySnapshot::Rejection::none)return fail();
+        if(a.data->selector_enabled!=b.data->selector_enabled || (a.data->selector_enabled &&
+           (!a.data->selectors[0].compatible(b.data->selectors[0],probe->selector_diagnostic) ||
+            !a.data->selectors[0].dependencies(probe->selector_diagnostic)))){rejection=NativeBoundarySnapshot::Rejection::sources;return fail();}
         if(!RecordedInput::valid_envelope(a.data->delayed_inputs) || !RecordedInput::valid_envelope(b.data->delayed_inputs)){
             rejection=NativeBoundarySnapshot::Rejection::inputs;return fail();
         }
@@ -144,7 +151,8 @@ public:
         if(source.thread!=GetCurrentThreadId()){rejection=NativeBoundarySnapshot::Rejection::thread;return fail();}
         if(source.module!=next.module){rejection=NativeBoundarySnapshot::Rejection::module;return fail();}
         current.direction_slot=next.direction_slot;current.direction_bits=next.direction_bits;current.mode=next.mode;current.module=next.module;current.thread=next.thread;current.attempted=next.attempted;
-        current.valid=next.valid;current.fault=next.fault;*current.data=*next.data;
+        current.valid=next.valid;current.fault=next.fault;
+        if(!current.data->copy_recorded_from(*next.data))return fail();
         if(!source.prepare_adjacent(current,*probe,&rejection,direction_restore,a_restore,source.mode==NativeBoundarySnapshot::Mode::general_combat && combat_restore))return fail();
         prepared=true;return true;
     }
@@ -176,6 +184,7 @@ private:
         auto saved_argument=restore_input.assign(source.data->delayed_inputs);
         restore_input_used=true;
         diagnostic_stage=5;
+        if(probe->selector_enabled && !probe->selectors[0].dependencies(probe->selector_diagnostic))return fail();
         {rng_trace::Scope rng_phase(1);probe->delayed_step(base,saved_argument,writer,reader,check);}
         if(probe->fault || !probe->restore_completed || !probe->delayed_loaded || !probe->camera_restore_verified)return fail();
         const auto& saved=*source.data;auto& p=*probe;
@@ -187,6 +196,11 @@ private:
         if(!native_payload_verified)return fail();
         diagnostic_stage=7;
         if(!completion.apply(saved,*current.data,p,base))return fail();
+        if(p.selector_enabled){
+            if(!p.selectors[0].restore(p.selector_diagnostic) || !p.selectors[2].capture(p.before_players,p.selector_diagnostic))return fail();
+            p.selector_restored=p.selectors[0].same(p.selectors[2],p.selector_diagnostic);
+            if(!p.selector_restored)return fail();
+        }
         diagnostic_stage=8;
         if(!p.capture_blend(base,3) || !p.cameras[4].capture(p.restored,base) ||
            !p.restored_after_rings.capture(base) || !saved.rings[0].same(p.restored_after_rings))return fail();
@@ -269,6 +283,9 @@ public:
                 x.traces[i].source==player+0x43DF0 && y.traces[i].source==player+0x43DF0){
                 invalid_self=TransformSnapshot::pointer(y.stream.payload.data()+offset)!=player;skip=invalid_self?0:8;
             }
+            // Exact fast path follows the self-pointer check; mismatches retain
+            // the complete existing diagnostic/compatibility path.
+            if(!invalid_self && !std::memcmp(x.stream.payload.data()+offset+skip,y.stream.payload.data()+offset+skip,static_cast<size_t>(size-skip))){offset+=size;continue;}
             const bool padding=size==16 && x.traces[i].writer==base+0x32AC76 &&
                 b.restore_completed && b.saved.sealed && i<b.saved.writes &&
                 b.saved.lengths[i]==16 && b.saved.traces[i].writer==base+0x32AC76 &&

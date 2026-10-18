@@ -52,6 +52,37 @@ int main(){
     check(!gateProbe->combat_gate(memoryBase) && gateProbe->failed && sc6::network_checkpoint_status.failure==23 &&
           !gateProbe->readiness->probe->restore_invoked,"state transition after first capture aborts before restoration");
     check(!RouteProbe::normal_battle(0),"invalid state lookup rejects");
+    using Fight=sc6::RoundFightReadiness;
+    check(Fight::read(0,2,9,100).status==0,"fight gate invalid memory blocks");
+    for(auto vt:{0x3E87378u,0x3E87428u,0x3E87480u,0x3E874D8u,0x3E87530u,0x3E87588u}){
+        *reinterpret_cast<uintptr_t*>(routeState)=memoryBase+vt;
+        auto f=Fight::read(memoryBase,2,9,100);
+        check(f.status==1 && !f.permits(2,9,100,GetCurrentThreadId()),"startup/end/win/intro/results/replay cannot authorize capture");
+    }
+    *reinterpret_cast<uintptr_t*>(routeState)=memoryBase+0x3E873D0;
+    check(Fight::read(memoryBase,2,9,100).status==2,"fight gate rejects wrong Normal handler");
+    *reinterpret_cast<uintptr_t*>(memoryBase+0x3E873D0+0x10)=memoryBase+0x384EE0;
+    const auto fight=Fight::read(memoryBase,2,9,100);
+    check(fight.permits(2,9,100,GetCurrentThreadId()),"fresh native Normal state permits capture");
+    check(!fight.permits(2,9,101,GetCurrentThreadId()) && !fight.permits(2,9,99,GetCurrentThreadId()) &&
+          !fight.permits(3,9,100,GetCurrentThreadId()) && !fight.permits(2,10,100,GetCurrentThreadId()) &&
+          !fight.permits(2,9,100,GetCurrentThreadId()+1),"fight readiness cannot cross frames rounds generations or threads");
+    for(auto playback:{1u,2u,0xFFFFFFFFu}){
+        *reinterpret_cast<uint32_t*>(memoryBase+0x48463F8)=playback;
+        auto blocked=Fight::read(memoryBase,2,9,100);
+        check(blocked.status==4 && !blocked.permits(2,9,100,GetCurrentThreadId()),"historical Normal combat is blocked during native playback");
+    }
+    *reinterpret_cast<uint32_t*>(memoryBase+0x48463F8)=0;
+    for(unsigned result=1;result<=65535;++result){
+        *reinterpret_cast<uint16_t*>(memoryBase+0x4846408)=static_cast<uint16_t>(result);
+        auto blocked=Fight::read(memoryBase,2,9,100);
+        check(blocked.status==5 && !blocked.permits(2,9,100,GetCurrentThreadId()),"all nonzero round results block capture");
+    }
+    *reinterpret_cast<uint16_t*>(memoryBase+0x4846408)=0;
+    check(Fight::read(memoryBase,2,9,100).permits(2,9,100,GetCurrentThreadId()),"live Normal combat resumes after markers clear");
+    *reinterpret_cast<uintptr_t*>(memoryBase+0x4843ED0)=1;
+    check(Fight::read(memoryBase,2,9,100).status==0,"unreadable fight state blocks without exception escape");
+
     std::memset(block,0,0x4900000);
     sc6::round_event::module=memoryBase;sc6::round_event::identity.begin(1);
     *reinterpret_cast<uint32_t*>(memoryBase+0x470D0C4)=123;

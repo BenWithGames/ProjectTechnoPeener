@@ -1,0 +1,10 @@
+Matrix-update diagnostics (read-only)
+Existing timer, RNG, animation-copy, scoped-clear and round-safety checks remain enabled.
+Animation-copy binary schema2 retains sites0-2 and adds:
+3: before native305D97 call to2EDB90; condition holds native update flags (not a copy direction).
+4: before2F0CF0 matrix30 copy; condition is stack+3728 (zero ring-to-cache, nonzero cache-to-ring).
+5: after that copy at2F0D73; same decision flag retained.
+Each new event records cache/ring translation bits at+7B0 and five raw192-byte animation-layer records from cache+800. These include descriptor pointers/indices, cursor and masks; pointers are evidence only, never dereferenced offline.
+Natural and replay phases, frame, thread, invalid reads, dropped/overwritten records remain recorded.
+Existing per-cycle and terminal evidence includes these events automatically. No new restore or simulation calls, forced values, relaxed comparisons or timing-policy changes.
+Play normally through three rounds after the usual warmup. Both PCs install this build. A freeze or restart-required result still requires closing SC6.

@@ -120,17 +120,21 @@ static void memory_gate_tests(){
     std::latch entered(1),finish_access(1),release_started(1);
     std::thread restore([&]{assert(gate.try_access(stopped,[&]{entered.count_down();finish_access.wait();assert(!release_decided.load());}));});
     entered.wait();
-    assert(!gate.try_access(stopped,[]{assert(false);})); // Busy restoration never waits.
+    sc6::research::EffectMemoryGate::AccessOutcome outcome{};
+    assert(!gate.try_access(stopped,[]{assert(false);},&outcome));
+    assert(outcome==sc6::research::EffectMemoryGate::AccessOutcome::contended); // Never waits.
     std::thread releaser([&]{release_started.count_down();
         gate.release_decision([&]{stopped.store(true);release_decided=true;return false;});
         // Native free would run here, only after memory access finished.
     });
     release_started.wait();assert(!release_decided.load());finish_access.count_down();
     restore.join();releaser.join();
-    assert(release_decided && !gate.try_access(stopped,[]{assert(false);}));
+    assert(release_decided && !gate.try_access(stopped,[]{assert(false);},&outcome));
+    assert(outcome==sc6::research::EffectMemoryGate::AccessOutcome::stopped);
     stopped=false;
     try {gate.try_access(stopped,[]{throw std::runtime_error("test");});assert(false);}catch(const std::runtime_error&){}
-    assert(gate.try_access(stopped,[]{})); // Exception unwinds the access lock.
+    assert(gate.try_access(stopped,[]{},&outcome));
+    assert(outcome==sc6::research::EffectMemoryGate::AccessOutcome::entered); // Exception unwinds lock.
     assert(!gate.release_decision([]{return false;}));
     assert(gate.try_access(stopped,[]{})); // No lock left for native free to run under.
 }
@@ -151,9 +155,11 @@ static void runtime_tests(){
     std::array tokens{token};auto snapshot=runtime.capture(1,tokens);assert(snapshot.generation);
     assert(alloc::observe_release(4096,0x70,alloc::base+0x3340F9,&runtime_native)==0);
     assert(runtime_frees==0 && runtime.collect() && runtime_frees==0);
+    assert(runtime.native_deferred==1 && runtime.snapshot_protected==1 && runtime.allocator_releases==0);
     assert(!runtime.finish(true)); // Cannot retire a published route.
     assert(runtime.expire(snapshot) && runtime_frees==1);
-    assert(!runtime.expire(snapshot) && runtime_frees==1);
+    assert(runtime.allocator_releases==1 && runtime.revivals==0);
+    assert(!runtime.expire(snapshot) && runtime_frees==1 && runtime.allocator_releases==1);
     release_bridge::route.store(nullptr);assert(!runtime.finish(false));assert(runtime.finish(true));
     assert(runtime.begin(alloc::base,2,1,&runtime_native,&fixture_environment));release_bridge::route.store(runtime.route());
     alloc::observe_allocate(0x180,alloc::base+0x2FC720,&allocate_mock);
@@ -164,6 +170,28 @@ static void runtime_tests(){
     assert(runtime.collect()); // Drains owner invalidation, without freeing it twice.
     assert(!runtime.expire(next) && runtime_frees==2);
     release_bridge::route.store(nullptr);assert(runtime.finish(true) && runtime_frees==2);
+}
+static void birth_hook_tests(){
+    using Runtime=sc6::research::EffectRetentionRuntime<4,2>;
+    Runtime runtime;assert(runtime.begin(alloc::base,1,1,&runtime_native,&fixture_environment));
+    assert(runtime.births.start(1,1,1));release_bridge::route.store(runtime.route());
+    std::array<std::byte,0x1E0> original{},replay{};
+    const uint32_t seed=0xc412fdba;std::memcpy(original.data()+0x138,&seed,4);
+    allocation_result=reinterpret_cast<uintptr_t>(original.data());
+    alloc::observe_allocate(0x1E0,alloc::base+0x334A1E,&allocate_mock);
+    assert(GetLastError()==4321 && runtime.births.count==1 && !runtime.stopped());
+    runtime.births.seal();assert(runtime.births.begin(0,1,1,1,1));
+    allocation_result=reinterpret_cast<uintptr_t>(replay.data());
+    alloc::observe_allocate(0x1E0,alloc::base+0x334A1E,&allocate_mock);
+    assert(GetLastError()==4321 && runtime.births.finish());
+    assert(std::memcmp(original.data()+0x138,replay.data()+0x138,4)==0);
+    // A foreign thread cannot apply a recorded seed to arbitrary memory.
+    std::array<std::byte,0x1E0> foreign{};assert(runtime.births.begin(0,1,1,1,1));
+    allocation_result=reinterpret_cast<uintptr_t>(foreign.data());
+    std::thread other([&]{alloc::observe_allocate(0x1E0,alloc::base+0x334A1E,&allocate_mock);});other.join();
+    uint32_t word{};std::memcpy(&word,foreign.data()+0x138,4);assert(word==0 && runtime.stopped());
+    assert(!runtime.births.finish());release_bridge::route.store(nullptr);
+    runtime.births.stop();assert(runtime.finish(true));allocation_result=4096;
 }
 static void effect_manifest_tests(){
     auto snapshot=std::make_unique<sc6::research::TransformSnapshot>();
@@ -210,9 +238,15 @@ static void effect_image_tests(){
     using Runtime=sc6::research::EffectRetentionRuntime<2,2>;
     Runtime runtime;assert(runtime.begin(alloc::base,1,1,&runtime_native,&fixture_environment));
     assert(!runtime.capture_image(1,manager,image).generation && !image.valid);
+    assert(runtime.capture_check==7 && runtime.capture_address==image_head);
     assert(runtime.allocation(image_head,0x130,0x3345B4));
     auto snapshot=runtime.capture_image(1,manager,image);
-    assert(snapshot.generation && image.valid && image.objects[0].generation);
+    assert(snapshot.generation && image.valid && image.objects[0].generation && runtime.capture_check==0);
+    assert(!runtime.capture_image(1,manager,image).generation && runtime.capture_check==8);
+    assert(!runtime.capture_image(2,1,image).generation && runtime.capture_check==4 && runtime.image_exception!=0);
+    // Restore the valid diagnostic image after intentionally rejected captures.
+    assert(runtime.expire(snapshot));snapshot=runtime.capture_image(3,manager,image);
+    assert(snapshot.generation && runtime.capture_check==0 && runtime.image_check==0);
     sc6::research::NativeEffectImage<2> current;
     sc6::research::EffectRestorePlan<2> plan;
     assert(runtime.prepare_effect_restore(snapshot,image,current,plan) && plan.preserve_count==1);
@@ -270,7 +304,8 @@ static void apply_image_tests(){
     assert(image_head==new_address && older[0x12F]==std::byte{99} && image_frees==0);--environment_epoch;
     assert(runtime.apply_effect_image(snapshot,saved,current,[](const Image&,const Image&){return true;}));
     assert(image_head==old_address && older[0x12F]==std::byte{42} && image_frees==0);
-    assert(runtime.collect() && image_frees==1 && last_image_free==new_address);
+    assert(runtime.native_deferred==1 && runtime.snapshot_protected==1 && runtime.revivals==1 && runtime.allocator_releases==0);
+    assert(runtime.collect() && image_frees==1 && last_image_free==new_address && runtime.allocator_releases==1);
     assert(runtime.expire(snapshot) && image_frees==1); // Revived old object stays native-owned.
     assert(!runtime.apply_effect_image(snapshot,saved,current,[](const Image&,const Image&){return true;}));
     release_bridge::route.store(nullptr);assert(runtime.finish(true));
@@ -338,6 +373,56 @@ static void wind_lifecycle_window_tests(){
     actual=expected;actual.count=5;assert(!Lifecycle::equivalent(expected,actual,object,offset));
     actual=expected;uintptr_t bad_link=123;std::memcpy(actual.objects[0].bytes.data()+0x10,&bad_link,8);
     assert(!Lifecycle::equivalent(expected,actual,object,offset)); // Never mask broken linkage.
+    // Exhaustive independent gap oracle: every active byte must still reject.
+    const auto gap=[](unsigned j){return (j>=8 && j<16)||(j>=34 && j<40)||
+        (j>=52 && j<64)||(j>=244 && j<248)||(j>=284 && j<288)||
+        (j>=324 && j<328)||(j>=332 && j<336);};
+    for(unsigned j=0;j<0x1E0;++j){
+        actual=expected;actual.objects[0].bytes[j]^=std::byte{1};
+        assert(Lifecycle::equivalent(expected,actual,object,offset)==gap(j));
+        assert(actual.objects[0].bytes[j]==(expected.objects[0].bytes[j]^std::byte{1}));
+        assert(Lifecycle::audited_gap(alloc::base,type,0x1E0,j)==gap(j));
+        assert(!Lifecycle::audited_gap(alloc::base,type,0x180,j));
+        assert(!Lifecycle::audited_gap(alloc::base,type+1,0x1E0,j));
+        assert(!Lifecycle::audited_gap(alloc::base+1,type,0x1E0,j));
+        assert(!Lifecycle::audited_gap(type+1,type,0x1E0,j));
+    }
+    actual=expected;
+    for(unsigned j=0;j<0x1E0;++j)if(gap(j))actual.objects[0].bytes[j]^=std::byte{0xFF};
+    assert(Lifecycle::equivalent(expected,actual,object,offset));
+    actual.objects[0].bytes[0x148]^=std::byte{1};
+    assert(!Lifecycle::equivalent(expected,actual,object,offset) && offset==0x148);
+    for(const auto other: {uintptr_t{0x3E88D18},uintptr_t{0x3E88C88},uintptr_t{0x3E88CB8}})
+        for(unsigned j=0;j<0x1E0;++j)assert(!Lifecycle::audited_gap(alloc::base,alloc::base+other,0x1E0,j));
+    // Every supported layout: exhaustive payload mutation with independent
+    // fixture ranges, including type-specific overlap traps (F4, 110, 144).
+    for(const auto& site:sc6::research::effect_allocation_sites){
+        Image baseline{};baseline.valid=true;baseline.manager=manager;
+        baseline.environment=expected.environment;baseline.count=1;baseline.head=old_address;
+        auto& record=baseline.objects[0];record.address=old_address;record.generation=1;
+        record.vtable=alloc::base+site.vtable;record.size=static_cast<unsigned>(site.bytes);
+        std::memcpy(record.bytes.data(),&record.vtable,8);
+        std::memcpy(record.bytes.data()+0x28,&manager,8);
+        assert(Lifecycle::equivalent(baseline,baseline,object,offset));
+        const auto allowed=[&](unsigned j){
+            const bool common=(j>=8 && j<16)||(j>=34 && j<40)||(j>=52 && j<64);
+            if(site.type==1)return gap(j);
+            if(site.type==2)return common||(j>=228 && j<240)||(j>=272 && j<288)||(j>=300 && j<304);
+            return common||(j>=224 && j<288)||(j>=300 && j<304);
+        };
+        Image all=baseline;
+        for(unsigned j=0;j<record.size;++j){
+            Image changed=baseline;changed.objects[0].bytes[j]^=std::byte{0xFF};
+            assert(Lifecycle::equivalent(baseline,changed,object,offset)==allowed(j));
+            assert(changed.objects[0].bytes[j]==std::byte{0xFF} ||
+                   changed.objects[0].bytes[j]==(baseline.objects[0].bytes[j]^std::byte{0xFF}));
+            if(allowed(j))all.objects[0].bytes[j]^=std::byte{0xFF};
+            assert(!Lifecycle::audited_gap(alloc::base,record.vtable,record.size+1,j));
+        }
+        assert(Lifecycle::equivalent(baseline,all,object,offset));
+        all.objects[0].bytes[0x50]^=std::byte{1};
+        assert(!Lifecycle::equivalent(baseline,all,object,offset) && offset==0x50);
+    }
     // Refusing external ownership must leave both list and payload untouched.
     Lifecycle::Runtime guarded_runtime;wind_head=old_address;construct(original,0,0);
     assert(guarded_runtime.begin(alloc::base,8,1,&image_native_free,&fixture_environment));
@@ -410,6 +495,8 @@ static void native_wind_binding_tests(){
         put(address,module+0x3E88CE8);put(address+0x10,next);put(address+0x18,previous);put(address+0x28,manager);
     };
     node(old_node,0,0);put(manager,old_address);
+    uintptr_t emitter_sentinel{};emitter_sentinel=reinterpret_cast<uintptr_t>(&emitter_sentinel);
+    put(module+0x470F1C0,emitter_sentinel);
     sc6::research::NativeEffectSession session;session.configure(image_native_free);
     assert(session.begin(module,17,2,external));
     sc6::research::NativeEffectSession::Binding before,after;
@@ -662,7 +749,36 @@ static void snapshot_hold_cancel_test(){
     probe::frame(0,0);assert(control.strong==1); // No double retirement.
     probe::pool.reset();probe::phase=0;probe::cancelled=false;
 }
+static void wind_emitter_snapshot_tests(){
+    using sc6::research::WindEmitterSnapshot;
+    std::array<uintptr_t,3> sentinel{},node{};
+    std::array<std::byte,0xA8> object{};
+    auto root=reinterpret_cast<uintptr_t>(sentinel.data());
+    uintptr_t root_pointer=root;
+    auto module=reinterpret_cast<uintptr_t>(&root_pointer)-0x470F1C0;
+    sentinel[0]=reinterpret_cast<uintptr_t>(node.data());node[0]=root;node[2]=reinterpret_cast<uintptr_t>(object.data());
+    float zero=0.0f,later=10.0f;unsigned pending=1,count=3;
+    std::memcpy(object.data()+0x50,&pending,4);std::memcpy(object.data()+0x54,&count,4);
+    std::memcpy(object.data()+0x5C,&zero,4);object[0x58]=std::byte{0x42};
+    auto saved=std::make_unique<WindEmitterSnapshot>(),live=std::make_unique<WindEmitterSnapshot>();
+    assert(saved->capture(module) && saved->count==1);
+    std::memcpy(object.data()+0x5C,&later,4);std::memset(object.data()+0x50,0,8);
+    assert(live->capture(module) && saved->compatible(*live) && !saved->compatible(*live,true));
+    assert(saved->restore(module,*live) && object[0x58]==std::byte{0x42});
+    unsigned actual{};std::memcpy(&actual,object.data()+0x54,4);assert(actual==3);
+    float timer{};std::memcpy(&timer,object.data()+0x5C,4);assert(timer==0.0f);
+    // The restored threshold triggers emission again; the advanced timer would skip it.
+    assert(timer<=0.0f && later>0.0f);
+    std::memcpy(object.data()+0x5C,&later,4);object[0x58]=std::byte{0x43};
+    assert(!saved->restore(module,*live));std::memcpy(&timer,object.data()+0x5C,4);assert(timer==later);
+    object[0x58]=std::byte{0x42};node[0]=reinterpret_cast<uintptr_t>(node.data());
+    assert(!live->capture(module));node[0]=root;
+    node[2]=1;assert(!live->capture(module) && live->exception);node[2]=reinterpret_cast<uintptr_t>(object.data());
+    sentinel[0]=root;assert(live->capture(module) && live->count==0 && !saved->compatible(*live));
+    assert(live->restore(module,*saved));
+}
 int main(){
+    wind_emitter_snapshot_tests();
     {
         namespace g=sc6::research::generated_observer;
         unsigned char buffer_bytes[]={1,2,3,4};
@@ -822,6 +938,7 @@ int main(){
     release_notice_tests();
     memory_gate_tests();
     runtime_tests();
+    birth_hook_tests();
     effect_manifest_tests();
     effect_image_tests();
     restore_plan_tests();

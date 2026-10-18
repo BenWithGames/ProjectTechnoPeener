@@ -2,12 +2,28 @@
 #include "FullRestoreStream.hpp"
 #include "RingSnapshot.hpp"
 #include "TransformSnapshot.hpp"
+#include "EffectRngBoundary.hpp"
 #include "CameraSnapshot.hpp"
 #include "ThrowCameraFlag.hpp"
 #include "CombatBlend.hpp"
+#include "SelectorSnapshot.hpp"
+#include "ActiveAnimationGroup.hpp"
+#include "ExactBytes.hpp"
+#include <memory>
+#include <type_traits>
 namespace sc6::research {
 struct FullStateProbe {
+    // Warm once when the pool is constructed, never on its first retirement.
+    static const FullStateProbe& reset_defaults();
+    // Only callers that have completed ownership drain and reuse guards may call.
+    void reset_for_reuse() noexcept;
+    bool copy_recorded_from(const FullStateProbe& source) noexcept;
     bool external_wind_lifecycle{};
+    bool selector_enabled{};
+    std::array<SelectorSnapshot,4> selectors; // source, expected, restored, replayed
+    SelectorSnapshot::Diagnostic selector_diagnostic;
+    bool selector_restored{},selector_endpoint_verified{};
+    ActiveAnimationGroup::Diagnostic active_group_diagnostic;
     bool defer_inactive_animation_weights{};
     struct BlendPairDiagnostic {unsigned reason{},side{},offset{UINT32_MAX},changed{},saved{},next{};uintptr_t saved_owner{},next_owner{};} blend_pair_diagnostic;
     struct BlendPairEvidence {bool valid{};std::array<std::byte,1372> saved{},next{};} blend_pair_evidence;
@@ -30,6 +46,21 @@ struct FullStateProbe {
     BlendTimerSample blend_timer_expected{};
     BlendTimerSample blend_timer_source{},blend_timer_next{},blend_timer_live{};
     struct TimerDiagnostic {unsigned phase{},reason{},side{},slot{},offset{UINT32_MAX},expected{},actual{};} timer_diagnostic;
+    // RVA349840 activates category zero using a bounded descriptor selector,
+    // cursor 3 and state 2. RVA3499D0 then advances the cursor. The resource
+    // initializer 38B740 snapshots the category-zero count at slot+1C.
+    static bool timer_activation(const std::array<std::byte,128>& a,const std::array<std::byte,128>& b,unsigned phase) noexcept {
+        const auto word=[](const auto& v,unsigned off){return CombatBlend::word(v.data()+off);};
+        const auto header=CombatBlend::wide(a.data()),descriptors=CombatBlend::wide(a.data()+8);
+        const auto count=word(a,0x1C),cursor=word(b,0x40),rate=word(a,0x44);
+        return phase!=2 && word(a,0x48)==1 && word(b,0x48)==2 && word(a,0x40)==0 &&
+            word(a,0x18)==0 && word(a,0x38)==0 && word(b,0x38)==0 &&
+            header>=0x10000 && header<=UINTPTR_MAX-0x40 && descriptors==header+0x40 &&
+            CombatBlend::wide(a.data()+0x10)>=0x10000 && count>0 && count<0x80000000u &&
+            word(a,0x3C)<count && word(b,0x3C)<count &&
+            cursor>=0x40400000u && cursor<0x7F800000u && rate>0 && rate<0x7F800000u &&
+            CombatBlend::wide(a.data()+0x58)==0;
+    }
     static bool timer_compatible(const BlendTimerSample& saved,const BlendTimerSample& live,TimerDiagnostic& d,unsigned phase) noexcept {
         d={};d.phase=phase;d.offset=UINT32_MAX;
         if(saved.valid_mask!=63 || live.valid_mask!=63){d.reason=1;d.expected=saved.valid_mask;d.actual=live.valid_mask;return false;}
@@ -39,16 +70,18 @@ struct FullStateProbe {
             // Native completion clears the cursor and changes active 2 to inactive 1.
             // Permit only the observed null-callback completion; all ownership bytes stay exact.
             const auto cursor=CombatBlend::word(a.data()+0x40),rate=CombatBlend::word(a.data()+0x44);
+            const bool activated=timer_activation(a,b,phase);
             const bool completed=phase!=2 && CombatBlend::word(a.data()+0x48)==2 &&
                 CombatBlend::word(b.data()+0x48)==1 && cursor>0 && cursor<0x7F800000u &&
                 rate>0 && rate<0x7F800000u && CombatBlend::word(b.data()+0x40)==0 &&
                 CombatBlend::word(a.data()+0x58)==0 && CombatBlend::word(a.data()+0x5C)==0;
             for(unsigned i=0;i<128;++i)if((i<0x40 || i>=0x44) &&
-                !(completed && i>=0x48 && i<0x4C) && a[i]!=b[i]){
+                !((completed || activated) && i>=0x48 && i<0x4C) &&
+                !(activated && i>=0x3C && i<0x40) && a[i]!=b[i]){
                 d.reason=2;d.offset=i;d.expected=std::to_integer<unsigned>(a[i]);d.actual=std::to_integer<unsigned>(b[i]);return false;
             }
             auto x=CombatBlend::word(a.data()+0x40),y=CombatBlend::word(b.data()+0x40);
-            if(x>=0x7F800000u || y>=0x7F800000u || (x!=y && CombatBlend::word(a.data()+0x48)!=2)){
+            if(x>=0x7F800000u || y>=0x7F800000u || (x!=y && CombatBlend::word(a.data()+0x48)!=2 && !activated)){
                 d.reason=3;d.offset=0x40;d.expected=x;d.actual=y;return false;
             }
         }
@@ -74,6 +107,7 @@ struct FullStateProbe {
         if(!timer_live_ready())return false;
         __try {
             for(unsigned side=0;side<2;++side)for(unsigned slot=0;slot<3;++slot){
+                std::memcpy(reinterpret_cast<void*>(measurements[0].players[side]+0x972A4+slot*128),blend_timer_source.slots[side][slot].data()+0x3C,4);
                 std::memcpy(reinterpret_cast<void*>(measurements[0].players[side]+0x972A8+slot*128),blend_timer_source.slots[side][slot].data()+0x40,4);
                 std::memcpy(reinterpret_cast<void*>(measurements[0].players[side]+0x972B0+slot*128),blend_timer_source.slots[side][slot].data()+0x48,4);
             }
@@ -134,6 +168,10 @@ struct FullStateProbe {
     }
     std::uint32_t load_entry_rng{};
     bool load_entry_rng_valid{};
+    struct ScalarResetDiagnostic {unsigned side{},saved{},loaded{},live{},reason{},restored{};};
+    std::array<ScalarResetDiagnostic,2> scalar_resets{};
+    unsigned postload_failure_check{};
+    static bool scalar_reset_compatible(unsigned saved,unsigned loaded){return loaded==saved || loaded==0x3F800000u;}
     bool preserve(uintptr_t b){
         auto& source=measurements[0];auto& written=measurements[1];auto& loaded=measurements[2];
         const auto entry_rng=load_entry_rng_valid?load_entry_rng:source.rng;
@@ -150,9 +188,17 @@ struct FullStateProbe {
                 !std::memcmp(source.fields[side].data()+128+0x38,loaded.fields[side].data()+128+0x38,4);
             if(combat_requested() && !general_controls_equal && !combat_transition(source.fields[side],loaded.fields[side],side,charge_requested || attack_requested || edge_requested,reversal_requested,
                 combat_later_window && combat_replay_requested && throw_requested && delayed_requested))return false;
+            // Pinned initializer 2F90AD resets wrapper +54 to exact float 1.
+            // Only that reset (or an unchanged value) is accepted; copy saved bits.
+            auto& scalar_reset=scalar_resets[side];scalar_reset.side=side;
+            std::memcpy(&scalar_reset.saved,source.fields[side].data()+128+0x54,4);
+            std::memcpy(&scalar_reset.loaded,loaded.fields[side].data()+128+0x54,4);
+            std::memcpy(&scalar_reset.live,reinterpret_cast<void*>(player+0x9723C),4);
+            if(!scalar_reset_compatible(scalar_reset.saved,scalar_reset.loaded)){scalar_reset.reason=1;return false;}
+            if(scalar_reset.live!=scalar_reset.loaded){scalar_reset.reason=2;return false;}
             // Reject unexpected changes before any preservation writes.
             for(unsigned k=8;k<224;++k){
-                bool allowed=k<128;
+                bool allowed=k<128 || (k>=128+0x54 && k<132+0x54);
                 for(auto off:scalar_offsets)if(k>=128+off && k<132+off)allowed=true;
                 if(combat_requested())for(auto off:throw_scalar_offsets)if(k>=128+off && k<132+off)allowed=true;
                 if(!allowed && source.fields[side][k]!=loaded.fields[side][k])return false;
@@ -164,6 +210,8 @@ struct FullStateProbe {
             auto player=source.players[side];
             std::memcpy(reinterpret_cast<void*>(player+0x97100),source.fields[side].data()+8,120);
             for(auto off:scalar_offsets)std::memcpy(reinterpret_cast<void*>(player+0x971E8+off),source.fields[side].data()+128+off,4);
+            std::memcpy(reinterpret_cast<void*>(player+0x9723C),source.fields[side].data()+128+0x54,4);
+            scalar_resets[side].restored=1;
         }
         if(combat_requested())for(unsigned side=0;side<2;++side)
             for(auto off:throw_scalar_offsets)
@@ -469,6 +517,7 @@ struct FullStateProbe {
     static constexpr const char* blend_names[]={"original_a","original_b","restored","restored_after_save","replay","weights_corrected","blocks_corrected","wind_corrected","sway_corrected","constraints_corrected"};
     bool wind_restore_verified{},sway_restore_verified{},constraint_restore_verified{};
     TransformSnapshot::WindDiagnostic wind_diagnostic,wind_preflight_diagnostic;
+    EffectRngBoundary effect_rng_boundary;
     mutable std::array<uint64_t,5> motion_zero_evidence{}; // count, record, offset, expected bits, actual bits
     CameraSnapshot::RestoreDiagnostic camera_diagnostic;
     bool blend_blocks_applied{},blend_blocks_verified{};
@@ -771,7 +820,13 @@ struct FullStateProbe {
                 keys(b,delayed_loaded_keys.data(),delayed_loaded_players);delayed_keys_captured=true;
                 postflight_ok=check(b);
                 selected_equal=correct_delayed_outer(b);
-                if(!restore_completed || !selected_equal || !postflight_ok || !preserve(b) || !rings[0].restore(b,delayed_scratch)){delayed_failure_line=__LINE__;fault=true;}
+                postload_failure_check=0;
+                if(!restore_completed)postload_failure_check=1;
+                else if(!selected_equal)postload_failure_check=2;
+                else if(!postflight_ok)postload_failure_check=3;
+                else if(!preserve(b))postload_failure_check=4;
+                else if(!rings[0].restore(b,delayed_scratch))postload_failure_check=5;
+                if(postload_failure_check){delayed_failure_line=__LINE__;fault=true;}
                 else {
                     delayed_loaded=true;measure(b,5);
                     if(!capture_blend(b,2)){delayed_failure_line=__LINE__;fault=true;__leave;}
@@ -801,6 +856,7 @@ struct FullStateProbe {
                     if(!sway_restore_verified || !capture_blend(b,8)){delayed_failure_line=__LINE__;fault=true;__leave;}
                     constraint_restore_verified=transforms[0].restore_constraints(transforms[1],transforms[8],b);
                     if(!constraint_restore_verified || !capture_blend(b,9)){delayed_failure_line=__LINE__;fault=true;__leave;}
+                    if(general_combat_requested && !ActiveAnimationGroup::restore(saved,before_players,b,active_group_diagnostic)){delayed_failure_line=__LINE__;fault=true;__leave;}
                     if(!restored_rings.capture(b)){delayed_failure_line=__LINE__;fault=true;__leave;}
                     restored_ring_equal=restored_rings.same(rings[0]);
                     writer(&restored.stream);measure(b,6);restored_valid=restored.seal();
@@ -818,7 +874,7 @@ struct FullStateProbe {
                     if(combat_replay_requested && !(general_combat_requested?throw_camera_flag.restore_general(saved,restored,b):throw_camera_flag.restore(saved,restored,b,attack_requested,edge_requested,reversal_requested))){delayed_failure_line=__LINE__;fault=true;__leave;}
                     auto n=restored.stream.write_position,m=saved.stream.write_position;
                     restored_byte_differences=n>m?n-m:m-n;
-                    for(std::uint64_t i=0;i<(n<m?n:m);++i)if(restored.stream.payload[i]!=saved.stream.payload[i])++restored_byte_differences;
+                    restored_byte_differences+=exact_byte_differences(restored.stream.payload.data(),saved.stream.payload.data(),(std::min)(n,m));
                 }
             }else{
                 combat_comparison_attempted=combat_replay_requested;
@@ -833,7 +889,7 @@ struct FullStateProbe {
                 cameras[3].capture(replay,b);
                 auto n=replay.stream.write_position,m=after_save.stream.write_position;
                 replay_byte_differences=n>m?n-m:m-n;
-                for(std::uint64_t i=0;i<(n<m?n:m);++i)if(replay.stream.payload[i]!=after_save.stream.payload[i])++replay_byte_differences;
+                replay_byte_differences+=exact_byte_differences(replay.stream.payload.data(),after_save.stream.payload.data(),(std::min)(n,m));
                 replay_done=true;
                 // Differences are reported as an experiment result, never silently normalized.
             }
@@ -911,7 +967,7 @@ struct FullStateProbe {
                             !std::memcmp(measurements[3].players,measurements[4].players,sizeof(measurements[3].players));
                         auto n=saved.stream.write_position,m=after_save.stream.write_position;
                         byte_differences=n>m?n-m:m-n;
-                        for(std::uint64_t i=0;i<(n<m?n:m);++i)if(saved.stream.payload[i]!=after_save.stream.payload[i])++byte_differences;
+                        byte_differences+=exact_byte_differences(saved.stream.payload.data(),after_save.stream.payload.data(),(std::min)(n,m));
                     }
                 }
             }
@@ -927,4 +983,49 @@ struct FullStateProbe {
         QueryPerformanceCounter(&end);elapsed_qpc=end.QuadPart-begin.QuadPart;
     }
 };
+}
+
+namespace sc6::research {
+inline const FullStateProbe& FullStateProbe::reset_defaults(){
+    static const auto defaults=std::make_unique<const FullStateProbe>();
+    return *defaults;
+}
+inline void FullStateProbe::reset_for_reuse() noexcept {
+    static_assert(std::is_trivially_copyable_v<FullStateProbe>);
+    // Copy every default field, including stream tables, copier callbacks and
+    // diagnostic sentinels. Only count-gated transform record storage is skipped.
+    // No native references are owned by these byte records. Append overwrites
+    // each complete record before publishing its count on the next capture.
+    const auto& defaults=reset_defaults();
+    auto* destination=reinterpret_cast<std::byte*>(this);
+    const auto* source=reinterpret_cast<const std::byte*>(&defaults);
+    size_t cursor=0;
+    for(unsigned i=0;i<transforms.size();++i){
+        const auto begin=static_cast<size_t>(reinterpret_cast<const std::byte*>(defaults.transforms[i].records.data())-source);
+        std::memcpy(destination+cursor,source+cursor,begin-cursor);
+        cursor=begin+sizeof(defaults.transforms[i].records);
+    }
+    std::memcpy(destination+cursor,source+cursor,sizeof(*this)-cursor);
+}
+}
+
+namespace sc6::research {
+inline bool FullStateProbe::copy_recorded_from(const FullStateProbe& other) noexcept {
+    static_assert(std::is_trivially_copyable_v<FullStateProbe>);
+    for(const auto& t:other.transforms)if(t.count>t.records.size())return false;
+    if(this==&other)return true;
+    auto* destination=reinterpret_cast<std::byte*>(this);
+    const auto* source=reinterpret_cast<const std::byte*>(&other);
+    size_t cursor=0;
+    // Preserve every non-record field and every published record byte. Unused
+    // capacity is inaccessible through count and is initialized by append.
+    for(const auto& t:other.transforms){
+        const auto begin=static_cast<size_t>(reinterpret_cast<const std::byte*>(t.records.data())-source);
+        std::memcpy(destination+cursor,source+cursor,begin-cursor);
+        std::memcpy(destination+begin,source+begin,t.count*sizeof(TransformSnapshot::Record));
+        cursor=begin+sizeof(t.records);
+    }
+    std::memcpy(destination+cursor,source+cursor,sizeof(*this)-cursor);
+    return true;
+}
 }

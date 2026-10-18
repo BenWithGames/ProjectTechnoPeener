@@ -1,0 +1,77 @@
+﻿SC6Rollback diagnostic report bundle
+Collected UTC: 2026-10-18T06:19:03.1620640Z
+Local copy only; nothing was uploaded.
+Files were copied separately. A still-running capture may be incomplete.
+Transport PASS alone does not establish rollback success.
+Included files:
+steam-inputs-2292-animation-copy.bin
+steam-inputs-2292-cycle-1-animation-copy.bin
+steam-inputs-2292-cycle-1-inline-rng.bin
+steam-inputs-2292-cycle-1-owned-snapshot-0.bin
+steam-inputs-2292-cycle-1-owned-snapshot-1.bin
+steam-inputs-2292-cycle-1-owned-snapshot-2.bin
+steam-inputs-2292-cycle-1-owned-snapshot-3.bin
+steam-inputs-2292-cycle-1-replay-evidence.bin
+steam-inputs-2292-cycle-1-summary.txt
+steam-inputs-2292-cycle-10-summary.txt
+steam-inputs-2292-cycle-11-summary.txt
+steam-inputs-2292-cycle-12-summary.txt
+steam-inputs-2292-cycle-13-summary.txt
+steam-inputs-2292-cycle-14-summary.txt
+steam-inputs-2292-cycle-15-summary.txt
+steam-inputs-2292-cycle-16-summary.txt
+steam-inputs-2292-cycle-17-summary.txt
+steam-inputs-2292-cycle-18-summary.txt
+steam-inputs-2292-cycle-19-summary.txt
+steam-inputs-2292-cycle-2-summary.txt
+steam-inputs-2292-cycle-20-summary.txt
+steam-inputs-2292-cycle-21-summary.txt
+steam-inputs-2292-cycle-22-summary.txt
+steam-inputs-2292-cycle-23-summary.txt
+steam-inputs-2292-cycle-24-summary.txt
+steam-inputs-2292-cycle-25-summary.txt
+steam-inputs-2292-cycle-26-summary.txt
+steam-inputs-2292-cycle-27-summary.txt
+steam-inputs-2292-cycle-28-summary.txt
+steam-inputs-2292-cycle-29-summary.txt
+steam-inputs-2292-cycle-3-summary.txt
+steam-inputs-2292-cycle-30-summary.txt
+steam-inputs-2292-cycle-31-summary.txt
+steam-inputs-2292-cycle-32-summary.txt
+steam-inputs-2292-cycle-33-summary.txt
+steam-inputs-2292-cycle-34-summary.txt
+steam-inputs-2292-cycle-35-animation-copy.bin
+steam-inputs-2292-cycle-35-inline-rng.bin
+steam-inputs-2292-cycle-35-owned-snapshot-0.bin
+steam-inputs-2292-cycle-35-owned-snapshot-1.bin
+steam-inputs-2292-cycle-35-owned-snapshot-2.bin
+steam-inputs-2292-cycle-35-owned-snapshot-3.bin
+steam-inputs-2292-cycle-35-replay-evidence.bin
+steam-inputs-2292-cycle-35-summary.txt
+steam-inputs-2292-cycle-36-animation-copy.bin
+steam-inputs-2292-cycle-36-inline-rng.bin
+steam-inputs-2292-cycle-36-owned-snapshot-0.bin
+steam-inputs-2292-cycle-36-owned-snapshot-1.bin
+steam-inputs-2292-cycle-36-owned-snapshot-2.bin
+steam-inputs-2292-cycle-36-owned-snapshot-3.bin
+steam-inputs-2292-cycle-36-replay-evidence.bin
+steam-inputs-2292-cycle-36-summary.txt
+steam-inputs-2292-cycle-37-owned-snapshot-0.bin
+steam-inputs-2292-cycle-37-owned-snapshot-1.bin
+steam-inputs-2292-cycle-37-owned-snapshot-2.bin
+steam-inputs-2292-cycle-37-owned-snapshot-3.bin
+steam-inputs-2292-cycle-4-summary.txt
+steam-inputs-2292-cycle-5-summary.txt
+steam-inputs-2292-cycle-6-summary.txt
+steam-inputs-2292-cycle-7-summary.txt
+steam-inputs-2292-cycle-8-summary.txt
+steam-inputs-2292-cycle-9-summary.txt
+steam-inputs-2292-inline-rng.bin
+steam-inputs-2292-retained-evidence.bin
+steam-inputs-2292-round-events-gates.csv
+steam-inputs-2292-round-events-upstream.csv
+steam-inputs-2292-round-events.csv
+steam-inputs-2292-summary.json
+steam-inputs-2292-summary.txt
+steam-inputs-2292-timer-lookup.bin
+steam-inputs-2292.txt

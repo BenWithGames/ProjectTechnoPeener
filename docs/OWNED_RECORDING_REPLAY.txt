@@ -1,0 +1,17 @@
+Owned recording and same-session reference replay (suite profile 13)
+
+Purpose
+Capture four consecutive combat boundaries with existing descriptor, generated-buffer and supported effect lifetime retention. Restore and replay three original input frames in the same process/session. Verify the reference result before retiring snapshots and dependencies.
+
+Implementation
+Uses RetainedObjectReplay with an immutable same-session-recording option. Existing profile 12 still requires three cycles with actual retained-object removal/revival. Profile 13 requires one cycle and does not require removal, neutral input, a prediction difference, or a wall break. Native structural, external-reference, owner-thread, frame, round, RNG, camera, animation, and cleanup checks are unchanged.
+
+Before the rewind, four immutable evidence files are copied from the owned snapshot pool. These record original input envelopes, boundary identities, serialized native state, sparse ring/blend/camera/transform state, dependency identities and captured effect images. Actual ownership remains in the live pool. The files are diagnostic evidence, not portable ownership handles.
+
+After replay, expected/actual evidence is saved even on success. Existing per-cycle animation and inline-RNG diagnostics remain. Report collection includes all files sharing the report prefix. File writes occur from the report worker; game-thread code only captures immutable evidence.
+
+Limits
+One bounded three-frame reference replay, not continuous rollback and not latency reduction. Does not replay the old Match 2 ZIP. New live dependencies are captured and consumed before releasing them. Round changes cancel rather than cross boundaries; any failed restore/replay stops with the existing restart requirement. Unsupported object/dependency cases can still fail.
+
+Live procedure
+Install on both PCs with SC6 closed. Launch, play one private warmup match, return to lobby. Start Steam-TestSuite.cmd on both PCs; wait for handshake and then enter the next match. Play normally from FIGHT. Keep games open for the result exchange and 30-second observation. Collect each report with Collect-RollbackReport.cmd. No deliberately idle period, special move, or wall break is required.

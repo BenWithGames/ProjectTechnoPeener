@@ -42,7 +42,7 @@ private:
         return true;
     }
 public:
-    NativeSnapshotPool(){for(auto& s:slots_)s=std::make_unique<Slot>();}
+    NativeSnapshotPool(){(void)FullStateProbe::reset_defaults();for(auto& s:slots_)s=std::make_unique<Slot>();}
     ~NativeSnapshotPool(){
         // Native disposal must never migrate to an arbitrary destructor thread.
         // Production users must drain on the simulation thread before teardown.
@@ -110,9 +110,9 @@ public:
         if(snapshot.fault || snapshot.exception || q.fault || q.restore_invoked || q.saved.stream.failures || q.after_save.stream.failures){
             s->poisoned=true;return false;
         }
-        // Reconstruct in the original allocation, avoiding a huge stack
-        // temporary and restoring stream function tables/copier defaults.
-        std::destroy_at(snapshot.data.get());std::construct_at(snapshot.data.get());
+        // Ownership has drained and all quarantine guards passed. Reset metadata
+        // and defaults while retaining count-gated transform buffer storage.
+        snapshot.data->reset_for_reuse();
         snapshot.direction_bits=0x400;snapshot.direction_slot=1;snapshot.capture_stage=0;snapshot.mode_values_valid=false;snapshot.mode_values={};
         snapshot.mode=NativeBoundarySnapshot::Mode::idle;snapshot.module=0;snapshot.thread=0;
         snapshot.attempted=snapshot.valid=snapshot.fault=false;snapshot.exception=0;

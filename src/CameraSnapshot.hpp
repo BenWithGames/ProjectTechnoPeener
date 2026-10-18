@@ -22,17 +22,44 @@ struct CameraSnapshot {
         value=value+0.1f;if(value>1.0f)value=1.0f;
         unsigned expected{};std::memcpy(&expected,&value,4);return b==expected;
     }
-    // Pinned 31AC60 increments decision counters; reset/overflow is not admitted.
+    // Pinned 31AADC..31AAFA subtracts 0.0765 and clamps to zero;
+    // 31AB34..31AB4E also forces zero in mode 1. Thus zero may remain
+    // zero while history advances. Do not admit arbitrary stable factors.
+    static bool replay_factor(unsigned a,unsigned b) noexcept {
+        return (a==0 && b==0) || rising_factor(a,b);
+    }
+    // Pinned 31AC60 resets decision counters to -1 or increments them, including
+    // -1 -> 0. Keep other negative values and signed overflow out of the policy.
     // Event nibble 391088/39108D admits 0..14; 15 means no update.
     static bool camera_mode_pair(unsigned a,unsigned b) noexcept {return a<=14 && b<=14;}
     static bool camera_mode_loaded(unsigned a,unsigned b,unsigned c) noexcept {
         return camera_mode_pair(a,b) && (c==0 || c==a);
     }
     static bool decision_counter_pair(unsigned a,unsigned b) noexcept {
-        return a==b || (a<0x7FFFFFFFu && b==a+1);
+        const auto valid=[](unsigned v){return v<=0x7FFFFFFFu || v==0xFFFFFFFFu;};
+        return valid(a) && valid(b) && (a==b || b==0xFFFFFFFFu ||
+            (a==0xFFFFFFFFu && b==0) || (a<0x7FFFFFFFu && b==a+1));
     }
     static bool decision_counter_loaded(unsigned a,unsigned b,unsigned c) noexcept {
-        return decision_counter_pair(a,b) && (c==a || c==b);
+        // Native decision helper 31AC60 resets +2A4/+2A8 to -1 when
+        // the relevant player flag is absent. Both captured post-load failures
+        // show this sentinel. Source adjacency and live identity are still
+        // checked before restoring the exact saved counters below.
+        return decision_counter_pair(a,b) && (c==a || c==b || c==0xFFFFFFFFu);
+    }
+    // Ghidra 31A450 resets +2AC to 0; 31A5E2 reads it as a two-player
+    // table index and 31A601 stores selected player +23C. This is active
+    // previous-selection state, not a frame counter or a pointer.
+    // Camera virtual methods 31BB90/31BBA0/31BBD0/31BC10 assign
+    // 0 (automatic), -1 or +1 (forced player ordering). Native init clears it.
+    static bool forced_selection_value(unsigned v) noexcept {return v==0 || v==1 || v==0xFFFFFFFFu;}
+    static bool forced_selection_pair(unsigned a,unsigned b) noexcept {return forced_selection_value(a) && forced_selection_value(b);}
+    static bool forced_selection_loaded(unsigned a,unsigned b,unsigned c) noexcept {
+        return forced_selection_pair(a,b) && (c==0 || c==a);
+    }
+    static bool player_selection_pair(unsigned a,unsigned b) noexcept {return a<=1 && b<=1;}
+    static bool player_selection_loaded(unsigned a,unsigned b,unsigned c) noexcept {
+        return player_selection_pair(a,b) && (c==0 || c==a);
     }
     struct ReadinessDiagnostic {unsigned reason{},record{},section{},offset{},side{};uint64_t saved{},next{};};
     bool adjacent_combat_ready(const CameraSnapshot& next,uintptr_t base,bool charge_rising=false,ReadinessDiagnostic* detail=nullptr,bool idle_camera=false,bool decision_counters=false)const noexcept {
@@ -67,9 +94,11 @@ struct CameraSnapshot {
                 bool position=(j>=0x48 && j<0x54)||(j>=0x58 && j<0x64);
                 const auto av=word(a.targets.data()+j),bv=word(b.targets.data()+j);
                 if(charge_rising && (j==0x68 || j==0x6C)){
-                    if(!rising_factor(av,bv))return reject(12,3,j,av,bv);
+                    if(!replay_factor(av,bv))return reject(12,3,j,av,bv);
                 }else if(position){if((av&0x7F800000u)==0x7F800000u || (bv&0x7F800000u)==0x7F800000u)return reject(13,3,j,av,bv);}
                 else if(decision_counters && j==112){if(!camera_mode_pair(av,bv))return reject(17,3,j,av,bv);}
+                else if(decision_counters && j==124){if(!player_selection_pair(av,bv))return reject(18,3,j,av,bv);}
+                else if(decision_counters && j==0){if(!forced_selection_pair(av,bv))return reject(19,3,j,av,bv);}
                 else if(decision_counters && (j==116 || j==120)){if(!decision_counter_pair(av,bv))return reject(16,3,j,av,bv);}
                 else if(av!=bv)return reject(14,3,j,av,bv);
             }
@@ -130,7 +159,7 @@ struct CameraSnapshot {
                 // Idle-only target correction: stable A/B, observed load reset, live identity.
                 for(unsigned j=0;!adjacent_throw && j<128;j+=4){
                     const auto av=word(a.targets.data()+j),bv=word(b.targets.data()+j);
-                    if(av!=bv && !(decision_counters && ((j==112 && camera_mode_pair(av,bv)) || ((j==116 || j==120) && decision_counter_pair(av,bv))))){
+                    if(av!=bv && !(decision_counters && ((j==112 && camera_mode_pair(av,bv)) || ((j==116 || j==120) && decision_counter_pair(av,bv)) || (j==124 && player_selection_pair(av,bv)) || (j==0 && forced_selection_pair(av,bv))))){
                         if(diagnostic){diagnostic->section=4;diagnostic->offset=j;diagnostic->a=av;diagnostic->b=bv;diagnostic->c=word(c.targets.data()+j);diagnostic->live=0;}
                         return restore_reject(diagnostic,__LINE__);
                     }
@@ -148,6 +177,14 @@ struct CameraSnapshot {
                     const bool factor=j==0x68 || j==0x6C;
                     auto av=word(a.targets.data()+j),bv=word(b.targets.data()+j),cv=word(c.targets.data()+j);
                     if(diagnostic){diagnostic->section=2;diagnostic->offset=j;diagnostic->a=av;diagnostic->b=bv;diagnostic->c=cv;}
+                    if(decision_counters && j==0){
+                        if(!forced_selection_loaded(av,bv,cv))return restore_reject(diagnostic,__LINE__);
+                        continue;
+                    }
+                    if(decision_counters && j==124){
+                        if(!player_selection_loaded(av,bv,cv))return restore_reject(diagnostic,__LINE__);
+                        continue;
+                    }
                     if(decision_counters && j==112){
                         if(!camera_mode_loaded(av,bv,cv))return restore_reject(diagnostic,__LINE__);
                         continue;
@@ -160,7 +197,7 @@ struct CameraSnapshot {
                     if(position){
                         if((av&0x7F800000u)==0x7F800000u || (bv&0x7F800000u)==0x7F800000u || cv!=0)return restore_reject(diagnostic,__LINE__);
                     }else if(factor){
-                        if((adjacent_charge?!rising_factor(av,bv):av!=((immediate_throw || adjacent_throw)?0x3F800000u:0u)) || cv!=0x3F800000u)return restore_reject(diagnostic,__LINE__);
+                        if((adjacent_charge?!replay_factor(av,bv):av!=((immediate_throw || adjacent_throw)?0x3F800000u:0u)) || cv!=0x3F800000u)return restore_reject(diagnostic,__LINE__);
                     }else if(j==0 && !immediate_throw && !adjacent_throw && av==0xFFFFFFFFu && bv==av && cv==0){
                         // Pinned camera selector:31A588/31AB88 interpret -1.
                         // Observed native load resets it; restore only this exact idle pattern.
@@ -201,6 +238,7 @@ struct CameraSnapshot {
             // All guards above passed; preserve the captured selector as well.
             if(decision_counters){
                 std::memcpy(reinterpret_cast<void*>(a.owner+0x2A4),a.targets.data()+116,8);
+                std::memcpy(reinterpret_cast<void*>(a.owner+0x2AC),a.targets.data()+124,4);
                 std::memcpy(reinterpret_cast<void*>(a.owner+0x258),a.targets.data()+112,4);
             }
             std::memcpy(reinterpret_cast<void*>(a.owner+0x1E8),a.targets.data(),4);
