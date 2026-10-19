@@ -29,6 +29,8 @@ SC6BattleAfterBridge PROC FRAME
     fnstcw [rsp+0C4h]
     ; RBX is the outer update owner at this pinned call site.
     mov rcx, rbx
+    ; Native input header is at original RSP+38h. This bridge has reserved E0h.
+    lea rdx, [rsp+118h]
     call SC6TraceBattleAfter
     fldcw [rsp+0C4h]
     ldmxcsr [rsp+0C0h]

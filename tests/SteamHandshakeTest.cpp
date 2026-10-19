@@ -1,3 +1,4 @@
+#include "../src/ContinuousStopPacket.hpp"
 #include "../src/SteamHandshakeProtocol.hpp"
 #include "../src/CombatPeerContext.hpp"
 #include <cassert>
@@ -6,6 +7,16 @@
 #include <atomic>
 using namespace sc6::steam_handshake;
 int main(){
+    {
+        using Stop=sc6::research::ContinuousStopPacket;
+        auto packet=Stop::encode(10,20);
+        assert(Stop::valid(packet,20,10));
+        assert(!Stop::valid(packet,20,11) && !Stop::valid(packet,21,10));
+        packet.index=1;assert(!Stop::valid(packet,20,10));packet.index=0;
+        for(auto& word:packet.record.data){word=1;assert(!Stop::valid(packet,20,10));word=0;}
+        packet.own_hash=0;assert(!Stop::valid(packet,20,10));
+    }
+
     Protocol a{22,101},b{11,202};
     assert(!a.receive(33,b.outgoing(),32));
     assert(!a.receive(22,b.outgoing(),31));

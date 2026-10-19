@@ -1,6 +1,7 @@
 #pragma once
 #include "NativeHistoryRestore.hpp"
 #include "NetworkInputComposer.hpp"
+#include "NativeRollbackTiming.hpp"
 namespace sc6::research {
 // Native adapter storage. Requires a live boundary envelope before reconcile.
 // Continuous captures use the explicit general-state restore contract.
@@ -13,14 +14,20 @@ template<class History=NativeRollingHistory<4>,class Restore=NativeHistoryRestor
     uint64_t serial_{};
     struct Token {unsigned frame{};uint64_t serial{};};
     std::array<Token,4> tokens_{};
+    // Allocate before activation, retain for this round/session only.
+    std::unique_ptr<Restore> restore_=std::make_unique<Restore>();
     RollbackBoundaryKey key(unsigned frame)const{auto k=identity_;k.frame=frame;return k;}
     bool fail(){failed_=true;return false;}
     bool capture_boundary(const RollbackBoundaryKey& boundary,unsigned oldest,uintptr_t argument){
+        NativeRollbackTiming::Binding binding(&timing,boundary.frame);
+        NativeRollbackTiming::Scope measured(NativeRollbackTiming::capture);
         if constexpr(requires {history_.capture_general_owned(boundary,oldest,base_,argument,source_);})
             return history_.capture_general_owned(boundary,oldest,base_,argument,source_);
         else return history_.capture_owned(boundary,oldest,base_,argument,source_,approved_);
     }
 public:
+    NativeRollbackTiming timing;
+    NativeRollbackTiming* timing_sink(){return &timing;}
     NativeRestoreDiagnostic restore_diagnostic;
     struct Snapshot {RollbackBoundaryKey key{};uint64_t serial{};};
     NativeSchedulerStorage(History& history,ReplayDependencySource& source,uintptr_t base,const RollbackBoundaryKey& identity,bool approved=false)
@@ -38,17 +45,23 @@ public:
         out={boundary,++serial_};tokens_[frame%4]={frame,serial_};return true;
     }
     bool restore(const Snapshot& saved){
+        NativeRollbackTiming::Binding binding(&timing,saved.key.frame);
+        NativeRollbackTiming::Scope measured(NativeRollbackTiming::restore);
         const auto& token=tokens_[saved.key.frame%4];
         if(failed_ || !boundary_ || !saved.serial || !saved.key.same_round(identity_) || token.frame!=saved.key.frame ||
             token.serial!=saved.serial || saved.key.frame>=live_ || live_-saved.key.frame>3)return fail();
         // The scheduler stores pre-frame states; add the current endpoint so
         // every adjacent reverse-load hop has its required reference state.
         if(!capture_boundary(key(live_),saved.key.frame,input_.assign(endpoint_)))return fail();
-        auto restore=std::make_unique<Restore>();
-        const bool restored=restore->run(history_,saved.key,key(live_),base_);
-        if constexpr(requires {restore->details();})restore_diagnostic=restore->details();
+        {NativeRollbackTiming::Scope reset(NativeRollbackTiming::workspace);
+        if constexpr(requires {restore_->prepare_for_reuse();}){
+            if(!restore_->prepare_for_reuse())return fail();
+        }else restore_=std::make_unique<Restore>();}
+        const bool restored=restore_->run(history_,saved.key,key(live_),base_);
+        if constexpr(requires {restore_->details();})restore_diagnostic=restore_->details();
         if(!restored)return fail();
-        if(!history_.rewind_for_replay(saved.key,[](auto&){return true;}))return fail();
+        {NativeRollbackTiming::Scope cleanup(NativeRollbackTiming::cleanup);
+        if(!history_.rewind_for_replay(saved.key,[](auto&){return true;}))return fail();}
         for(auto& t:tokens_)if(t.serial && t.frame>=saved.key.frame)t={};
         return true;
     }

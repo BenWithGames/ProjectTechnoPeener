@@ -11,22 +11,49 @@
 #include "StartupReferenceReplay.hpp"
 #include "StartupPredictionCorrection.hpp"
 #include "CorrectionCycleBank.hpp"
+#include <sstream>
 namespace sc6::research {
 // Resource callbacks acquire references. Only the game-frame thread inspects
 // readiness or releases them; the network worker can only request retirement.
 template<class Resources=ReplayOwnedResources> class CombatResourcePreparation {
     Resources resources_;
+    std::array<std::unique_ptr<Resources>,15> successors_;
+    std::atomic<unsigned> successor_count_{};
+    std::atomic<Resources*> current_{};
+    Resources& resource(){auto* value=current_.load(std::memory_order_acquire);return value?*value:resources_;}
+    const Resources& resource()const{auto* value=current_.load(std::memory_order_acquire);return value?*value:resources_;}
     std::atomic<bool> stop_{};
 public:
-    template<class Stream> void wind_report(Stream& out)const{if constexpr(requires {resources_.wind_report(out);})resources_.wind_report(out);}
+    std::atomic<bool> live_prediction_enabled{};
+    bool enable_live_prediction(){
+        if(failed.load() || stop_.load() || retired.load())return false;
+        if(live_prediction_enabled.load())return true;
+        if constexpr(requires {resource().enable_wind();resource().enable_animation_copy();}){
+            if(!resource().enable_wind() || !resource().enable_animation_copy()){failed=true;return false;}
+        }else {failed=true;return false;}
+        capture_enabled=false;
+        live_prediction_enabled.store(true,std::memory_order_release);return true;
+    }
+    template<class Stream> void wind_report(Stream& out)const{
+        if constexpr(requires {resource().wind_report(out);}){
+            const auto count=successor_count_.load(std::memory_order_acquire);
+            out<<"continuous_resource_generations="<<count+1<<'\n';
+            for(unsigned i=0;i<count;++i){
+                const auto& old=i?*successors_[i-1]:resources_;
+                std::ostringstream text;old.wind_report(text);std::istringstream lines(text.str());std::string line;
+                while(std::getline(lines,line))out<<"retired_resources_"<<i<<'_'<<line<<'\n';
+            }
+            (count?*successors_[count-1]:resources_).wind_report(out);
+        }
+    }
     std::unique_ptr<RetainedObjectReplay<>> retained_replay;
     std::atomic<bool> retained_replay_enabled{};
     void enable_retained_replay(bool same_session_recording=false,bool repeated_recording=false,bool multi_round=false,bool continuous_match=false){
         if(retained_replay_enabled.load())return;
-        if constexpr(requires {resources_.enable_wind();}){
-            if(!resources_.enable_wind()){failed=true;return;}
+        if constexpr(requires {resource().enable_wind();}){
+            if(!resource().enable_wind()){failed=true;return;}
         }else {failed=true;return;}
-        if constexpr(requires {resources_.enable_animation_copy();})if(!resources_.enable_animation_copy()){failed=true;return;}
+        if constexpr(requires {resource().enable_animation_copy();})if(!resource().enable_animation_copy()){failed=true;return;}
         retained_replay=std::make_unique<RetainedObjectReplay<>>(same_session_recording,repeated_recording,multi_round,multi_round,continuous_match);
         retained_replay->prepare_diagnostic_storage();
         retained_replay_enabled.store(true,std::memory_order_release);
@@ -40,13 +67,13 @@ public:
     std::atomic<bool> retention_enabled{};
     void enable_retention(){
         if(retention_enabled.load())return;
-        if constexpr(requires {resources_.enable_wind(false);}){
-            if(!resources_.enable_wind(false)){failed=true;return;}
+        if constexpr(requires {resource().enable_wind(false);}){
+            if(!resource().enable_wind(false)){failed=true;return;}
         }else {failed=true;return;}
         retention_enabled.store(true,std::memory_order_release);
     }
     unsigned retention_result()const{
-        if constexpr(requires {resources_.retention_result();})return resources_.retention_result();
+        if constexpr(requires {resource().retention_result();})return resource().retention_result();
         return 0;
     }
     std::atomic<bool> capture_enabled{true};
@@ -59,7 +86,7 @@ public:
     unsigned owner_cycle_{};
     RollbackBoundaryKey cycle_identity_; // owner thread only
     void enable_cycles(bool attack=false,bool combat=false,unsigned hold_ms=0){if(!cycles_enabled.load()){
-        if(combat){if constexpr(requires {resources_.enable_wind();})if(!resources_.enable_wind()){failed=true;return;}}
+        if(combat){if constexpr(requires {resource().enable_wind();})if(!resource().enable_wind()){failed=true;return;}}
         cycles=std::make_unique<CorrectionCycleBank<>>(attack,combat,hold_ms);cycles_enabled.store(true,std::memory_order_release);
     }}
     NativeHoldRehearsal<> confirmation_hold;
@@ -82,7 +109,7 @@ public:
     void replay_boundary(const RollbackBoundaryKey& key,uintptr_t base,uintptr_t argument,SingleUpdateCall::Routine original,const RoundFightReadiness& fight={}){
         if(retained_replay_enabled.load(std::memory_order_acquire)){
             if(hold_test.state.load()!=NativeHoldRehearsal<>::released || stop_.load() || retired.load() || failed.load() || retained_replay->retired.load())return;
-            auto source=resources_.source();retained_replay->step(key,base,argument,source,original,fight);return;
+            auto source=resource().source();retained_replay->step(key,base,argument,source,original,fight);return;
         }
         if(cycles_enabled.load(std::memory_order_acquire)){
             auto* c=cycles->current();
@@ -96,35 +123,35 @@ public:
             if(!c->runner.captured.load() && key.frame!=c->entry.target_battle()){
                 c->runner.failure_reason=9;c->runner.failed=true;c->runner.release();return;
             }
-            auto source=resources_.source();c->runner.step(key,base,argument,source,original,c->confirmation.state.load()==3);return;
+            auto source=resource().source();c->runner.step(key,base,argument,source,original,c->confirmation.state.load()==3);return;
         }
         if(correction_enabled.load(std::memory_order_acquire) && hold_test.state.load()==NativeHoldRehearsal<>::released &&
            !stop_.load() && !retired.load() && !failed.load()){
             if(!correction->captured.load() && key.frame!=hold_test.target_battle()){correction->failed=true;correction->release();return;}
-            auto source=resources_.source();correction->step(key,base,argument,source,original,confirmation_hold.state.load()==3);return;
+            auto source=resource().source();correction->step(key,base,argument,source,original,confirmation_hold.state.load()==3);return;
         }
         if(!replay_enabled.load(std::memory_order_acquire) || hold_test.state.load()!=NativeHoldRehearsal<>::released ||
             stop_.load() || retired.load() || failed.load())return;
         if(!replay->captured.load() && key.frame!=hold_test.target_battle()){replay->failed=true;replay->release();return;}
-        auto source=resources_.source();replay->step(key,base,argument,source,original);
+        auto source=resource().source();replay->step(key,base,argument,source,original);
     }
     void capture_boundary(const RollbackBoundaryKey& key,uintptr_t base,uintptr_t argument){
         if(retention_enabled.load(std::memory_order_acquire)){
             if(hold_test.state.load()!=NativeHoldRehearsal<>::released || stop_.load() || retired.load() || failed.load() || retention.retired.load())return;
-            auto source=resources_.source();retention.step(key,base,argument,source);return;
+            auto source=resource().source();retention.step(key,base,argument,source);return;
         }
         if(!capture_enabled.load() || hold_test.state.load()!=NativeHoldRehearsal<>::released || stop_.load() || retired.load() || failed.load() ||
             snapshots.retired.load() || snapshots.failed.load())return;
         if(!snapshots.captured.load() && key.frame!=hold_test.target_battle()){
             snapshots.failed=true;snapshots.release();return;
         }
-        auto source=resources_.source();snapshots.capture(key,base,argument,source);
+        auto source=resource().source();snapshots.capture(key,base,argument,source);
     }
     bool run_hold(const NativeClockDiscovery::Observation& observed,uintptr_t object,uint64_t now){
         const unsigned context_mask=(!observed.valid?1u:0u) | (observed.object!=object?2u:0u) |
             (observed.thread!=GetCurrentThreadId()?4u:0u) | (observed.thread!=owner_thread.load()?8u:0u) |
             (now<observed.tick || now-observed.tick>250?16u:0u) | (retired.load()?32u:0u) |
-            (failed.load()?64u:0u) | (resources_.cancelled()?128u:0u) | (!resources_.ready()?256u:0u);
+            (failed.load()?64u:0u) | (resource().cancelled()?128u:0u) | (!resource().ready()?256u:0u);
         const bool core_valid=context_mask==0;
         const bool valid=core_valid && !stop_.load();
         if(cycles_enabled.load(std::memory_order_acquire)){
@@ -176,7 +203,7 @@ public:
             const bool cancel_valid=observed.valid && observed.object==object &&
                 observed.thread==GetCurrentThreadId() && observed.thread==owner_thread.load() &&
                 now>=observed.tick && now-observed.tick<=250 && !retired.load() && !failed.load() &&
-                !resources_.cancelled() && resources_.ready();
+                !resource().cancelled() && resource().ready();
             return confirmation_hold.run(observed.base,object,GetCurrentThreadId(),observed.clock.identity,
             observed.clock.frame,boundary_frame.load(),now,
             input_cancel?cancel_valid:(valid && !correction->failed.load() && !correction->exchange.failed.load()),
@@ -201,7 +228,7 @@ public:
             now<observed.tick || now-observed.tick>250 || observed.thread!=GetCurrentThreadId() ||
             observed.thread!=owner_thread.load() ||
             (observed.clock.local_mask!=1 && observed.clock.local_mask!=2) ||
-            resources_.cancelled() || !resources_.ready())return;
+            resource().cancelled() || !resource().ready())return;
         if(retained_replay_enabled.load(std::memory_order_acquire))prediction_frontier.observe(observed.base,object);
         // Bounded owner-thread observations. Never infer frame mapping merely
         // from the two counters having similar values.
@@ -233,37 +260,54 @@ public:
     std::atomic<unsigned> cancel_thread{},cancel_expected{},cancel_had_refs{},deferred{},deferred_thread{};
     bool start(uintptr_t base,bool first_match=false){
         first_match_requested=first_match;
-        if constexpr(requires {resources_.start(base,first_match);})return resources_.start(base,first_match);
-        else return !first_match && resources_.start(base);
+        if constexpr(requires {resource().start(base,first_match);})return resource().start(base,first_match);
+        else return !first_match && resource().start(base);
     }
     ReplayDependencySource source_on_owner(){
         if(GetCurrentThreadId()!=owner_thread.load() || stop_.load() || retired.load() || failed.load() || !ready.load())return {};
-        if constexpr(requires {resources_.source();})return resources_.source();
+        if constexpr(requires {resource().source();})return resource().source();
         else return {};
+    }
+    ReplayDependencySource successor_source_on_owner(){
+        if(GetCurrentThreadId()!=owner_thread.load() || stop_.load() || retired.load() || failed.load() || !ready.load())return {};
+        if constexpr(requires(Resources& next,Resources& prior){next.start_successor(prior);}){
+            const auto count=successor_count_.load();
+            if(count==successors_.size())return {};
+            auto& prior=resource();
+            auto next=std::make_unique<Resources>();
+            if(!next->start_successor(prior))return {};
+            auto* pointer=next.get();successors_[count]=std::move(next);
+            successor_count_.store(count+1,std::memory_order_release);
+            current_.store(pointer,std::memory_order_release);
+            // Fresh leases are already held and callback ownership transferred.
+            // Preserve the old object for diagnostics, not duplicate live leases.
+            if(!prior.stop()){failed=true;return {};}
+            return pointer->source();
+        }else return {};
     }
     bool stop_requested()const{return stop_.load(std::memory_order_acquire);}
     void request_stop(){stop_.store(true,std::memory_order_release);}
     void frame(unsigned frame,bool boundary_valid){
         if(retired.load())return;
-        deferred=resources_.deferred_callbacks.load();deferred_thread=resources_.last_deferred_thread.load();
+        deferred=resource().deferred_callbacks.load();deferred_thread=resource().last_deferred_thread.load();
         if(boundary_valid){
-            if constexpr(requires {resources_.confirm_boundary();})resources_.confirm_boundary();
+            if constexpr(requires {resource().confirm_boundary();})resource().confirm_boundary();
         }
-        if constexpr(requires {resources_.provisional_thread();resources_.first_boundary_verified.load();}){
-            first_match_thread=resources_.provisional_thread();first_match_verified=resources_.first_boundary_verified.load();
+        if constexpr(requires {resource().provisional_thread();resource().first_boundary_verified.load();}){
+            first_match_thread=resource().provisional_thread();first_match_verified=resource().first_boundary_verified.load();
         }
         bool normal_end=false;
-        if constexpr(requires {resources_.match_end_observation();}){
+        if constexpr(requires {resource().match_end_observation();}){
             if(retained_replay_enabled.load() && retained_replay->multi_round){
-                const auto end=resources_.match_end_observation();
+                const auto end=resource().match_end_observation();
                 match_end_vtable=end.vtable;match_end_handler=end.handler;match_end_thread=end.thread;match_end_state_query=end.state_query;
                 normal_end=end.cleanup_allowed(owner_thread.load(),GetCurrentThreadId(),failed.load(),
-                    retained_replay->clean_match_end_boundary(),resources_.cancelled()?resources_.cancellation().reason.load():0);
+                    retained_replay->clean_match_end_boundary(),resource().cancelled()?resource().cancellation().reason.load():0);
                 if(normal_end){match_end_frame=frame;match_end_requested=true;request_stop();}
             }
         }
-        if(resources_.cancelled()){
-            const auto& trace=resources_.cancellation();
+        if(resource().cancelled()){
+            const auto& trace=resource().cancellation();
             cancellation=trace.reason.load();cancel_thread=trace.thread.load();cancel_expected=trace.expected.load();cancel_had_refs=trace.had_owned.load();
             if(!normal_end)failed=true;request_stop();
         }
@@ -274,14 +318,14 @@ public:
             if(retained_replay_enabled.load() && !(normal_end?retained_replay->finish_match():retained_replay->release())){failed=true;return;}
             if(retention_enabled.load() && !retention.release()){failed=true;return;}
             if(!snapshots.release()){failed=true;return;}
-            if(resources_.stop()){
+            if(resource().stop()){
                 if(match_end_requested.load() && !failed.load())match_end_clean=true;
                 retired.store(true,std::memory_order_release);
             }
             else failed=true;
             return;
         }
-        if(boundary_valid && resources_.ready()){
+        if(boundary_valid && resource().ready()){
             if(clock_ready.load()){pairs.battle(frame);retry_observation.battle(frame,GetTickCount64());}
             if(clock_ready.load() && battle_samples.load()<512){
                 if(!battle_samples.load())battle_first=frame;
@@ -293,3 +337,4 @@ public:
 };
 inline std::atomic<CombatResourcePreparation<>*> combat_resource_preparation{};
 }
+

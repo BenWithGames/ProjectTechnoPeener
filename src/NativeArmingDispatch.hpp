@@ -15,11 +15,68 @@ private:
     ReplayDependencySource source_;
     void* source_context_{};
     ReplayDependencySource (*source_provider_)(void*){};
+    void* rearm_context_{};
+    NativeCombatArming::RearmProvider rearm_provider_{};
+    CombatResourcePreparation<>* rearm_resources_{};
+    NativeCombatArming::RearmResult production_rearm(uintptr_t object,NativeCombatSession::Config& out,ReplayDependencySource& source){
+        using R=NativeCombatArming::RearmResult;
+        out={};source={};
+        auto* runtime=combat_runtime_status.load(std::memory_order_acquire);
+        if(runtime && runtime->session!=config_.identity.session)runtime=nullptr;
+        if(runtime)++runtime->rearm_polls;
+        auto finish=[&](R result,unsigned failure=0){
+            if(runtime){runtime->rearm_result=static_cast<unsigned>(result)+1;runtime->rearm_failure=failure;}
+            return result;
+        };
+        const auto* routes=combat_routes.load(std::memory_order_acquire);
+        if(cancelled_.load() || !routes || !routes->retired() || !rearm_resources_ ||
+           GetCurrentThreadId()!=config_.identity.thread || object!=config_.clock_object)return finish(R::failed,1);
+        const auto now=GetTickCount64();CombatPeerContext::Snapshot peer;
+        if(!combat_peer_context.read(now,peer) || peer.peer!=steam_peer_ || peer.local_nonce!=config_.identity.session ||
+           peer.remote_nonce!=config_.identity.peer || peer.local_slot!=config_.identity.slot || shared_.nonce!=peer.local_nonce)return finish(R::failed,2);
+        const auto round=round_event::snapshot();
+        if(round.counter<=config_.identity.event)return finish(R::waiting);
+        if(!round.round || round.generation<config_.identity.generation || config_.offer.ticket==UINT64_MAX)return finish(R::failed,3);
+        NativeClockDiscovery::Observation observed;
+        observed.valid=true;observed.base=config_.base;observed.object=object;observed.thread=GetCurrentThreadId();observed.tick=now;
+        using Clock=NativeClockAccess<>;
+        Clock::Failure clock_failure{};unsigned clock_exception{};
+        const auto inspection=Clock::inspect_rearm(config_.base,object,observed.clock,clock_failure,clock_exception);
+        if(runtime){
+            runtime->rearm_clock_phase=observed.clock.phase;
+            runtime->rearm_clock_identity=observed.clock.identity;runtime->rearm_clock_frame=observed.clock.frame;
+            runtime->rearm_clock_failure=static_cast<unsigned>(clock_failure);runtime->rearm_clock_exception=clock_exception;
+        }
+        if(inspection==Clock::Inspection::invalid)return finish(R::failed,4);
+        if(inspection==Clock::Inspection::waiting){
+            if(runtime){++runtime->rearm_clock_waits;runtime->rearm_clock_phase_mask.fetch_or(1u<<observed.clock.phase);}
+            return finish(R::waiting);
+        }
+        unsigned frame{};if(!NativeBattleBoundaryAccess::counter(config_.base,frame))return finish(R::failed,5);
+        if(runtime)runtime->rearm_frame=frame;
+        const auto fight=RoundFightReadiness::read(config_.base,round.round,round.generation,frame);
+        if(!fight.status)return finish(R::failed,6);
+        if(!fight.permits(round.round,round.generation,frame,observed.thread))return finish(R::waiting);
+        auto admission=config_;
+        admission.identity.round=admission.offer.round=round.round;
+        admission.identity.event=admission.offer.event=round.counter;
+        admission.identity.generation=round.generation;
+        admission.identity.frame=admission.offer.first_frame=frame;++admission.offer.ticket;
+        const auto assembled=NativeCombatConfiguration<>::assemble(observed,now,admission,out);
+        if(assembled!=NativeCombatConfiguration<>::Result::ready)return finish(R::failed,100+static_cast<unsigned>(assembled));
+        try {source=rearm_resources_->successor_source_on_owner();}
+        catch(...){return finish(R::failed,9);}
+        if(!source.available())return finish(R::failed,8);
+        // prepare() still performs bilateral hold/offer/ack agreement. Merely
+        // observing this boundary does not authorize prediction or advancement.
+        config_=out;return finish(R::ready);
+    }
     std::atomic<bool> cancelled_{};
     bool queued_{};
     observation::Shared& shared_;
     uint64_t steam_peer_,deadline_;
     std::atomic<State> state_{State::waiting};
+    std::atomic<unsigned> stage_{0};
     std::unique_ptr<NativeCombatArming> arming_;
     native_clock_hook::StartupPoll callback_{this,[](void* context,uintptr_t object)noexcept{
         static_cast<NativeArmingDispatch*>(context)->poll(object);
@@ -36,17 +93,29 @@ private:
             return;
         }
         if(state_.load()!=State::waiting)return;
+        stage_=1;
         unsigned identity{},frame{};
         if(GetTickCount64()>=deadline_ || GetCurrentThreadId()!=config_.identity.thread ||
             !clock_frame(object,identity,frame) || identity!=config_.clock_identity || frame>config_.clock_frame){state_=State::rejected;return;}
         if(frame<config_.clock_frame)return;
-        state_=State::preparing;
+        state_=State::preparing;stage_=2;
         try {
             if(source_provider_)source_=source_provider_(source_context_);
             if(!source_.available()){state_=State::rejected;return;}
-            arming_=std::make_unique<NativeCombatArming>();
-            state_=arming_->prepare(config_,source_,shared_,steam_peer_,true)?State::prepared:State::rejected;
-        }catch(...){state_=State::rejected;}
+            stage_=3;arming_=std::make_unique<NativeCombatArming>();
+            if(rearm_provider_ && !arming_->automatic_rearm(rearm_context_,rearm_provider_)){
+                state_=State::rejected;return;
+            }
+            stage_=4;
+            const bool prepared=arming_->prepare(config_,source_,shared_,steam_peer_,true);
+            stage_=prepared?100:10+arming_->preparation_stage();
+            state_=prepared?State::prepared:State::rejected;
+        }catch(...){
+            // A hold may already be published. Latch failure on that owner;
+            // reporting rejection alone would leave native servicing enabled.
+            if(arming_)arming_->preparation_failed();
+            state_=State::rejected;
+        }
     }
 public:
     // Owner-thread assembly only. The caller must retain a successfully queued
@@ -83,11 +152,25 @@ public:
         observation::Shared& shared,uint64_t peer,uint64_t deadline)
         :config_(config),source_(source),shared_(shared),steam_peer_(peer),deadline_(deadline){}
     State state()const{return state_.load(std::memory_order_acquire);}
+    unsigned stage()const{return stage_.load(std::memory_order_acquire);}
     // Configure before queue; resolve owner-thread resources only when the
     // selected native clock actually reaches the agreed boundary.
     bool source_on_owner(void* context,ReplayDependencySource (*provider)(void*)){
         if(queued_ || state()!=State::waiting || source_provider_ || !context || !provider)return false;
         source_context_=context;source_provider_=provider;return true;
+    }
+    // Registration is immutable once the clock callback is published. The
+    // provider and its retained resources must outlive every successor round.
+    // Invocation remains on the simulation owner, after route retirement.
+    bool automatic_rearm(void* context,NativeCombatArming::RearmProvider provider){
+        if(queued_ || cancelled_.load() || state()!=State::waiting || rearm_provider_ || !context || !provider)return false;
+        rearm_context_=context;rearm_provider_=provider;return true;
+    }
+    bool production_rearm(CombatResourcePreparation<>& resources){
+        if(rearm_resources_ || !automatic_rearm(this,[](void* p,uintptr_t object,NativeCombatSession::Config& config,ReplayDependencySource& source){
+            return static_cast<NativeArmingDispatch*>(p)->production_rearm(object,config,source);
+        }))return false;
+        rearm_resources_=&resources;return true;
     }
     void cancel(){
         cancelled_.store(true,std::memory_order_release);

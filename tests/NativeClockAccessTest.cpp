@@ -38,6 +38,7 @@ struct Calls {
 using Clock=sc6::research::NativeClockAccess<Calls>;
 using R=Clock::Result;
 using Dispatch=sc6::research::NativeClockDispatch<Clock>;
+struct TestTime {inline static uint64_t tick=0;static uint64_t now(){return tick;}};
 static unsigned originals{},reservations{},notifications{};
 static bool allow{};
 static R notified{};
@@ -64,6 +65,64 @@ struct Fixture {
     bool bind(Clock& clock){return clock.bind(base,reinterpret_cast<uintptr_t>(object.data()),GetCurrentThreadId(),true,true,true);}
 };
 int main(){
+    {
+        Fixture f;const auto object=reinterpret_cast<uintptr_t>(f.object.data());
+        Clock::State state{};Clock::Failure failure{};unsigned exception{};
+        for(unsigned phase=0;phase<256;++phase){
+            f.object[0x4424]=static_cast<unsigned char>(phase);
+            const auto result=Clock::inspect_rearm(f.base,object,state,failure,exception);
+            assert(state.phase==phase && exception==0);
+            assert(result==(phase==2?Clock::Inspection::ready:phase<6?Clock::Inspection::waiting:Clock::Inspection::invalid));
+            assert(failure==(phase<6?Clock::Failure::none:Clock::Failure::phase));
+            Clock::State strict{};assert(Clock::inspect(f.base,object,strict)==(phase==2));
+        }
+        for(unsigned phase: {5u,0u,1u,2u}){
+            f.object[0x4424]=static_cast<unsigned char>(phase);
+            assert(Clock::inspect_rearm(f.base,object,state,failure,exception)==(phase==2?Clock::Inspection::ready:Clock::Inspection::waiting));
+        }
+        f.object[0x4424]=1;f.put(0x398,3);
+        assert(Clock::inspect_rearm(f.base,object,state,failure,exception)==Clock::Inspection::invalid && failure==Clock::Failure::layout);
+        f.put(0x398,2);f.table[0x620/8]=0;
+        assert(Clock::inspect_rearm(f.base,object,state,failure,exception)==Clock::Inspection::invalid);
+        assert(Clock::inspect_rearm(0,object,state,failure,exception)==Clock::Inspection::invalid);
+        assert(Clock::inspect_rearm(f.base,1,state,failure,exception)==Clock::Inspection::invalid && exception!=0);
+        assert(services==0 && waits==0 && advances==0);
+        std::cout<<"PASS: rearm waits for audited native phases, rejects invalid clocks, strict combat inspection unchanged\n";
+    }
+
+    {
+        // Reproduce a backend rejection after five completed updates. Keep
+        // the first native cause and observed counters through repeated stop.
+        Fixture f;Dispatch d;allow=true;
+        const auto object=reinterpret_cast<uintptr_t>(f.object.data());
+        assert(d.bind(f.base,object,GetCurrentThreadId(),true,true,true,nullptr,admit,notify));
+        for(unsigned i=0;i<5;++i){order=0;d.run(object,original);assert(!d.restart_required());}
+        assert(advances==5);
+        order=0;bad_service=true;d.run(object,original);
+        assert(d.failure()==Dispatch::Failure::native_clock);
+        assert(d.access().failure()==Clock::Failure::service_advanced);
+        assert(d.access().stage()==3 && d.access().last_observed_state().frame==106);
+        assert(d.access().last_serviced_state().frame==104);
+        d.stop();d.stop();d.run(object,original);
+        assert(d.failure()==Dispatch::Failure::native_clock && advances==5);
+        assert(d.access().last_observed_state().frame==106);
+        reservations=notifications=0;
+    }
+    {
+        Fixture f;Clock c;assert(f.bind(c));f.object[0x4424]=5;
+        assert(c.service()==R::restart_required && c.failure()==Clock::Failure::phase);
+        assert(c.stage()==1 && c.last_observed_state().phase==5 && services==0);
+    }
+    {
+        Fixture f;Dispatch d;waiting=true;allow=true;f.object[0x4425]=2;
+        assert(d.attach_prediction([](void*,const Clock::State& wait,bool native_wait)noexcept{return native_wait && wait.wait_reason==2;}));
+        assert(d.bind(f.base,reinterpret_cast<uintptr_t>(f.object.data()),GetCurrentThreadId(),true,true,true,nullptr,admit,notify));
+        d.run(reinterpret_cast<uintptr_t>(f.object.data()),original);
+        assert(services==1 && waits==1 && advances==1 && notified==R::advanced);
+        order=0;allow=false;d.run(reinterpret_cast<uintptr_t>(f.object.data()),original);
+        assert(advances==1 && notified==R::native_wait);
+        reservations=notifications=0;
+    }
     {
         Fixture f;Clock c;assert(f.bind(c));
         f.object[0x4425]=2;f.put(0x3A8,6);f.put(0x3B0,100);stateful_wait=waiting=true;
@@ -134,6 +193,7 @@ int main(){
         assert(!hold.run(object,1100) && hold.failed());
         assert(!hold.announce(exchange,55,object,1100) && exchange.reports==1);
         assert(!hold.run(object,1101) && services==10);
+        assert(hold.release_unactivated(false) && !hold.matches(object)); // expired startup cannot hold forever
     }
     {
         Fixture f;sc6::research::NativeStartHold<Clock> hold;auto object=reinterpret_cast<uintptr_t>(f.object.data());
@@ -144,12 +204,27 @@ int main(){
         Fixture f;sc6::research::NativeStartHold<Clock> old_hold,new_hold;
         auto object=reinterpret_cast<uintptr_t>(f.object.data());
         assert(old_hold.bind(f.base,object,GetCurrentThreadId(),7,100,1000,100,true,true,true));
-        assert(old_hold.matches(object) && old_hold.retire() && !old_hold.matches(object));
+        assert(!old_hold.release_unactivated(true) && old_hold.matches(object));
+        std::thread foreign([&]{assert(!old_hold.release_unactivated(false));});foreign.join();
+        assert(old_hold.matches(object) && old_hold.release_unactivated(false) && !old_hold.matches(object));
         assert(!old_hold.ready(object,1001));
         assert(new_hold.bind(f.base,object,GetCurrentThreadId(),7,100,1001,100,true,true,true));
         assert(new_hold.matches(object) && new_hold.ready(object,1001));
         order=0;waiting=false;assert(new_hold.run(object,1001));
         assert(services==1 && advances==0);
+    }
+    {
+        Fixture f;sc6::research::NativeStartHold<Clock> hold;
+        const auto object=reinterpret_cast<uintptr_t>(f.object.data());
+        assert(hold.bind(f.base,object,GetCurrentThreadId(),7,100,1000,100,true,true,true));
+        std::thread foreign([&]{hold.cancel();});foreign.join();
+        assert(!hold.failed());
+        hold.cancel();hold.cancel();
+        // Keep ownership of the hook, but do not service or advance a failed
+        // startup. A failure must not enable the original-clock fallback.
+        assert(hold.failed() && hold.matches(object));
+        assert(!hold.ready(object,1001) && !hold.run(object,1001));
+        assert(services==0 && advances==0 && hold.serviced==0);
     }
     {
         using namespace sc6::research;
@@ -239,9 +314,46 @@ int main(){
         assert(advances==1 && bridge.reservation().consume(1,2,GetCurrentThreadId(),500));
         assert(drained==2);
         order=0;d.run(object,original);assert(advances==2);
-        // Deliberately omit the battle call. Next admission must stop BEFORE advance.
-        order=0;d.run(object,original);assert(advances==2 && bridge.restart_required());
-        const auto stopped=services;d.run(object,original);assert(services==stopped);
+        // SC6 may service the clock again before consuming its battle delta.
+        // Preserve the pending reservation and do not advance a second time.
+        for(unsigned i=0;i<4;++i){order=0;waiting=(i%2)!=0;d.run(object,original);
+            assert(advances==2 && !bridge.restart_required());}
+        assert(drained==7 && bridge.pending_services()==4);
+        const auto diagnostic=bridge.reservation().diagnostic();
+        assert(diagnostic.clock==101 && diagnostic.reserved && diagnostic.advanced);
+        assert(bridge.reservation().consume(1,2,GetCurrentThreadId(),501));
+        order=0;waiting=false;d.run(object,original);assert(advances==3 && !bridge.restart_required());
+        assert(bridge.reservation().consume(1,2,GetCurrentThreadId(),502));
+    }
+    {
+        Fixture f;sc6::research::BoundedRollbackSession<int,int> session;assert(session.begin(1,2));
+        sc6::research::CombatClockBridge<decltype(session),Clock,TestTime> bridge(session);
+        const auto object=reinterpret_cast<uintptr_t>(f.object.data());
+        assert(bridge.bind(f.base,object,GetCurrentThreadId(),true,true,true,1,2,7,100,500));
+        auto& d=bridge.dispatch();d.run(object,original);assert(advances==1);
+        TestTime::tick=100;order=0;d.run(object,original);assert(!bridge.restart_required());
+        TestTime::tick=10099;order=0;d.run(object,original);assert(!bridge.restart_required() && advances==1);
+        TestTime::tick=10100;order=0;d.run(object,original);
+        assert(bridge.restart_required() && bridge.failure()==decltype(bridge)::Failure::pending_timeout);
+        assert(bridge.pending_services()==3 && bridge.pending_elapsed_ms()==10000 && advances==1);
+        bridge.stop();assert(bridge.failure()==decltype(bridge)::Failure::pending_timeout);
+    }
+    {
+        // Evidence counters 605 -> 606 may wait, but a second advance, a
+        // rollback of the clock, wrong owner/round, or half reservation may not.
+        using B=sc6::research::CombatBoundaryReservation;using G=B::ClockGate;
+        for(unsigned bad=0;bad<7;++bad){
+            B b;assert(b.bind(1,2,3,0,605,697));
+            assert(b.reserve(1,2,3,0,605,true));
+            if(bad!=6)assert(b.clock_completed(true));
+            if(bad!=6)assert(b.clock_gate(1,2,3,0,606)==G::pending);
+            const auto result=b.clock_gate(bad==0?9:1,bad==1?9:2,bad==2?9:3,bad==3?9:0,bad==4?607:bad==5?605:606);
+            assert(result==G::restart_required && b.restart_required());
+        }
+        B b;assert(b.bind(1,2,3,0,605,697));assert(b.reserve(1,2,3,0,605,true));assert(b.clock_completed(true));
+        assert(b.clock_gate(1,2,3,0,606)==G::pending);
+        assert(b.consume(1,2,3,697));assert(b.clock_gate(1,2,3,0,606)==G::ready);
+        assert(!b.consume(1,2,3,697)); // Still reject duplicate combat consumption.
     }
     {
         Fixture f;sc6::research::BoundedRollbackSession<int,int> session;assert(session.begin(1,2));
@@ -252,6 +364,7 @@ int main(){
         assert(bridge.bind(f.base,object,GetCurrentThreadId(),true,true,true,1,2,7,100,500));
         bridge.dispatch().run(object,original);
         assert(drained==1 && advances==0 && bridge.restart_required());
+        assert(bridge.failure()==decltype(bridge)::Failure::confirmation_drain);
     }
     {
         Fixture f;sc6::research::BoundedRollbackSession<int,int> session;assert(session.begin(1,2));

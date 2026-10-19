@@ -1,5 +1,6 @@
 #pragma once
 #include "FullRestoreStream.hpp"
+#include "NativeLoadRoute.hpp"
 #include "RingSnapshot.hpp"
 #include "TransformSnapshot.hpp"
 #include "EffectRngBoundary.hpp"
@@ -492,7 +493,7 @@ struct FullStateProbe {
         combat_preflight_attempted=true;
         if(!throw_audit || !audit_done || fault || restore_invoked)return;
         __try {
-            if(delayed_sources_ok())combat_preflight_pass_mask|=1;
+            if(delayed_sources_ok(b))combat_preflight_pass_mask|=1;
             if(input_checkpoints[0].valid && input_checkpoints[1].valid &&
                input_checkpoints[0].bytes==input_checkpoints[1].bytes)combat_preflight_pass_mask|=2;
             if(combat_blend_ready())combat_preflight_pass_mask|=4;
@@ -733,12 +734,99 @@ struct FullStateProbe {
     mutable unsigned source_guard_reason{},source_guard_record{};
     mutable uint64_t source_guard_length{};
     mutable uintptr_t source_guard_saved{},source_guard_next{},source_guard_writer{};
-    bool delayed_sources_ok()const{
+    // Ghidra: save RVA30EC90 copies global RVA470DEC4 to [rsp+30]
+    // before writer return RVA30ED1F. Load RVA30EDC0 reads a fresh stack
+    // local and assigns the global. This record owns bytes, not its source.
+    bool audited_scalar_source(unsigned i,uintptr_t module)const{
+        if(!module || module>UINTPTR_MAX-0x30ED1F || i<4 ||
+           i>=saved.writes || i>=after_save.writes)return false;
+        constexpr uintptr_t writers[]={0x30ECBF,0x30ECD5,0x30ECEB,0x30ED01,0x30ED1F};
+        constexpr uint64_t sizes[]={0x200,0x200,0x14,4,4};
+        constexpr uintptr_t offsets[]={0,0x200,0x45C,0x470};
+        const auto owner=saved.traces[i-4].source;
+        if(owner<0x10000 || owner>UINTPTR_MAX-0x474)return false;
+        for(unsigned j=0;j<5;++j){
+            const auto k=i-4+j;
+            if(saved.lengths[k]!=sizes[j] || after_save.lengths[k]!=sizes[j] ||
+               saved.traces[k].writer!=module+writers[j] ||
+               after_save.traces[k].writer!=module+writers[j])return false;
+            if(j<4 && (saved.traces[k].source!=owner+offsets[j] ||
+                       after_save.traces[k].source!=owner+offsets[j]))return false;
+        }
+        return true;
+    }
+    // RVA30A980 serializes nine reference-table descriptors through one
+    // [rbp-20] local; RVA30AE80 reads fresh locals and reconstructs pointers.
+    // Only the temporary source identity is irrelevant, never the payload.
+    bool audited_reference_source(unsigned i,uintptr_t module)const{
+        constexpr uintptr_t writers[]={0x30AB2F,0x30AB84,0x30ABDF,0x30AC34,0x30AC8F,0x30ACE4,0x30AD3F,0x30AD94,0x30ADEF};
+        if(!module || module>UINTPTR_MAX-writers[8] || i>=saved.writes || i>=after_save.writes)return false;
+        unsigned position=9;
+        for(unsigned j=0;j<9;++j)if(saved.traces[i].writer==module+writers[j])position=j;
+        if(position==9 || i<position)return false;
+        const unsigned first=i-position;
+        if(saved.writes-first<9 || after_save.writes-first<9)return false;
+        const auto a=saved.traces[first].source,b=after_save.traces[first].source;
+        if(a<0x10000 || b<0x10000 || a>UINTPTR_MAX-16 || b>UINTPTR_MAX-16)return false;
+        for(unsigned j=0;j<9;++j){
+            const auto k=first+j;
+            if(saved.lengths[k]!=16 || after_save.lengths[k]!=16 ||
+               saved.traces[k].writer!=module+writers[j] || after_save.traces[k].writer!=module+writers[j] ||
+               saved.traces[k].source!=a || after_save.traces[k].source!=b)return false;
+        }
+        return true;
+    }
+    // Audited native temporary descriptors: each group reuses one stack local.
+    // Writers/loaders: 31DC00/31DE50, 301820/301B10, 390690/390800.
+    // Repeated loop callsites require trying both possible positions.
+    template<size_t N> bool temporary_descriptor_group(unsigned i,uintptr_t module,
+                                                       const uintptr_t (&writers)[N])const{
+        if(!module || module>UINTPTR_MAX-0x400000 || i>=saved.writes || i>=after_save.writes)return false;
+        for(unsigned position=0;position<N;++position){
+            if(i<position || saved.traces[i].writer!=module+writers[position])continue;
+            const unsigned first=i-position;
+            if(saved.writes-first<N || after_save.writes-first<N)continue;
+            const auto archived_source=saved.traces[first].source,observed_source=after_save.traces[first].source;
+            if(archived_source<0x10000 || observed_source<0x10000 || archived_source>UINTPTR_MAX-16 || observed_source>UINTPTR_MAX-16)continue;
+            bool match=true;
+            for(unsigned j=0;j<N;++j){
+                const auto k=first+j;
+                if(saved.lengths[k]!=16 || after_save.lengths[k]!=16 ||
+                   saved.traces[k].writer!=module+writers[j] || after_save.traces[k].writer!=module+writers[j] ||
+                   saved.traces[k].source!=archived_source || after_save.traces[k].source!=observed_source){match=false;break;}
+            }
+            if(match)return true;
+        }
+        return false;
+    }
+    bool audited_additional_temporary_source(unsigned i,uintptr_t module)const{
+        constexpr uintptr_t globals[]={0x31DCF1,0x31DD48,0x31DDA1,0x31DDF5};
+        constexpr uintptr_t selector_writers[]={0x301A75,0x301AD2};
+        constexpr uintptr_t pairs[]={0x390765,0x3907B6,0x390765,0x3907B6};
+        if(temporary_descriptor_group(i,module,globals) || temporary_descriptor_group(i,module,selector_writers) ||
+           temporary_descriptor_group(i,module,pairs))return true;
+        // Camera sentinels/indices and polymorphic type tags are copied values.
+        // Their native loaders read fresh locals (317C70,340F70,3411A0,321A30).
+        // 32AC00 writes a reference descriptor and a separately copied 64-bit field;
+        // 32ACE0 reads fresh locals. No source pointer is retained by the stream.
+        if(!module || module>UINTPTR_MAX-0x400000 || i>=saved.writes || i>=after_save.writes)return false;
+        constexpr uintptr_t writers[]={0x317C17,0x317C60,0x340F59,0x341183,0x3217EC,0x321814,0x32AC76,0x32ACAC};
+        constexpr uint64_t sizes[]={4,4,4,4,4,4,16,8};
+        for(unsigned j=0;j<std::size(writers);++j){
+            if(saved.traces[i].writer!=module+writers[j] || after_save.traces[i].writer!=module+writers[j] ||
+               saved.lengths[i]!=sizes[j] || after_save.lengths[i]!=sizes[j])continue;
+            const auto archived_source=saved.traces[i].source,observed_source=after_save.traces[i].source;
+            return archived_source>=0x10000 && observed_source>=0x10000 && archived_source<=UINTPTR_MAX-sizes[j] && observed_source<=UINTPTR_MAX-sizes[j];
+        }
+        return false;
+    }
+    bool delayed_sources_ok(uintptr_t module=0)const{
         source_guard_reason=source_guard_record=0;source_guard_length=0;
         source_guard_saved=source_guard_next=source_guard_writer=0;
         if(audit_shape_changes || !ring_save_unchanged || !ring_rotation_ok){source_guard_reason=audit_shape_changes?1:!ring_save_unchanged?2:3;return false;}
         for(unsigned i=0;i<saved.writes;++i){
             if(saved.traces[i].source==after_save.traces[i].source)continue;
+            if(audited_scalar_source(i,module) || audited_reference_source(i,module) || audited_additional_temporary_source(i,module))continue;
             bool ring=false;
             for(unsigned j=0;j<4;++j){
                 auto expected= j%2?0x800u:0x1840u;
@@ -766,6 +854,7 @@ struct FullStateProbe {
         outer_correction_verified=corrected==before_keys && !std::memcmp(players,before_players,sizeof(players));
         return outer_correction_verified;
     }
+    NativeLoadRoute::Diagnostic load_route_diagnostic;
     unsigned delayed_failure_line{};
     void delayed_step(uintptr_t b,uintptr_t argument,Routine writer=nullptr,Routine reader=nullptr,Preflight check=nullptr) noexcept {
         if(fault || replay_done)return;
@@ -798,7 +887,7 @@ struct FullStateProbe {
             bookkeeping=ptr(b+0x470E870);captured=true;
             if(!delayed_loaded){
                 original_next=measurements[2];
-                delayed_guard_ok=delayed_sources_ok() && original_next.rng>0 && original_next.rng<2147483647;
+                delayed_guard_ok=delayed_sources_ok(b) && original_next.rng>0 && original_next.rng<2147483647;
                 for(unsigned side=0;side<2;++side)
                     delayed_guard_ok=delayed_guard_ok && !std::memcmp(original_next.fields[side].data()+128,measurements[0].fields[side].data()+128,16);
                 if(combat_replay_requested){
@@ -808,6 +897,9 @@ struct FullStateProbe {
                 }
                 if(blend_timer_restore_requested && (!timer_transition_ready() || !timer_endpoint_ready()))delayed_guard_ok=false;
                 if(!delayed_guard_ok){delayed_failure_line=__LINE__;fault=true;__leave;}
+                if(reader==reinterpret_cast<Routine>(b+0x384540) && !NativeLoadRoute::ready(saved,b,load_route_diagnostic)){
+                    delayed_failure_line=__LINE__;fault=true;__leave;
+                }
                 // Loader side effects start from the live seed, not the older
                 // snapshot's seed. Check drift before any restoration writes.
                 load_entry_rng=*reinterpret_cast<const std::uint32_t*>(b+0x485EB28);
@@ -943,6 +1035,7 @@ struct FullStateProbe {
                 if(combat_load_diagnostic && (!save_valid || !capture_blend(b,1) || !rings[1].capture(b) ||
                    !rings[0].same(rings[1]) || blends[0].bytes!=blends[1].bytes || !cameras[0].capture(saved,b) || !cameras[1].capture(saved,b))){fault=true;__leave;}
                 if(save_valid && check(b)){
+                    if(reader==reinterpret_cast<Routine>(b+0x384540) && !NativeLoadRoute::ready(saved,b,load_route_diagnostic)){fault=true;__leave;}
                     phase=3;restore_invoked=true;reader(&saved.stream);measure(b,2);restore_completed=saved.consumed();
                     if(combat_load_diagnostic){
                         // Raw post-load diagnostics precede the existing scalar preservation.
@@ -1029,3 +1122,4 @@ inline bool FullStateProbe::copy_recorded_from(const FullStateProbe& other) noex
     return true;
 }
 }
+

@@ -1,5 +1,6 @@
 #pragma once
 #include "IdleTrajectoryAudit.hpp"
+#include "NativeReferencePadding.hpp"
 namespace sc6::research {
 // Bounded two/three-update rewind through adjacent restores and natural updates.
 // Updates run normally through the original hook; no recursive engine calls.
@@ -112,11 +113,11 @@ struct TwoFrameIdleReplay {
                     skip=8;
                 }
             }
-            // Pinned writer32AC76 leaves bytes4..7 uninitialized; reader32AD1B
-            // consumes only DWORD0 and QWORD8. Preserve raw payloads and counts.
-            const bool pointer_record_padding=length==16 && a.traces[i].writer==base+0x32AC76 &&
+            // Only audited native descriptor padding, after the matching loader ran.
+            const bool pointer_record_padding=length==16 && a.traces[i].writer==b.traces[i].writer &&
                 q.restore_completed && q.saved.sealed && i<q.saved.writes && q.saved.lengths[i]==16 &&
-                q.saved.traces[i].writer==base+0x32AC76 && q.saved.traces[i].reader==base+0x32AD1B;
+                q.saved.traces[i].writer==a.traces[i].writer &&
+                NativeReferencePadding::audited(a.traces[i].writer,q.saved.traces[i].reader,base);
             // Comparison-only signed-zero equivalence for observed motion W fields.
             // 306530 uses +6C as sample W and +7C as delta W; XYZ drives position.
             // Keep nonzero values and every other field byte-exact.

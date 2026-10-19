@@ -13,6 +13,8 @@ struct LiveInputComposition {
     unsigned local_slot{},peer_slot{},imported_local{},validated_remote{};
     unsigned matched{},transitions{},auxiliary_differences{};
     unsigned round_matches{},round_missing{},round_mismatches{};
+    unsigned local_round_gaps{},remote_round_gaps{};
+    uint32_t last_gap_before{},last_gap_after{},last_gap_round{},last_gap_boundary{};
     std::array<bool,observation::capacity> round_checked{};
     const char* failure="none";
     std::array<bool,observation::capacity> imported{},staged{};
@@ -36,6 +38,20 @@ struct LiveInputComposition {
             return fail("composition_peer_slot_conflict");
         peer_slot=slot;return true;
     }
+    bool consecutive_or_round_gap(uint32_t before,uint32_t after,unsigned i,
+            const std::array<observation::Round,observation::capacity>* rounds,bool remote){
+        if(before!=UINT32_MAX && after==before+1u)return true;
+        // Owned live recording pauses while the native outer updates continue
+        // between rounds. This permits staging only, never cross-round replay.
+        if(purpose!=Purpose::authoritative_peer || !rounds || !replay_local_nonce || !replay_peer_nonce || after<=before)return false;
+        const auto a=(*rounds)[i-1],b=(*rounds)[i];
+        if(!a.number || a.number==UINT32_MAX || b.number!=a.number+1u ||
+           !a.event_counter || b.event_counter<=a.event_counter ||
+           b.event_counter<=before || b.event_counter>after)return false;
+        if(remote)++remote_round_gaps;else ++local_round_gaps;
+        last_gap_before=before;last_gap_after=after;last_gap_round=b.number;last_gap_boundary=b.event_counter;
+        return true;
+    }
     bool update(const std::array<observation::Record,observation::capacity>& local,unsigned count,
                 const std::array<observation::Record,observation::capacity>& remote,
                 const std::array<bool,observation::capacity>& seen,
@@ -47,7 +63,7 @@ struct LiveInputComposition {
             return fail("composition_authority_identity_missing");
         while(imported_local<count){
             unsigned i=imported_local++;
-            if(i && local[i].data[0]!=local[i-1].data[0]+1u)return fail("composition_local_counter_reset");
+            if(i && !consecutive_or_round_gap(local[i-1].data[0],local[i].data[0],i,local_rounds,false))return fail("composition_local_counter_reset");
             if(i){bool changed=false;for(unsigned w=1;w<=4;++w)changed|=local[i].data[w]!=local[i-1].data[w];
                 transitions+=changed;}
         }
@@ -57,7 +73,7 @@ struct LiveInputComposition {
         }
         while(validated_remote<observation::capacity && seen[validated_remote]){
             unsigned i=validated_remote++;
-            if(i && remote[i].data[0]!=remote[i-1].data[0]+1u)return fail("composition_remote_counter_reset");
+            if(i && !consecutive_or_round_gap(remote[i-1].data[0],remote[i].data[0],i,remote_rounds,true))return fail("composition_remote_counter_reset");
         }
         if(!peer_slot)return true;
         for(unsigned i=0;i<count;++i)if(!staged[i]){

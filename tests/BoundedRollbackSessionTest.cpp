@@ -1,6 +1,8 @@
 #include "../src/BoundedRollbackSession.hpp"
 #include "../src/ContinuousRollbackReport.hpp"
 #include "../src/PostBattleSettlement.hpp"
+#include "../src/PostBattleHookGate.hpp"
+#include "../src/NativeOuterCompletion.hpp"
 #include "PostBattleContinuationTest.hpp"
 #include "NativeOuterContinuationFrameTest.hpp"
 #include <sstream>
@@ -93,6 +95,52 @@ static void post_battle_tests(){
     assert(nested.poll(recursive,nested_engine,reenter,Input{},11,12,7,0,true)==R::restart_required);
 }
 int main(){
+    {
+        using Scope=sc6::research::NativeOuterCompletion;
+        struct State {uint64_t token{};unsigned completions{};} state;
+        Scope scope;
+        assert(scope.enter(7,11));
+        state.token=scope.claim(7,11,&state,[](void* p,const Scope::Receipt& receipt){
+            auto& s=*static_cast<State*>(p);assert(receipt.matches(11,s.token,7));++s.completions;return true;
+        });
+        assert(state.token && !state.completions);
+        assert(scope.enter(7,22) && scope.returned(7,22) && !state.completions);
+        assert(scope.returned(7,11) && state.completions==1);
+        assert(!scope.returned(7,11) && state.completions==1);
+        Scope bad;assert(bad.enter(7,11));assert(!bad.returned(8,11) && bad.failed());
+        Scope order;assert(order.enter(7,11) && order.enter(7,22));assert(!order.returned(7,11));
+        Scope throws;assert(throws.enter(7,11));
+        assert(throws.claim(7,11,&state,[](void*,const Scope::Receipt&)->bool{throw 1;}));
+        assert(!throws.returned(7,11) && throws.failed());
+    }
+    {
+        using Gate=sc6::research::PostBattleHookGate;
+        unsigned calls=0;
+        Gate good(7,&calls,[](void* p,uintptr_t outer,uintptr_t input){
+            assert(outer==11 && input==22);++*static_cast<unsigned*>(p);return Gate::Result::permit;
+        });
+        assert(good.invoke(7,11,22) && good.permitted==1 && calls==1);
+        assert(!good.invoke(8,11,22) && calls==1);
+        assert(!good.invoke(7,11,22) && calls==1);
+        Gate failed(7,&calls,[](void* p,uintptr_t,uintptr_t){++*static_cast<unsigned*>(p);return Gate::Result::failed;});
+        assert(!failed.invoke(7,11,22) && !failed.invoke(7,11,22) && calls==2);
+        assert(failed.failure==static_cast<unsigned>(Gate::Failure::callback));
+        unsigned pauses=0;bool continued=false;
+        struct EndHarness {};
+        try {
+            failed.enter(7,11,22,[&]{if(++pauses==3)throw EndHarness{};});
+            continued=true;
+        }catch(const EndHarness&){}
+        assert(!continued && pauses==3 && failed.contained==1 && calls==2);
+        Gate throws(7,&calls,[](void*,uintptr_t,uintptr_t)->Gate::Result{throw 1;});
+        assert(!throws.invoke(7,11,22) && throws.failure==static_cast<unsigned>(Gate::Failure::exception));
+        Gate* recursive=nullptr;
+        Gate reentry(7,&recursive,[](void* p,uintptr_t outer,uintptr_t input){
+            assert(!(*static_cast<Gate**>(p))->invoke(7,outer,input));return Gate::Result::permit;
+        });
+        recursive=&reentry;
+        assert(!reentry.invoke(7,11,22) && reentry.permitted==0 && reentry.failure==static_cast<unsigned>(Gate::Failure::reentry));
+    }
     test_post_battle_continuation();
     test_native_outer_continuation_frame();
     post_battle_tests();

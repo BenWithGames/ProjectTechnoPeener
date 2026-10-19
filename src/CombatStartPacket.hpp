@@ -91,6 +91,21 @@ public:
     bool consume(){return agreement_.consume(local_);}
     uint64_t retired_packets()const{return retired_packets_.load(std::memory_order_relaxed);}
 };
+// Early packets are consumed, authenticated, and deferred without publishing an
+// agreement. The peer retries every 250 ms; no unbounded pre-start queue exists.
+struct CombatStartIngress {
+    enum class Result {rejected,deferred,delivered};
+    static Result receive(CombatStartExchange* exchange,bool continuous,bool mutual,
+        uint64_t sender,uint64_t expected_peer,uint64_t local,uint64_t remote,uint64_t build,
+        const CombatStartPacket::Bytes& bytes,size_t size){
+        const auto packet=CombatStartPacket::decode(bytes,size);
+        if(!continuous || !mutual || sender!=expected_peer || !local || !remote || !packet ||
+           packet->offer.sender!=remote || packet->offer.recipient!=local || packet->offer.build!=build)
+            return Result::rejected;
+        if(!exchange)return Result::deferred;
+        return exchange->receive(sender,mutual,bytes,size)?Result::delivered:Result::rejected;
+    }
+};
 // Publish before polling; exchange is then owned exclusively by the network
 // worker and must outlive it. This pointer alone never arms native execution.
 inline std::atomic<CombatStartExchange*> combat_start_exchange{};

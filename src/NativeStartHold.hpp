@@ -19,6 +19,11 @@ public:
         object_=object;identity_=identity;frame_=frame;deadline_=now+timeout;owner_=owner;bound_=true;return true;
     }
     bool retire(){if(!bound_ || GetCurrentThreadId()!=owner_)return false;retired_=true;return true;}
+    // Only startup before route publication may return to stock dispatch.
+    bool release_unactivated(bool routes_published){
+        return !routes_published && retire();
+    }
+    void cancel()noexcept{if(bound_ && GetCurrentThreadId()==owner_)failed_=true;}
     bool matches(uintptr_t object)const{return bound_ && !retired_ && object==object_;}
     bool failed()const{return failed_;}
     bool ready(uintptr_t object,uint64_t now){return bound_ && !retired_ && !failed_ && object==object_ && now<deadline_ && clock_.at_boundary(identity_,frame_);}

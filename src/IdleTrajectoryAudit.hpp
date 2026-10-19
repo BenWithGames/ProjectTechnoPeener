@@ -117,7 +117,9 @@ struct IdleTrajectoryAudit {
             a.players[0]==b.players[0] && a.players[1]==b.players[1];
     }
     static bool same_shape(const FullRestoreStream& a,const FullRestoreStream& b){
-        if(!a.sealed || !b.sealed || a.writes!=b.writes)return false;
+        if(!a.sealed || !b.sealed || a.writes!=b.writes || a.writes>FullRestoreStream::transfer_limit ||
+           a.stream.failures || b.stream.failures || a.stream.write_position>a.stream.payload.size() ||
+           b.stream.write_position>b.stream.payload.size())return false;
         for(unsigned i=0;i<a.writes;++i)
             if(a.lengths[i]!=b.lengths[i] || a.traces[i].writer!=b.traces[i].writer)return false;
         return true;

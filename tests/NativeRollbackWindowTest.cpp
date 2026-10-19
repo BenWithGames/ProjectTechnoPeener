@@ -101,6 +101,8 @@ struct StorageHistory {
     }
 };
 struct StorageRestore {
+    inline static unsigned constructions{},resets{}; StorageRestore(){++constructions;}
+    bool prepare_for_reuse(){++resets;return true;}
     inline static bool reject{};
     bool run(StorageHistory& h,const RollbackBoundaryKey& first,const RollbackBoundaryKey& head,uintptr_t){
         return !reject && first.frame==100 && head.frame==103 && h.frames==std::vector<unsigned>{100,101,102,103};
@@ -134,6 +136,20 @@ struct PreparationResourcesFixture {
     bool cancelled()const{return cancel;}
     const OwnershipCancellation& cancellation()const{return reason;}
     bool stop(){++releases;return true;}
+};
+struct SuccessorResourcesFixture {
+    struct Control {uintptr_t table{};LONG strong{1},weak{1};};
+    inline static Control control{};
+    inline static unsigned attempts{},last_source{},serial{};
+    inline static bool reject{},stop_failure{};
+    unsigned generation=++serial;
+    GeneratedSnapshotDependency dependency;
+    ~SuccessorResourcesFixture(){assert(dependency.reset());}
+    bool start(uintptr_t){return dependency.acquire(1,2,reinterpret_cast<uintptr_t>(&control),40,[](uintptr_t){},[](uintptr_t){});}
+    bool start_successor(SuccessorResourcesFixture& prior){++attempts;return !reject && dependency.retain_from(prior.dependency);}
+    bool stop(){return !stop_failure && dependency.reset();}
+    ReplayDependencySource source(){last_source=generation;return {this,[](void*,uint32_t){return true;},&dependency};}
+    template<class Stream> void wind_report(Stream& out)const{out<<"fixture_generation="<<generation<<'\n';}
 };
 struct MatchEndResourcesFixture : PreparationResourcesFixture {
     inline static MatchEndObservation observation{};
@@ -293,7 +309,138 @@ struct HoldRehearsalFixture {
     bool ready(uintptr_t,uint64_t now){return valid && now<deadline;}
     bool run(uintptr_t,uint64_t){return service_ok;}
 };
+struct LivePreparationFixture : PreparationResourcesFixture {
+    inline static unsigned wind_calls{},animation_calls{};
+    inline static bool wind_ok=true,animation_ok=true;
+    bool enable_wind(){++wind_calls;return wind_ok;}
+    bool enable_animation_copy(){++animation_calls;return animation_ok;}
+};
+void reference_padding_tests(){
+    constexpr uintptr_t image=0x140000000;
+    auto expected=std::make_unique<FullStateProbe>(),actual=std::make_unique<FullStateProbe>();
+    for(const auto& site:NativeReferencePadding::sites){
+        for(auto* stream:{&expected->saved,&actual->saved,&actual->restored,&actual->after_save,&actual->replay}){
+            stream->sealed=true;stream->writes=1;stream->lengths[0]=16;stream->stream.write_position=16;
+            stream->traces[0].writer=image+site.writer;stream->traces[0].reader=image+site.reader;
+            std::fill_n(stream->stream.payload.begin(),16,std::byte{});
+        }
+        actual->restore_completed=true;
+        for(unsigned byte=0;byte<16;++byte){
+            actual->restored.stream.payload[byte]=actual->replay.stream.payload[byte]=std::byte{0x91};
+            NativeAdjacentRestore::PayloadDiagnostic d;
+            const bool padding=byte>=4 && byte<8;
+            assert(NativeAdjacentRestore::native_equal(*expected,*actual,image,&d)==padding);
+            assert(TwoFrameIdleReplay::native_equal(*actual,image)==padding);
+            if(!padding)assert(d.records==1 && d.bytes==1 && d.details[0][5]==byte && d.details[0][8]==0x91);
+            actual->restored.stream.payload[byte]=actual->replay.stream.payload[byte]=std::byte{};
+        }
+        actual->restored.stream.payload[4]=actual->replay.stream.payload[4]=std::byte{7};
+        ++actual->saved.traces[0].reader;
+        assert(!NativeAdjacentRestore::native_equal(*expected,*actual,image));
+        assert(!TwoFrameIdleReplay::native_equal(*actual,image));--actual->saved.traces[0].reader;
+        actual->restore_completed=false;
+        assert(!NativeAdjacentRestore::native_equal(*expected,*actual,image));
+        assert(!TwoFrameIdleReplay::native_equal(*actual,image));actual->restore_completed=true;
+        ++actual->restored.traces[0].writer;++actual->replay.traces[0].writer;
+        assert(!NativeAdjacentRestore::native_equal(*expected,*actual,image));
+        assert(!TwoFrameIdleReplay::native_equal(*actual,image));
+        assert(expected->saved.stream.payload[4]==std::byte{} && actual->restored.stream.payload[4]==std::byte{7});
+    }
+    expected->saved.writes=actual->restored.writes=FullRestoreStream::transfer_limit+1;
+    assert(!NativeAdjacentRestore::native_equal(*expected,*actual,image));
+    actual->after_save.writes=actual->replay.writes=FullRestoreStream::transfer_limit+1;
+    assert(!TwoFrameIdleReplay::native_equal(*actual,image));
+    expected->saved.writes=actual->restored.writes=actual->after_save.writes=actual->replay.writes=1;
+    actual->restored.stream.write_position=actual->replay.stream.write_position=SaveStream::limit+1;
+    assert(!NativeAdjacentRestore::native_equal(*expected,*actual,image));
+    assert(!TwoFrameIdleReplay::native_equal(*actual,image));
+    NativeHistoryRestore<> restore;auto& pd=restore.diagnostic().payload_diagnostic;
+    pd.structural=2;pd.records=19;pd.bytes=25;pd.retained=16;pd.overflow=3;pd.deferred_bytes=60;
+    pd.details[15]={656,16,0x31DCF1,0x10000,0x20000,8,9,10,11};
+    restore.diagnostic().probe->load_route_diagnostic={3,77,0x1234,0x5678};
+      restore.diagnostic().probe->camera_readiness={20,7,3,0x68,1,0x3F000000,0x3ED8D4FE};
+    const auto d=restore.details();assert(d.values[NativeRestoreDiagnostic::route_reason]==3 && d.values[NativeRestoreDiagnostic::route_record]==77);
+    assert(d.values[NativeRestoreDiagnostic::payload_records]==19 && d.payload_details[15][0]==656);
+      assert(d.values[NativeRestoreDiagnostic::camera_reason]==20 && d.values[NativeRestoreDiagnostic::camera_record]==7);
+      assert(d.values[NativeRestoreDiagnostic::camera_saved]==0x3F000000 && d.values[NativeRestoreDiagnostic::camera_offset]==0x68);
+    CombatRuntimeStatus status;
+    for(unsigned i=0;i<NativeRestoreDiagnostic::count;++i)status.restore_details[i]=d.values[i];
+    for(unsigned i=0;i<16;++i)for(unsigned j=0;j<9;++j)status.restore_payload_details[i][j]=d.payload_details[i][j];
+    std::ostringstream events,report;status.write(events,report);
+    assert(report.str().find("continuous_restore_payload_15_record=656")!=std::string::npos);
+    assert(report.str().find("continuous_restore_payload_overflow=3")!=std::string::npos);
+    std::cout<<"PASS: all audited descriptor padding pairs; all active bytes stay exact; raw payload retained; live mismatch evidence exported\n";
+}
 int main(){
+    reference_padding_tests();
+    {
+        NativeHistoryRestore<> restore;auto& p=*restore.diagnostic().probe;
+        p.timer_diagnostic={1,2,1,2,0x44,0x3F800000,0x40000000};
+        p.blend_timer_source.valid_mask=p.blend_timer_next.valid_mask=63;
+        p.blend_timer_source.slots[1][2][0x44]=std::byte{0xAB};
+        p.blend_timer_next.slots[1][2][0x44]=std::byte{0xCD};
+        const auto d=restore.details();
+        assert(d.values[NativeRestoreDiagnostic::timer_reason]==2 && d.values[NativeRestoreDiagnostic::timer_offset]==0x44);
+        assert(d.timer_evidence_valid && d.timer_words[(1*3+2)*32+17]==0xAB);
+        assert(d.timer_words[((1*2+1)*3+2)*32+17]==0xCD);
+        CombatRuntimeStatus status;for(unsigned i=0;i<NativeRestoreDiagnostic::count;++i)status.restore_details[i]=d.values[i];
+        for(unsigned i=0;i<d.timer_words.size();++i)status.restore_timer_words[i]=d.timer_words[i];
+        status.restore_timer_evidence_valid=true;
+        std::ostringstream events,report;status.write(events,report);
+        assert(report.str().find("continuous_restore_timer_next_side1_slot2_offset68=205")!=std::string::npos);
+        assert(report.str().find("continuous_restore_timer_reason=2")!=std::string::npos);
+        p.timer_diagnostic={};assert(!restore.details().timer_evidence_valid);
+    }
+
+    {
+        using F=LivePreparationFixture;
+        F::wind_calls=F::animation_calls=0;F::wind_ok=F::animation_ok=true;
+        auto resources=std::make_unique<CombatResourcePreparation<F>>();
+        assert(resources->enable_live_prediction());
+        assert(resources->live_prediction_enabled && !resources->capture_enabled);
+        assert(resources->enable_live_prediction() && F::wind_calls==1 && F::animation_calls==1);
+        resources->request_stop();assert(!resources->enable_live_prediction());
+        F::wind_ok=false;
+        auto failure=std::make_unique<CombatResourcePreparation<F>>();
+        assert(!failure->enable_live_prediction() && failure->failed && !failure->live_prediction_enabled);
+        F::wind_ok=true;F::animation_ok=false;
+        auto animation_failure=std::make_unique<CombatResourcePreparation<F>>();
+        assert(!animation_failure->enable_live_prediction() && animation_failure->failed);
+        F::animation_ok=true;
+    }
+
+    {
+        using F=SuccessorResourcesFixture;
+        F::serial=F::attempts=F::last_source=0;F::reject=false;
+        {
+            CombatResourcePreparation<F> resources;
+            assert(resources.start(1));
+            assert(!resources.successor_source_on_owner().available() && F::attempts==0);
+            resources.owner_thread=GetCurrentThreadId();resources.ready=true;
+            std::thread foreign([&]{assert(!resources.successor_source_on_owner().available());});foreign.join();
+            assert(F::attempts==0 && resources.source_on_owner().available() && F::last_source==1);
+            F::reject=true;assert(!resources.successor_source_on_owner().available());
+            assert(resources.source_on_owner().available() && F::last_source==1);
+            F::reject=false;
+            for(unsigned i=0;i<15;++i){assert(resources.successor_source_on_owner().available());assert(F::control.strong==2);}
+            const auto attempts=F::attempts;
+            assert(!resources.successor_source_on_owner().available() && F::attempts==attempts);
+            std::ostringstream report;resources.wind_report(report);
+            assert(report.str().find("continuous_resource_generations=16\n")!=std::string::npos);
+            assert(report.str().find("retired_resources_0_fixture_generation=1\n")!=std::string::npos);
+            resources.request_stop();assert(!resources.source_on_owner().available());
+        }
+        assert(F::control.strong==1);
+        {
+            CombatResourcePreparation<F> failed;
+            assert(failed.start(1));failed.owner_thread=GetCurrentThreadId();failed.ready=true;
+            F::stop_failure=true;
+            assert(!failed.successor_source_on_owner().available() && failed.failed.load());
+            assert(!failed.source_on_owner().available() && F::control.strong==3);
+            F::stop_failure=false;
+        }
+        assert(F::control.strong==1);
+    }
     {
         struct Control {uintptr_t table{};LONG strong{1},weak{1};} control;
         GeneratedSnapshotDependency prior,next,foreign;
@@ -1178,18 +1325,29 @@ int main(){
         native_clock_hook::preparation_poll=nullptr;
         unsigned supplied=0;
         NativeArmingDispatch deferred(config,source,*shared,22,GetTickCount64()+1000);
+        unsigned rearm_calls=0;
+        auto rearm_provider=[](void* p,uintptr_t,NativeCombatSession::Config&,ReplayDependencySource&){
+            ++*static_cast<unsigned*>(p);return NativeCombatArming::RearmResult::waiting;
+        };
+        assert(!deferred.automatic_rearm(nullptr,rearm_provider));
+        assert(!deferred.automatic_rearm(&rearm_calls,nullptr));
+        assert(deferred.automatic_rearm(&rearm_calls,rearm_provider));
+        assert(!deferred.automatic_rearm(&rearm_calls,rearm_provider));
         auto provider=[](void* p){++*static_cast<unsigned*>(p);return ReplayDependencySource{};};
         assert(deferred.source_on_owner(&supplied,provider));
         *reinterpret_cast<unsigned*>(address+0x3A4)=99;
         assert(deferred.queue() && supplied==0);
+        assert(!deferred.automatic_rearm(&rearm_calls,rearm_provider));
         assert(!deferred.source_on_owner(&supplied,provider));
         native_clock_hook::bridge(address);assert(supplied==0);
         *reinterpret_cast<unsigned*>(address+0x3A4)=100;
         native_clock_hook::bridge(address);assert(supplied==1 && deferred.state()==NativeArmingDispatch::State::rejected);
+        assert(rearm_calls==0); // Rejected preparation cannot acquire a successor.
         assert(!native_clock_hook::start_hold.load() && !combat_routes.load());
         native_clock_hook::preparation_poll=nullptr;
         NativeArmingDispatch cancelled(config,source,*shared,22,GetTickCount64()+1000);
         assert(cancelled.source_on_owner(&supplied,provider) && cancelled.queue());cancelled.cancel();
+        assert(!cancelled.automatic_rearm(&rearm_calls,rearm_provider));
         native_clock_hook::bridge(address);assert(supplied==1 && cancelled.state()==NativeArmingDispatch::State::rejected);
         native_clock_hook::preparation_poll=nullptr;native_clock_hook::installed=false;
         native_clock_hook::installed_base=0;native_clock_hook::original=nullptr;
@@ -1213,6 +1371,19 @@ int main(){
     {
         CombatStartAgreement::Offer a{1,2,100,77,3,4,500,1,0,3,7200};auto b=a;
         b.sender=2;b.recipient=1;b.ticket=200;b.slot=2;
+        using Ingress=CombatStartIngress;
+        const auto early=CombatStartPacket{a,1,0}.encode();
+        assert(Ingress::receive(nullptr,true,true,11,11,2,1,77,early,80)==Ingress::Result::deferred);
+        assert(Ingress::receive(nullptr,true,true,99,11,2,1,77,early,80)==Ingress::Result::rejected);
+        assert(Ingress::receive(nullptr,true,false,11,11,2,1,77,early,80)==Ingress::Result::rejected);
+        assert(Ingress::receive(nullptr,false,true,11,11,2,1,77,early,80)==Ingress::Result::rejected);
+        assert(Ingress::receive(nullptr,true,true,11,11,2,9,77,early,80)==Ingress::Result::rejected);
+        assert(Ingress::receive(nullptr,true,true,11,11,2,1,78,early,80)==Ingress::Result::rejected);
+        assert(Ingress::receive(nullptr,true,true,11,11,2,1,77,early,79)==Ingress::Result::rejected);
+        CombatStartExchange delayed;
+        assert(delayed.begin(11,b));
+        assert(Ingress::receive(&delayed,true,true,11,11,2,1,77,early,80)==Ingress::Result::delivered);
+        assert(!delayed.consume()); // retransmission is accepted, not permission to activate
         CombatStartExchange left,right;CombatStartMailbox mailbox(GetCurrentThreadId());
         assert(left.attach(mailbox));assert(left.begin(22,a) && right.begin(11,b));
         CombatStartAgreement transferred;assert(!mailbox.take(transferred));
@@ -1314,6 +1485,24 @@ int main(){
         NativeBattleBoundaryReader<> native;assert(!native.read(0,0,result));
     }
     {
+        auto scratch=std::make_unique<NativeHistoryRestore<>>();
+        assert(scratch->prepare_for_reuse());
+        auto& w=scratch->diagnostic();auto* snapshot=w.current.data.get();auto* probe=w.probe.get();
+        scratch->attempted=true;scratch->loaded=true;scratch->depth=1;
+        scratch->stage=NativeHistoryRestore<>::Stage::restored;
+        assert(!scratch->prepare_for_reuse()); // incomplete work cannot be recycled
+        w.attempted=w.prepared=w.verified=w.native_payload_verified=w.completion.verified=true;
+        probe->restore_invoked=probe->restore_completed=probe->delayed_loaded=probe->camera_restore_verified=true;
+        w.current.effects=std::make_unique<NativeEffectSession::Binding>();
+        assert(!scratch->prepare_for_reuse()); // no retained binding may be discarded
+        w.current.effects.reset();probe->fault=true;assert(!scratch->prepare_for_reuse());probe->fault=false;
+        assert(scratch->prepare_for_reuse());
+        assert(w.current.data.get()==snapshot && w.probe.get()==probe);
+        assert(!w.attempted && !w.prepared && !w.verified && !probe->restore_invoked);
+        assert(!scratch->attempted && !scratch->loaded && !scratch->depth);
+        assert(probe->saved.stream.failures==0 && probe->camera_readiness.reason==0);
+        scratch->attempted=true;scratch->stage=NativeHistoryRestore<>::Stage::prepare;
+        assert(!scratch->prepare_for_reuse()); // a failed attempt remains one-shot
         StorageHistory history;ReplayDependencySource source;
         RollbackBoundaryKey identity{1,2,3,4,5,100,1,GetCurrentThreadId()};
         NativeSchedulerStorage<StorageHistory,StorageRestore> storage(history,source,1,identity);
@@ -1322,7 +1511,18 @@ int main(){
         assert(storage.begin_boundary(103,{}));assert(storage.restore(first));assert(history.frames.empty());
         for(unsigned i=100;i<=103;++i)assert(storage.capture(current,i,bytes));
         assert((history.frames==std::vector<unsigned>{100,101,102,103}));
+        auto replacement=first;
+        // A second successful transaction uses the same allocated Restore.
+        history.frames.clear(); const auto allocated=StorageRestore::constructions;
+        for(unsigned i=100;i<103;++i){assert(storage.begin_boundary(i,{}));assert(storage.capture(current,i,bytes));if(i==100)replacement=current;}
+        assert(storage.begin_boundary(103,{}));assert(storage.restore(replacement));
+        assert(StorageRestore::constructions==allocated);
         assert(!storage.restore(first) && storage.failed()); // replaced handle cannot alias recaptured state
+        assert(storage.timing.buckets[NativeRollbackTiming::capture].calls==12);
+        assert(storage.timing.buckets[NativeRollbackTiming::restore].calls==3);
+        assert(storage.timing.buckets[NativeRollbackTiming::cleanup].calls==2);
+        assert(storage.timing.buckets[NativeRollbackTiming::workspace].calls==2);
+        assert(!NativeRollbackTiming::active);
         StorageHistory failedHistory;decltype(storage) failedStorage(failedHistory,source,1,identity);
         for(unsigned i=100;i<103;++i){assert(failedStorage.begin_boundary(i,{}));assert(failedStorage.capture(current,i,bytes));if(i==100)first=current;}
         assert(failedStorage.begin_boundary(103,{}));StorageRestore::reject=true;
@@ -1330,6 +1530,8 @@ int main(){
         assert(failedStorage.restore_diagnostic.values[NativeRestoreDiagnostic::stage]==4);
         assert(failedStorage.restore_diagnostic.values[NativeRestoreDiagnostic::invoked]==1);
         assert(failedHistory.frames.size()==4); // failed restore never retires/replaces the predicted suffix
+        assert(failedStorage.timing.buckets[NativeRollbackTiming::restore].calls==1);
+        assert(failedStorage.timing.buckets[NativeRollbackTiming::cleanup].calls==0);
         auto actualHistory=std::make_unique<NativeRollingHistory<4>>();
         NativeSchedulerStorage<> native(*actualHistory,source,0,identity);
         assert(!native.begin_boundary(100,{}));

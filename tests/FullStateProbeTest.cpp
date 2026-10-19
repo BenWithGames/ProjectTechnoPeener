@@ -1,4 +1,5 @@
 #include <source_location>
+#include <xmmintrin.h>
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <Windows.h>
@@ -142,7 +143,137 @@ void source_identity_audit(){
     require(!q->restore_invoked && loads==0);
     std::cout<<"PASS: equal archived bytes from distinct stack sources remain rejected before native loading\n";
 }
+void audited_scalar_source_test(){
+    auto q=std::make_unique<P>();
+    constexpr uintptr_t module=0x140000000,owner=0x200000;
+    constexpr uintptr_t writers[]={0x30ECBF,0x30ECD5,0x30ECEB,0x30ED01,0x30ED1F};
+    constexpr uint64_t sizes[]={0x200,0x200,0x14,4,4};
+    constexpr uintptr_t offsets[]={0,0x200,0x45C,0x470};
+    q->saved.writes=q->after_save.writes=5;
+    q->ring_save_unchanged=q->ring_rotation_ok=true;
+    for(unsigned i=0;i<5;++i){
+        q->saved.lengths[i]=q->after_save.lengths[i]=sizes[i];
+        q->saved.traces[i].writer=q->after_save.traces[i].writer=module+writers[i];
+        q->saved.traces[i].source=q->after_save.traces[i].source=i<4?owner+offsets[i]:0x300000;
+    }
+    q->after_save.traces[4].source=0x300210;
+    require(q->delayed_sources_ok(module));
+    require(!q->delayed_sources_ok() && !q->delayed_sources_ok(module+1));
+    for(unsigned i=0;i<5;++i){
+        ++q->after_save.traces[i].writer;require(!q->delayed_sources_ok(module));--q->after_save.traces[i].writer;
+        ++q->after_save.lengths[i];require(!q->delayed_sources_ok(module));--q->after_save.lengths[i];
+    }
+    ++q->after_save.traces[2].source;require(!q->delayed_sources_ok(module));--q->after_save.traces[2].source;
+    q->audit_shape_changes=1;require(!q->delayed_sources_ok(module));q->audit_shape_changes=0;
+    require(q->delayed_sources_ok(module));
+    require(q->saved.traces[4].source==0x300000 && q->after_save.traces[4].source==0x300210);
+    require(!q->restore_invoked);
+    std::cout<<"PASS: audited by-value scalar accepts relocated temporary only with exact writer and owner layout\n";
+}
+void audited_reference_source_test(){
+    auto q=std::make_unique<P>();constexpr uintptr_t image_base=0x140000000;
+    constexpr uintptr_t writers[]={0x30AB2F,0x30AB84,0x30ABDF,0x30AC34,0x30AC8F,0x30ACE4,0x30AD3F,0x30AD94,0x30ADEF};
+    std::array<unsigned char,16> source{},next{},loaded{};source[0]=2;source[8]=17;next[0]=3;next[8]=29;
+    for(unsigned i=0;i<9;++i){
+        auto& a=q->saved.stream;auto& b=q->after_save.stream;
+        a.slots->write(&a,source.data(),16);b.slots->write(&b,next.data(),16);
+        q->saved.traces[i].writer=q->after_save.traces[i].writer=image_base+writers[i];
+    }
+    require(q->saved.seal() && q->after_save.seal());
+    q->ring_save_unchanged=q->ring_rotation_ok=true;
+    const auto archived=q->saved.stream.payload;
+    require(q->delayed_sources_ok(image_base));
+    require(!q->delayed_sources_ok() && !q->delayed_sources_ok(image_base+1));
+    for(unsigned i=0;i<9;++i){
+        require(q->audited_reference_source(i,image_base));
+        ++q->after_save.traces[i].writer;require(!q->delayed_sources_ok(image_base));--q->after_save.traces[i].writer;
+        ++q->after_save.lengths[i];require(!q->delayed_sources_ok(image_base));--q->after_save.lengths[i];
+        ++q->after_save.traces[i].source;require(!q->delayed_sources_ok(image_base));--q->after_save.traces[i].source;
+    }
+    --q->after_save.writes;require(!q->delayed_sources_ok(image_base));++q->after_save.writes;
+    q->audit_shape_changes=1;require(!q->delayed_sources_ok(image_base));q->audit_shape_changes=0;
+    require(q->delayed_sources_ok(image_base));
+    require(q->saved.stream.payload==archived);
+    auto reader=std::make_unique<T>();require(reader->prepare_reader_from(q->saved));
+    for(unsigned i=0;i<9;++i){reader->stream.slots->read(&reader->stream,loaded.data(),16);require(loaded==source);}
+    require(q->saved.traces[0].source==reinterpret_cast<uintptr_t>(source.data()));
+    require(q->after_save.traces[0].source==reinterpret_cast<uintptr_t>(next.data()));
+    std::cout<<"PASS: all nine audited reference descriptors permit relocated temporary storage, retain exact payload and reject malformed groups\n";
+}
+void additional_temporary_sources_test(){
+    constexpr uintptr_t image_base=0x140000000;
+    const std::vector<std::vector<uintptr_t>> groups={
+        {0x31DCF1,0x31DD48,0x31DDA1,0x31DDF5}, {0x301A75,0x301AD2},
+        {0x390765,0x3907B6,0x390765,0x3907B6},
+        {0x317C17},{0x317C60},{0x340F59},{0x341183},{0x3217EC},{0x321814},{0x32AC76},{0x32ACAC}};
+    for(unsigned g=0;g<groups.size();++g){
+        auto q=std::make_unique<P>();const auto& writers=groups[g];
+        const unsigned size=g<3 || g==9?16:g==10?8:4;
+        std::array<unsigned char,16> a{},b{},loaded{};a[0]=7;b[0]=9;a[size-1]=21;b[size-1]=37;
+        for(unsigned i=0;i<writers.size();++i){
+            q->saved.stream.slots->write(&q->saved.stream,a.data(),size);
+            q->after_save.stream.slots->write(&q->after_save.stream,b.data(),size);
+            q->saved.traces[i].writer=q->after_save.traces[i].writer=image_base+writers[i];
+        }
+        require(q->saved.seal() && q->after_save.seal());
+        q->ring_save_unchanged=q->ring_rotation_ok=true;
+        const auto bytes=q->saved.stream.payload;
+        require(q->delayed_sources_ok(image_base));
+        require(!q->delayed_sources_ok() && !q->delayed_sources_ok(image_base+1));
+        require(!q->delayed_sources_ok(UINTPTR_MAX-1));
+        for(unsigned i=0;i<writers.size();++i){
+            require(q->audited_additional_temporary_source(i,image_base));
+            ++q->after_save.traces[i].writer;require(!q->delayed_sources_ok(image_base));--q->after_save.traces[i].writer;
+            ++q->after_save.lengths[i];require(!q->delayed_sources_ok(image_base));--q->after_save.lengths[i];
+            const auto source=q->after_save.traces[i].source;
+            q->after_save.traces[i].source=UINTPTR_MAX;require(!q->delayed_sources_ok(image_base));
+            q->after_save.traces[i].source=1;require(!q->delayed_sources_ok(image_base));
+            q->after_save.traces[i].source=source;
+            if(g<3){++q->after_save.traces[i].source;require(!q->delayed_sources_ok(image_base));--q->after_save.traces[i].source;}
+        }
+        if(g<3){--q->after_save.writes;require(!q->delayed_sources_ok(image_base));++q->after_save.writes;}
+        q->audit_shape_changes=1;require(!q->delayed_sources_ok(image_base));q->audit_shape_changes=0;
+        q->ring_rotation_ok=false;require(!q->delayed_sources_ok(image_base));q->ring_rotation_ok=true;
+        require(q->delayed_sources_ok(image_base) && q->saved.stream.payload==bytes && !q->restore_invoked);
+        auto reader=std::make_unique<T>();require(reader->prepare_reader_from(q->saved));
+        for(unsigned i=0;i<writers.size();++i){reader->stream.slots->read(&reader->stream,loaded.data(),size);require(!std::memcmp(loaded.data(),a.data(),size));}
+    }
+    std::cout<<"PASS: audited global/selector/pair descriptors and camera/type temporaries retain exact bytes and reject unknown writers, sizes, groups and invalid addresses\n";
+}
+void native_load_route_test(){
+    using sc6::research::NativeLoadRoute;
+    constexpr uintptr_t image=0x140000000,manager=0x500000,optional=0x600000;
+    auto stream=std::make_unique<T>();NativeLoadRoute::Diagnostic d;
+    constexpr uintptr_t writers[]={0x391DEA,0x3906CC,0x38448D,0x321861,0x384403};
+    constexpr uint64_t sizes[]={2,0xC60,4,4,0x360};
+    for(bool alternate:{false,true})for(bool present:{false,true}){
+        stream->sealed=true;stream->writes=present?5:4;
+        const uintptr_t sources[]={image+(alternate?0x4845E80:0x4844DD0)+0x414,
+            image+(alternate?0x4845220:0x4844170),image+(alternate?0x48462C8:0x4845218),manager+0xA8,optional};
+        for(unsigned i=0;i<5;++i){stream->traces[i].writer=image+writers[i];stream->traces[i].source=sources[i];stream->lengths[i]=sizes[i];}
+        auto test=[&](){return NativeLoadRoute::validate(*stream,image,alternate,present?optional:0,manager,d);};
+        require(test());
+        require(!NativeLoadRoute::validate(*stream,image,!alternate,present?optional:0,manager,d) && d.reason==3);
+        require(!NativeLoadRoute::validate(*stream,image,alternate,present?optional:0,manager+8,d) && d.reason==3);
+        require(!NativeLoadRoute::validate(*stream,image,alternate,present?0:optional,manager,d));
+        for(unsigned i=0;i<stream->writes;++i){
+            ++stream->traces[i].source;require(!test() && d.reason==3 && d.record==i);--stream->traces[i].source;
+            ++stream->lengths[i];require(!test() && d.reason==2);--stream->lengths[i];
+            ++stream->traces[i].writer;require(!test() && d.reason==4);--stream->traces[i].writer;
+        }
+        const auto count=stream->writes;stream->traces[count]=stream->traces[0];stream->lengths[count]=sizes[0];
+        ++stream->writes;require(!test() && d.reason==2);stream->writes=count;
+        require(test());stream->sealed=false;require(!test() && d.reason==1);
+    }
+    require(!NativeLoadRoute::ready(*stream,0,d) && d.reason==1);
+    require(!NativeLoadRoute::validate(*stream,UINTPTR_MAX,true,optional,manager,d));
+    std::cout<<"PASS: audited native destination routing rejects mode/manager/optional-buffer changes before load\n";
+}
 int main(){
+    native_load_route_test();
+    additional_temporary_sources_test();
+    audited_reference_source_test();
+    audited_scalar_source_test();
     {
         namespace rt=sc6::research::rng_trace;
         unsigned seed=10,counter=42,calls=0;
@@ -811,6 +942,44 @@ int main(){
             }
         }
 
+        {
+            using C=sc6::research::CameraSnapshot;
+            const auto original_a=ca->records[0].targets,original_b=cb->records[0].targets;
+            auto bits=[](float f){unsigned v{};std::memcpy(&v,&f,4);return v;};
+            auto native_fall=[&](unsigned a){float value{},delta{};unsigned d=0x3D9CAC08u;
+                std::memcpy(&value,&a,4);std::memcpy(&delta,&d,4);
+                return bits(_mm_cvtss_f32(_mm_max_ss(_mm_setzero_ps(),_mm_sub_ss(_mm_set_ss(value),_mm_set_ss(delta)))));};
+            for(unsigned a:{0u,1u,0x3D9CAC07u,0x3D9CAC08u,0x3D9CAC09u,0x3E4CCCCDu,0x3F000000u,0x3F800000u}){
+                const auto b=native_fall(a);require(C::falling_factor(a,b));
+                require(C::general_factors(a,a,b,b));require(!C::falling_factor(a,b+1));
+                require(C::general_factors(a,a,0,0));
+            }
+            for(unsigned bad:{0x80000000u,0xBF000000u,0x3F800001u,0x7F800000u,0x7FC00000u}){
+                require(!C::falling_factor(bad,0));require(!C::general_factors(bad,0,0,0));
+                require(!C::general_factors(0,0,bad,0));
+            }
+            const unsigned a0=bits(0.5f),a1=bits(0.2f);
+            require(!C::general_factors(a0,a1,bits(0.6f),native_fall(a1)));
+            for(bool reset:{false,true}){
+                const unsigned b0=reset?0:native_fall(a0),b1=reset?0:native_fall(a1);
+                std::memcpy(ca->records[0].targets.data()+0x68,&a0,4);std::memcpy(ca->records[0].targets.data()+0x6C,&a1,4);
+                std::memcpy(cb->records[0].targets.data()+0x68,&b0,4);std::memcpy(cb->records[0].targets.data()+0x6C,&b1,4);
+                require(!ca->adjacent_combat_ready(*cb,base,true)); // fixture policy unchanged
+                C::ReadinessDiagnostic d;
+                require(ca->adjacent_combat_ready(*cb,base,true,&d,false,true));
+                require(ca->restore_smoothing(*cb,camera,base,false,true,true,true,nullptr,true));
+                require(ca->restore_smoothing(*cb,camera,base,false,true,false,true,nullptr,true));
+                require(*reinterpret_cast<unsigned*>(owner+0x250)==a0 && *reinterpret_cast<unsigned*>(owner+0x254)==a1);
+                require(!ca->restore_smoothing(*cb,camera,base,false,true,false,true,nullptr,true)); // stale live image
+                std::memcpy(reinterpret_cast<void*>(owner),camera.records[0].bytes.data(),0x1C8);
+                std::memcpy(reinterpret_cast<void*>(owner+0x1E0),camera.records[0].smoothing.data(),8);
+                std::memcpy(reinterpret_cast<void*>(owner+0x25C),camera.records[0].smoothing.data()+8,72);
+                std::memcpy(reinterpret_cast<void*>(owner+0x1E8),camera.records[0].targets.data(),116);
+                std::memcpy(reinterpret_cast<void*>(owner+0x2A4),camera.records[0].targets.data()+116,12);
+                std::memcpy(reinterpret_cast<void*>(owner+0x1D0),camera.records[0].response.data(),12);
+            }
+            ca->records[0].targets=original_a;cb->records[0].targets=original_b;
+        }
         {
             auto original_a=ca->records[0].targets,original_b=cb->records[0].targets;
             float a=0.2f,b=a+0.1f;

@@ -64,7 +64,9 @@ public:
             if(failed_)return Result::restart_required;
             // NativeSchedulerStorage's previous boundary is pre-update. Load
             // needs a current endpoint before reconciling the final frame.
-            if(!adapter.begin_boundary(endpoint))return fail(Failure::endpoint);
+            if constexpr(requires {adapter.begin_settlement_boundary(endpoint);}){
+                if(!adapter.begin_settlement_boundary(endpoint))return fail(Failure::endpoint);
+            }else if(!adapter.begin_boundary(endpoint))return fail(Failure::endpoint);
             if(failed_)return Result::restart_required;
             const bool settled=session.settle_handoff(adapter);
             if(failed_ || adapter.failed() || session.state==Session::State::restart_required ||

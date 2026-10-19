@@ -14,4 +14,5 @@ struct ContinuousStartRequest {
 inline bool (*queue_continuous_start)(const ContinuousStartRequest&){};
 // 0 = no request, 1 = waiting, 2 = preparing, 3 = prepared, 4 = rejected.
 inline unsigned (*continuous_start_state)(){};
+inline unsigned (*continuous_start_stage)(){};
 }

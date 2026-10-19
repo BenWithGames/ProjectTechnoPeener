@@ -35,7 +35,7 @@ try {
     $captureDir=Join-Path $gameBin 'Mods\SC6Rollback\captures'
     $report=Join-Path $captureDir ('steam-inputs-'+$gameProcess.Id+'.txt')
     if(Test-Path -LiteralPath $report){throw 'This game launch already ran an input exchange. Restart SC6 on both PCs before retrying.'}
-    if($TestSuite){& (Join-Path $PSScriptRoot 'Limit-CaptureStorage.ps1') -CaptureDirectory $captureDir}
+    if($TestSuite -or $Continuous){& (Join-Path $PSScriptRoot 'Limit-CaptureStorage.ps1') -CaptureDirectory $captureDir}
     Write-Host 'Both players: install this build, launch SC6, and join the same private lobby.'
     Write-Host 'Both PCs need this build and opposite assigned player slots.'
     if($TestSuite -and $SuiteProfile -notin @('CombatCorrection','CombatCorrectionBaseline') -and $SuiteProfile -in @('ReferenceReplay','PredictionCorrection','RepeatedCorrection','AttackCorrection','RepeatedAttackCorrection','CombatCorrection','CombatCorrectionBaseline')){Write-Host 'CONTROLLED REPLAY: leave both players idle until the script says observing_suite_gameplay, then play normally. This explicitly enables a guarded three-frame restore/replay. Restart immediately if the report requires it.'}
@@ -46,7 +46,7 @@ try {
     elseif($TestSuite -and $SuiteProfile -eq 'FullMatchReplay'){Write-Host 'TEST SUITE: FullMatchReplay; verified three-frame original-input windows throughout one match, at least 120 frames apart. Completes only at native match end.'}
     elseif($TestSuite -and $SuiteProfile -eq 'MultiRoundReplay'){Write-Host "TEST SUITE: MultiRoundReplay; three spaced original-input replay cycles during combat, then $ObserveSeconds seconds of observation."}
     elseif($TestSuite){Write-Host "TEST SUITE: $SuiteProfile; then $ObserveSeconds seconds of normal-play observation. Both PCs must choose identical settings. PredictionCorrection runs one controlled correction; RepeatedCorrection runs three while both players stay idle; AttackCorrection injects one A then corrects three frames; RepeatedAttackCorrection repeats that attack correction three times; continuous rollback remains disabled. Restart after the run."}
-    elseif($Continuous){Write-Host 'EXPERIMENTAL GENERAL COMBAT RESTORE: real predictions and corrections up to three frames within one round. First-match start; no warmup. Structural guards remain and may stop/freeze the experiment. Close BOTH games after a stop. Live validation is pending.'}
+    elseif($Continuous){Write-Host 'LIVE PREDICTION TEST: hold-last remote raw input, up to three unconfirmed frames, correction replay and guarded round rearming. Start in the first private lobby; no warmup. Play normally. Close BOTH games after a stop. Two-player validation is pending.'}
     elseif($StartupPreparation){Write-Host 'STARTUP CHECK: agreement, brief clock hold and four snapshots. No restoration or replay. Restart afterward.'}
     if($TestSuite -and $SuiteProfile -in @('MultiRoundReplay','FullMatchReplay')){Write-Host 'No warmup required. Start both scripts in the first private lobby before entering the match. Loading nominates the resource thread; a verified battle boundary must confirm it before replay.'}
     elseif($StartupPreparation -and -not $Continuous){Write-Host 'Before this check: after restarting SC6, enter a private match briefly, then return to the lobby without running scripts. This identifies the game thread before resource acquisition.'}
@@ -106,7 +106,8 @@ try {
             & (Join-Path $PSScriptRoot 'Collect-RollbackReport.ps1') -ReportPath $report
             if($finalText -match '(?m)^status=continuous_unavailable_default_networking\r?$'){Write-Host 'Continuous rollback unavailable: general combat restoration is not implemented. Default gameplay remains active; no restart is required by this check.';exit 0}
             Write-Host 'Experiment stopped. Close BOTH games and send both report ZIPs. No PASS is inferred from transport or update counts.'
-            exit 0
+            if($finalText -match '(?m)^status=continuous_capture_ended_restart_required\r?$'){exit 0}
+            exit 1
         }
         if($TestSuite){
             & (Join-Path $PSScriptRoot 'Summarize-TestSuite.ps1') -Report $report

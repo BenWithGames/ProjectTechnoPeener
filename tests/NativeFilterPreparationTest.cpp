@@ -1,0 +1,68 @@
+#include "../src/NativeFilterFramePreparation.hpp"
+#include "../src/NativeFilterAccess.hpp"
+#include "../src/RawInputHistoryView.hpp"
+#include <cassert>
+#include <iostream>
+using namespace sc6::research;
+struct Access {
+    static inline uint32_t frame=100,local=1;
+    static inline std::array<uint32_t,2> previous_words{};
+    static inline bool valid=true;
+    template<class C,class S> static bool sample(const C&,unsigned,unsigned slot,uint32_t,S& out,uint32_t& number){
+        out.local_raw=local;out.disabled=0;out.previous=previous_words[slot];number=frame;return valid;
+    }
+    template<class C,class S> static bool previous(const C&,unsigned slot,const S&,uint32_t raw){previous_words[slot]=raw;return valid;}
+    template<class C> static bool boundary(const C&,uint32_t){return valid;}
+};
+int main(){
+    NativeFilterFramePreparation<NativeFilterAccess>::Config invalid{};
+    invalid.owner=GetCurrentThreadId();
+    NativeFilterFramePreparation<NativeFilterAccess>::Sample sample{};uint32_t number{};
+    assert(!NativeFilterAccess::sample(invalid,1,0,0,sample,number));
+    RawPredictionRoute<> route;const auto thread=GetCurrentThreadId();
+    assert(route.bind(1,2,3,4,500,1,thread,{0,0}));
+    NativeFilterFramePreparation<Access> preparation(route);
+    assert(preparation.bind({0x1000,0x2000,0,thread,7,100,500},1));
+    RawInputHistoryView view;assert(view.bind(route.delivery(),1,3,4,500,thread));
+    uint32_t raw=99;using R=decltype(preparation)::Result;
+    assert(preparation.filter(0x1111,0,0,false,false,false,raw)==R::pass && raw==99);
+    assert(route.submit({2,1,3,4,500,2,2})==RawPredictionRoute<>::Submit::accepted);
+    // Either slot order is valid, but no full envelope is available halfway.
+    assert(preparation.filter(0x1000,1,0,false,false,false,raw)==R::prepared && raw==2);
+    std::array<uint32_t,10> envelope{};
+    assert(!view.envelope(1,3,4,500,envelope));
+    bool applied=false;
+    assert(!route.reconcile(thread,[&](const auto&){applied=true;return true;}));
+    assert(!applied && !route.failed());
+    assert(route.submit({2,1,3,4,501,2,7})==RawPredictionRoute<>::Submit::accepted);
+    assert(route.drain(thread) && route.counters().drained==1);
+    // A separate clean route checks the full native capture/consumer cycle.
+    RawPredictionRoute<> clean;assert(clean.bind(1,2,3,4,500,1,thread,{0,0}));
+    NativeFilterFramePreparation<Access> p(clean);assert(p.bind({0x1000,0x2000,0,thread,7,100,500},1));
+    RawInputHistoryView h;assert(h.bind(clean.delivery(),1,3,4,500,thread));
+    assert(clean.submit({2,1,3,4,500,2,2})==RawPredictionRoute<>::Submit::accepted);
+    assert(p.filter(0x1000,0,0,false,false,false,raw)==R::prepared && raw==1);
+    assert(p.filter(0x1000,1,0,false,false,false,raw)==R::prepared && raw==2);
+    envelope={1,1,2,2,17,0,0,0,0,0};assert(p.complete(500,envelope));
+    std::array<uint32_t,10> read{};assert(h.envelope(1,3,4,500,read) && read==envelope);
+    assert(clean.reconcile(thread,[](const auto&){return true;}));
+    assert(clean.publish_confirmed(thread,[](auto,auto,auto,auto,const auto&){return true;}));
+    ++Access::frame;Access::local=7;
+    assert(p.filter(0x1000,0,0,true,true,false,raw)==R::prepared && raw==7);
+    assert(Access::previous_words[0]==1);
+    assert(p.filter(0x1000,1,0,false,false,true,raw)==R::prepared && raw==2);
+    envelope={0,0,0,0,19,0,0,0,0,0};assert(p.complete(501,envelope));
+    assert(h.envelope(1,3,4,501,read) && read==envelope);
+    // Wrong native edge bit rejects the frame, rather than normalizing it.
+    ++Access::frame;
+    assert(p.filter(0x1000,0,0,false,false,false,raw)==R::prepared);
+    assert(p.filter(0x1000,1,0,false,false,false,raw)==R::prepared);
+    envelope={7,7,2,0,0,0,0,0,0,0};assert(!p.complete(502,envelope));
+    assert(p.failed() && !h.envelope(1,3,4,502,read));
+    RawPredictionRoute<> guarded;assert(guarded.bind(1,2,3,4,500,1,thread,{0,0}));
+    NativeFilterFramePreparation<Access> guard(guarded);assert(guard.bind({0x1000,0x2000,0,thread,7,100,500},1));
+    Access::frame=100;Access::valid=false;
+    assert(guard.filter(0x1000,0,0,false,false,false,raw)==R::failed);
+    assert(guarded.delivery().head()==0);
+    std::cout<<"Native filter preparation tests passed\n";
+}

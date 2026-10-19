@@ -17,6 +17,64 @@ struct Fixture {
 };
 int main(int argc,char** argv){
     using C=sc6::LiveInputComposition;
+    // Recorded 79392 boundary: outer 1228 -> 1607, round 1/97 -> 2/1487.
+    // Reordered peer delivery must wait for its preceding record and then
+    // validate the boundary once; eligibility must never span that boundary.
+    for(unsigned slot=1;slot<=2;++slot){
+        auto data=std::make_unique<Fixture>();auto composition=std::make_unique<C>();
+        std::array<sc6::observation::Round,sc6::observation::capacity> localRounds{},peerRounds{};
+        const uint32_t frames[]={1228,1607,1608,2000};
+        const sc6::observation::Round rounds[]={{1,97},{2,1487},{2,1487},{3,1900}};
+        for(unsigned i=0;i<4;++i){data->local[i].data[0]=data->peer[i].data[0]=frames[i];localRounds[i]=peerRounds[i]=rounds[i];}
+        assert(composition->configure(slot,C::Purpose::authoritative_peer));
+        assert(composition->announce(3-slot) && composition->bind_replay_session(10,20));
+        data->seen[1]=data->seen[3]=true;
+        assert(composition->update(data->local,4,data->peer,data->seen,&localRounds,&peerRounds));
+        assert(composition->matched==0 && composition->local_round_gaps==2 && composition->remote_round_gaps==0);
+        data->seen[0]=data->seen[2]=true;
+        assert(composition->update(data->local,4,data->peer,data->seen,&localRounds,&peerRounds));
+        assert(composition->matched==4 && composition->local_round_gaps==2 && composition->remote_round_gaps==2);
+        assert(composition->replay_eligible==1 && composition->replay_round_rejected==5);
+        assert(composition->update(data->local,4,data->peer,data->seen,&localRounds,&peerRounds));
+        assert(composition->remote_round_gaps==2 && composition->local_round_gaps==2);
+    }
+    // Missing/stale/skipped boundaries, backwards counters and same-round gaps
+    // stay fatal on either stream; comparison mode retains its strict policy.
+    for(unsigned side=0;side<2;++side)for(unsigned fault=0;fault<8;++fault){
+        auto data=std::make_unique<Fixture>();auto composition=std::make_unique<C>();
+        std::array<sc6::observation::Round,sc6::observation::capacity> lr{},rr{};
+        data->local[0].data[0]=data->peer[0].data[0]=1228;
+        data->local[1].data[0]=data->peer[1].data[0]=1607;
+        lr[0]=rr[0]={1,97};lr[1]=rr[1]={2,1487};
+        auto& rounds=side?rr:lr;auto& records=side?data->peer:data->local;
+        switch(fault){
+        case 0:rounds[1]=rounds[0];break;
+        case 1:rounds[1]={};break;
+        case 2:rounds[1].number=3;break;
+        case 3:rounds[1].event_counter=97;break;
+        case 4:rounds[1].event_counter=1200;break;
+        case 5:rounds[1].event_counter=1608;break;
+        case 6:records[1].data[0]=0;break;
+        case 7:break; // same valid boundary in the old comparison mode
+        }
+        data->seen[0]=data->seen[1]=true;
+        assert(composition->configure(1,fault==7?C::Purpose::comparison:C::Purpose::authoritative_peer));
+        assert(composition->announce(2) && composition->bind_replay_session(10,20));
+        assert(!composition->update(data->local,2,data->peer,data->seen,&lr,&rr));
+    }
+    // Independently valid but conflicting peer boundaries still fail staging.
+    {
+        auto data=std::make_unique<Fixture>();auto composition=std::make_unique<C>();
+        std::array<sc6::observation::Round,sc6::observation::capacity> lr{},rr{};
+        data->local[0].data[0]=data->peer[0].data[0]=1228;
+        data->local[1].data[0]=data->peer[1].data[0]=1607;
+        lr[0]=rr[0]={1,97};lr[1]={2,1487};rr[1]={2,1488};
+        data->seen[0]=data->seen[1]=true;
+        assert(composition->configure(1,C::Purpose::authoritative_peer));
+        assert(composition->announce(2) && composition->bind_replay_session(10,20));
+        assert(!composition->update(data->local,2,data->peer,data->seen,&lr,&rr));
+        assert(std::string_view(composition->failure)=="composition_round_boundary_mismatch");
+    }
     auto f=std::make_unique<Fixture>();auto c=std::make_unique<C>();
     assert(c->configure(1));f->seen[1]=true;
     assert(c->update(f->local,4,f->peer,f->seen) && c->matched==0);

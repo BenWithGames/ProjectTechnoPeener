@@ -213,14 +213,14 @@ public:
  // be collected instead. Keep both objects alive for diagnostics and old packets.
  bool start_successor(ReplayOwnedResources& prior){
   if(this==&prior || module_ || count_ || generated.active() || active_.load()!=&prior ||
-     !prior.current_dependencies() || (prior.wind_ && !prior.wind_->retired_on_owner()))return false;
+     !prior.current_dependencies() || (prior.wind_ && (!prior.wind_->finish() || !prior.wind_->retired_on_owner())))return false;
   module_=prior.module_;owner_=prior.owner_;
   wind_requested_=prior.wind_requested_.load();
   for(unsigned i=0;i<prior.count_;++i){
    const auto& old=prior.descriptors_[i];auto& fresh=descriptors_[i];
    if(!fresh.lease.acquire(old.control,owner_,0,ResourceDependencyCapture::native_object_dispose,
       ResourceDependencyCapture::native_control_dispose)){stop();return false;}
-   fresh.object=old.object;fresh.control=old.control;fresh.payload=old.payload;++count_;
+   fresh.object=old.object;fresh.control=old.control;fresh.payload=old.payload;++count_;has_owned_=true;
   }
   if(!generated.retain_from(prior.generated) || !prior.current_dependencies() || !current_dependencies()){
    stop();return false;

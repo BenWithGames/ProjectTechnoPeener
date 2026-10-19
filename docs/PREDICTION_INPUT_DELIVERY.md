@@ -1,8 +1,10 @@
 # Prediction input delivery and settlement
 
-Status: controller implementation and local regression coverage; **not wired
-to native delivery or installed as live prediction**. Existing diagnostics,
-endpoint verification, native waits and round guards remain enabled.
+Status (2026-10-18): live native input preparation, authoritative raw transport,
+correction replay and guarded prediction admission are connected. The full local
+build and integration regressions pass; two-player live validation is pending.
+Existing restoration verification, diagnostics and round guards remain enabled.
+The historical entries below describe earlier, deliberately inactive components.
 
 ## Implemented
 
@@ -486,3 +488,378 @@ lease survives old release, foreign-thread and duplicate acquisition rejection,
 effect retirement checks, and existing transaction failures). No installed DLL
 or partner package changed. Native hook/failure containment and automatic provider
 registration remain incomplete; this is not a completed live round-rearm test.
+
+## 2026-10-18: startup failure containment and provider registration
+
+NativeArmingDispatch now accepts an immutable rearm-provider registration before
+queue publication and forwards it to NativeCombatArming before preparation.
+Successors already inherit that provider. Registration refuses missing context,
+duplicate configuration, cancellation and changes after queue publication. This
+is the registration path, not a production provider that negotiates a fresh round.
+
+Preparation exceptions now latch activation failure on the arming owner. Startup
+failure cancels the native hold before terminating the session; the failed hold
+continues to match its clock object but cannot service or advance it. This avoids
+falling through to the original clock after partial publication. Termination
+contains C++ cleanup exceptions and reports history retirement as unsuccessful.
+Foreign clock objects are rejected before any retired-session rearm work.
+
+Successor descriptor acquisition now marks its references as owned. Without that
+flag, setup and resource-clear callbacks could ignore references acquired by the
+successor. The Ghidra outer-caller export was rechecked: returning from 0x3FE520
+still allows caller 0x3FBF30 to change outer mode/counters and enter its tail update.
+These startup fixes do not make a failed post-battle settlement safe to return.
+
+Validation: Test-NativeClockAccess and Test-NativeRollbackWindow passed, including
+cancelled holds retaining ownership without service/advance, foreign-thread
+cancellation refusal, immutable provider registration and rejected preparation
+never invoking the provider. Production build log:
+build-native/rearm-registration-containment-build.log.
+
+Still not connected: post-battle failure containment on the actual native stack,
+complete continuation-commit observation, and a production rearm provider that
+negotiates the next boundary and obtains fresh resource ownership. Do not install
+or describe these prerequisites as a completed live-prediction build.
+
+## 2026-10-18: native post-battle containment entry
+
+The existing 0x3FE816 bridge now supplies the native input header at original
+RSP+0x38 (bridge RSP+0x118) without changing the native return address or loops.
+FrameRecorder invokes a process-lifetime PostBattleHookGate when published for
+its owner thread. Only explicit callback permission resumes the trampoline.
+Callback failure, exception or recursive entry latches the first failure and
+keeps the original native call stack parked; the network/report worker can still
+write diagnostics. This is terminal containment requiring restart, not recovery
+or successful round handoff. A stop request cannot release this unsafe stack.
+No gate is published by the production session yet.
+
+Ghidra was rerun read-only for 0x3FE520, 0x3FCE80, 0x3FCA60 and 0x3999C0;
+all four decompilations completed. Evidence is under
+work/ghidra-sc6-focus/postbattle-containment-audit in the workspace. The existing
+0x3FBF30 caller evidence remains applicable: delegate return does not establish
+completion of the outer continuation. Do not assert committed from this hook.
+
+Optimized Test-Recorder passed, including the new assembly harness verifying the
+native input-header address, preserved RAX and restored MXCSR. Test-BoundedRollback
+passed callback success/failure, terminal first-failure behavior, exception,
+recursive entry, and failure containment never reaching the continuation.
+The report worker emits gate publication, calls, permissions, contained failures
+and first failure code. Existing verification and round safety remain unchanged.
+
+Unfinished: connect a session's settlement callback to the gate, observe full
+native continuation completion, and supply the production rearm provider with
+fresh bilateral admission and fresh resource ownership. No install or partner
+ZIP is warranted yet. Production build log: postbattle-hook-containment-build.log.
+
+## 2026-10-18: settlement publication and native-return rearming
+
+The continuous-start request now installs both hash-pinned native hook sites:
+0x3FE816 (settlement before delegates) and 0x3FBF30 (full outer update). Ghidra
+re-exported the outer caller and its tail thunk 0x562320 under
+work/ghidra-sc6-focus/outer-completion-audit. The assembly wrapper preserves
+volatile arguments, FP controls, return registers and flags, calls the original
+trampoline including the tail update, and only then issues a completion receipt.
+It does not guess a C++ floating-point signature or skip native loops.
+
+NativeCombatSession activation requires both installed hooks and publishes its
+settlement gate after its owned route bundle. At a non-fighting boundary, the
+gate copies and validates the input envelope, claims the active native call,
+settles pending corrections on the same stack and retires confirmations. Failure
+remains contained. Receipt verification checks the exact outer/token/owner,
+current route ownership, quiescence, settled handoff and retired confirmations
+before releasing history and marking the route retired. An intermediate clock
+poll cannot treat a pending native return as a completed round handoff.
+
+The production provider is now registered by NativeArmingDispatch. It checks
+fresh peer nonces/slot, native clock, round event/generation, fight readiness and
+battle frame, obtains successor resource leases, and creates a fresh ticket.
+The successor must still complete bilateral hold/offer/ack agreement before
+activation. It does not assume that observing a local boundary proves peer
+agreement. Changed/unverified dependencies are rejected, not fabricated.
+
+CombatResourcePreparation switches to the new collector only after strong
+references are acquired and callback ownership moves. The previous collector
+then releases its leases; its diagnostic object remains. At most 16 diagnostic
+generations are retained, and the report includes every retired generation.
+Cleanup failure remains terminal. Report fields distinguish native completion,
+rearm result/failure/frame, and actual active successor from merely wired support.
+Rearm failures: 1 ownership/cancellation, 2 peer, 3 round/ticket, 4 clock read,
+5 battle read, 6 readiness read, 8 resource renewal, 9 resource exception,
+100+NativeCombatConfiguration::Result for admission failure.
+
+Validation: complete Build-Native regression suite passed; optimized native
+wrapper and post-battle bridge tests passed; receipt tests cover nested calls,
+out-of-order/wrong-thread returns, duplicate completion and exceptions. Resource
+renewal tests cover foreign owners, failed acquisition preserving old source,
+15 successors with balanced references, retained diagnostics, and cleanup failure.
+The final focused regression and incremental production compile also passed.
+Logs: native-handoff-provider-build.log, native-handoff-provider-final-build.log,
+production-rearm-window-test.log, native-outer-receipt-test.log under build-native.
+
+Installed and hash-verified on Ben's PC. Partner package metadata is in
+build-native/native-round-handoff-package.json. DLL SHA256:
+266F8E45F74582B583CFAAF23A7CD285E038CF4B69D54C9AB40C0D863D0BA6B2.
+Partner ZIP: Downloads/SC6Rollback-FullMatchReplay-NativeRoundHandoff-Suite-20261018-120126.zip.
+Ben's Downloads/Steam-TestSuite-Ben.cmd points to the matching package with P1,
+partner friend 1593325093 and consent preset; partner package presets P2 and Ben.
+
+Important scope: the default package still selects FullMatchReplay (original
+input replay). Native prediction input delivery and native-wait bypass are NOT
+connected by this change. The new handoff path is locally validated, not yet
+verified in a live prediction match. Do not claim latency reduction or a live
+round-rearm PASS from the existing FullMatchReplay profile.
+
+## 2026-10-18: native raw-input delivery audit (not activated)
+
+Re-exported 3FCD10, 3F0720, 3E9EE0, 3FDB80 and 3E2000 with Ghidra.
+Evidence: work/ghidra-sc6-focus/native-delivery-audit (pseudocode and
+machine-code listing). Function-body metadata for some exports is only one
+byte, so the raw lookup findings were checked against its full disassembly,
+3F0720 through 3F079B, rather than treating decompiler completion as validation.
+
+The raw lookup uses two 512-entry rings at clock+3C0, 16 bytes per entry.
+It optionally subtracts clock+390 after calling virtual slot658, rejects a
+negative effective frame, then checks identity and frame tags. Its zero return
+is ambiguous: a tagged neutral input and an absent entry both return zero.
+The lookup does not itself check the validity byte used by native admission.
+Consequently lookup success alone must not be treated as confirmation.
+
+Added NativeRawInputLookup as a read-injected model with explicit tagged,
+missing, invalid and unstable outcomes; it does not write native memory or
+bypass waiting. Tests cover both slots, three ring wraps, neutral input,
+identity/frame mismatch, delay subtraction, invalid indexing and changing reads.
+Added its regression to Build-Native. Raw lookup, input-word/delivery and
+prediction-frontier focused tests passed. No production DLL changed.
+
+Still incomplete: connect the raw-input consumer route and authoritative raw
+input publication to the current envelope-based transport, then allow only
+verified missing-remote-input waits to advance within the prediction budget.
+The existing transport publishes filtered held/pressed envelopes, which cannot
+be inverted to recover raw input. Existing FullMatchReplay remains installed;
+no new ZIP or installation was produced by this audit. Live prediction remains
+disabled. All existing diagnostics, verification and round guards are unchanged.
+
+## 2026-10-18: typed raw confirmation route
+
+Added RawPredictionRoute, joining authenticated-transport raw records to
+PredictionInputDelivery on the simulation owner thread. Identity includes both
+nonces, round, event, slot and absolute frame. A bounded SPSC queue carries
+arrivals, including arrivals before the corresponding local frame. A 7200-frame
+truth archive detects conflicting retransmissions after prediction-ring reuse.
+Neutral raw input is authoritative when confirmed; it is not a missing-input
+sentinel. The existing envelope wire format was deliberately not reinterpreted.
+
+Late raw arrivals recompose the retained suffix, including pressed edges of
+already-confirmed following frames. Apply receives that complete history; only
+a successful callback with the same revision/head acknowledges reconciliation.
+Apply/publish exceptions and partial failures are terminal. Round handoff also
+requires contiguous confirmed publication, applied corrections, no queued
+arrivals and no future truth beyond the local head. Owner-thread diagnostic
+output includes arrivals, duplicates, confirmations, applications and publication.
+
+Ghidra raw-lookup/input-formation/wait exports were refreshed. The production
+scheduler still stores filtered CombatFrameInput and rejects changed confirmed
+values; that cannot simply receive recomposed edge words as new confirmations.
+The native adapter must consume the owned raw-derived history consistently for
+both capture and replay, and the native input formation hook must expose its
+resolved suppression/filter decisions. Do not enable wait bypass before that
+consumer integration. RawPredictionRoute is tested infrastructure, not a
+published native route and not a live-prediction PASS.
+
+Validation: Test-RawPredictionRoute, Test-NativeInputWords and
+Test-NativeRawInputLookup passed. New route test includes reordered arrivals,
+late press affecting the next confirmed frame, identity rejection, conflicts,
+neutral prediction budget, callback failure/exception, future input preventing
+handoff, owner validation, and a real producer thread across 7200 frames.
+Added the test to Build-Native. No production DLL or installed package changed.
+
+## 2026-10-18: shared native-consumer and replay-adapter history
+
+RawInputHistoryView now gives both consumers the same immutable identity-bound
+view of PredictionInputDelivery. CombatUpdateAdapter can attach this view before
+its first update; begin-boundary, input-aware capture, and step all use its
+recomposed envelope. Missing/retired/wrong-owner history fails without falling
+back to the old envelope. Existing snapshot verification and counters remain.
+
+NativeRawInputConsumer scopes reads to the admitted clock, clock identity, owner
+and 3FCDCE return address. It translates explicitly supplied clock/battle origins
+and obtains raw words from that same view. Other callers use native lookup.
+FrameRecorder installs a signature-checked function-entry hook at 3F0720 only
+when continuous startup is requested. An owned failed read is contained; the
+consumer pointer is NOT published yet. Ghidra exports were refreshed, and the
+3F0720 and 3FCD10 machine-code listings verify the four-register ABI/callsite.
+
+Regression exercises both consumers with the same history: initial missing
+remote input, a following confirmed press, late correction of the preceding
+raw input, restore, then replay with the following pressed edge cleared. It
+also checks captured inputs, auxiliary preservation, invalid identity, retirement,
+foreign owner rejection and missing-history failure. CombatUpdateAdapter,
+NativeClockAccess, BoundedRollback, RawPredictionRoute and NativeInputWords tests
+passed. Production incremental compilation passed before the final atomic-field
+cleanup; shared-raw-consumer-build.log is refreshed for the final compile.
+
+NOT READY FOR LIVE ACTIVATION: the producer still must capture resolved native
+filter decisions and prepare the frame before native consumption; clock mapping
+must account for the audited conditional delay subtraction at 3F0751. The live
+session does not yet attach/publish this shared view/consumer. Native wait bypass
+remains disabled. Do not describe this component integration as a running live
+prediction test. No new installation or partner ZIP was produced.
+
+## 2026-10-18: resolved-filter capture and pending frame preparation
+
+Ghidra plus disassembly verified the 3FCDCE hook point: RSI is the outer object,
+R15D the slot, R12D the reverse index, R14B edge suppression, BPL held suppression,
+and DIL button restriction. These flags are already resolved by native callbacks;
+none are inferred from filtered input. Vtable slot658 resolves to 3E9610, which
+returns clock+4404 == 0. In the admitted online mode (1), 3F0720 therefore does
+not subtract the delay field. Evidence is in native-delivery-audit, including
+003e9610_DelayEnabled.c and its three-instruction machine-code listing.
+
+Added a register/FP-preserving NativeFilterBridge at 3FCDCE. The continuous-start
+hook installer signature-checks that site. Its callback can substitute only the
+raw EAX return and otherwise preserves state. NativeFilterFramePreparation builds
+a pending frame before the first slot consumes it, records each resolved filter
+once, and supplies raw history values. The native previous-raw word is checked
+against the sampled pointer/value before synchronizing it to corrected history,
+so native pressed-edge formation uses the same previous raw word as replay.
+NativeFilterAccess validates clock identity, online mode, phase, local validity,
+frame mapping, owner, round identity and fight readiness; it rejects missing local
+input rather than inventing it.
+
+At the battle boundary, both native held/pressed pairs must exactly match the
+prepared frame before it is sealed with native auxiliary words. The history view
+refuses incomplete envelopes, and reconciliation cannot invoke its callback for
+an incomplete frame. Raw confirmation draining is deferred between slot reads,
+preventing one player from consuming a different revision than the other.
+
+Tests passed: filter preparation (including real access template compilation),
+optimized assembly bridge, raw route, input words, combat adapter, bounded rollback
+and native clock access. The assembly harness verifies captured registers, volatile
+register restoration, replacement RAX and MXCSR restoration. Production incremental
+build passed: build-native/native-filter-production-build.log. Recorder validation:
+build-native/native-filter-recorder-test.log. New preparation test is in Build-Native.
+
+Remaining live-activation work: construct/bind/publish the preparation route with
+the live session, connect its authoritative raw-input producer and reconciliation
+acknowledgment to the transport, and explicitly admit eligible native wait cycles.
+The preparation callback route remains unpublished and native wait bypass remains
+disabled. These are tested components, not an enabled live prediction match.
+No install or partner ZIP was produced; the previous installed FullMatchReplay
+build remains in place. All existing restoration verification and round guards
+remain enabled. The old entry-level raw consumer must not be published alongside
+the post-lookup preparer: preparation now owns substitution at the resolved-filter
+point after native raw lookup.
+
+## 2026-10-18: live prediction integration
+
+The production NativeCombatSession now owns and publishes a resolved-filter
+preparer, shared raw history and raw transport route after bilateral activation.
+The first native filter binds the exact outer object and seeds both histories
+from the native previous-raw pair. Both slot filters must seal the current
+native envelope before the scheduler consumes it. Combat replay reads that same
+history; filtered transport records no longer enter the live correction queue.
+
+Raw packet kind 11/version 1 uses the authenticated Steam peer/session envelope.
+Its immutable local archive is retransmitted independently of capture progress,
+including while the game thread is held for settlement. The scheduler compares
+raw markers; late truth recomposes the entire retained suffix, including changed
+pressed edges on subsequent confirmed frames. Revision acknowledgment happens
+only after the matching scheduler update/replay, without draining new arrivals.
+Retired routes retain exact truth archives for delayed old-round packets.
+
+Fresh read-only Ghidra exports and instruction listings:
+work/ghidra-sc6-focus/live-prediction-publication/ (workspace root).
+3FDFA0 reason 2 denotes the confirmed-input horizon; reason 3 is pacing. Native
+service and its stateful wait function still run. Only an owned, fight-ready
+boundary with a valid local ring entry, eligible reason and scheduler reservation
+can advance while native input is missing. Both the native horizon and scheduler
+remain bounded to three frames. Transition/timeout waits are preserved.
+
+Ghidra confirmed another consumer requiring isolation: 3F6600 records tagged raw
+words without checking remote validity, calls 3D73F0 and advances cursor 3B0.
+The live route replaces only this matching clock's publication, sends confirmed
+pairs through the same native append routine, and preserves the audited 3B4 /
+3D7330 flush behavior. It never writes guessed inputs or confirmation flags into
+the native input ring. Preexisting first-frame publication requires exact valid
+native tags and matching raw words. The hook is signature checked.
+
+At round handoff, the real endpoint is captured without inventing a future raw
+history frame. Pending corrections settle before callbacks commit. Confirmed
+recording and input routes retire before the native clock identity can reset;
+resource/history release still waits for the full outer-return receipt. Fresh
+resource acquisition and bilateral admission gate the next round. Unsafe failure
+retains containment and requires restart; no restoration check was relaxed.
+
+Integration testing caught and fixed history rollover: a newer late correction
+must not prevent retirement of an older confirmed, published, applied prefix.
+The applied-head proof now governs that retirement, while revision equality is
+still required for handoff. Two slot assignments each passed 7,200 frames with
+nonzero initial raw seeds and delayed confirmations (two and three frames),
+verified corrected endpoints, confirmed publication and retired-round packets.
+Recorder regression covers ordering, flush-after-final-publication, and rejection
+of prepublished input lacking valid tags. Native-clock regression verifies service
+and wait still execute, eligible advancement happens once, and budget denial
+still withholds advancement. Adapter regression covers the final settlement
+endpoint without a nonexistent next input frame.
+
+Validation: Build-Native.ps1 passed (live-prediction-full-build.log). Final changed
+components were retested and production rebuilt (live-raw-integration-final-tests,
+live-adapter-final-tests, live-clock-final-tests, live-frontier-final-tests and
+live-integration-final-build logs in build-native). Existing assembly, restoration,
+RNG, camera, effect ownership, round and diagnostic tests remain in the build.
+
+New suite profile LivePrediction invokes the continuous runtime, not profile 16
+reference replay. Its handshake signature differs from the older continuous
+build. No warmup is required. The experiment is capped by the existing recording
+capacity and safety stops. Update counts or transport PASS do not establish live
+prediction success; both real-match reports are still required.
+
+Installed 2026-10-18: SC6Rollback-LivePrediction-Suite-20261018-124732.zip.
+DLL SHA256 D0DBD387F14774688C9A47AADDFA073FE25451C5111E0238B4CA740AE4AC16A9.
+Installed E: game DLL matches packaged DLL. Partner ZIP config verified: P2,
+Ben friend code 283215760, consent preset, C:\Program Files (x86)\Steam game path.
+Ben Downloads launcher now uses LivePrediction, P1, partner code 1593325093.
+Package/install metadata: build-native/live-prediction-package.json.
+No game was launched and no live two-player result is claimed by this build.
+
+2026-10-18 startup repair
+The first LivePrediction reports (39624 / 35140) both recorded
+suite_wind_requested=0 and continuous_start_state=4. The live path omitted
+ReplayOwnedResources::enable_wind, leaving source.effects null. NativeCombatSession
+requires that service before preparation; the prerequisite remains mandatory.
+Live setup now enables effect retention and animation-copy diagnostics once,
+without starting the old reference replay probe. Hook installation failure is
+terminal, and a new protocol signature rejects mixed packages.
+
+continuous_start_stage: 1 clock/deadline admission; 2 source acquisition;
+3 arming allocation/rearm provider; 4 arming invocation; 11 initial contract;
+12 route/configuration checks; 13 battle frontier; 14 exchange setup;
+15 native session/hold preparation; 16 route publication; 100 prepared.
+These stages supplement, not replace, all existing diagnostics.
+
+Ghidra read-only audit: live-startup-admission. Dispatcher RVA 3F5D20 services,
+checks waiting, then advances; battle RVA 2DBC60 increments 470D0C4 at the end.
+No counter offset adjustment or relaxed round boundary was justified or applied.
+The observed omission is fixed; only another live run can establish that startup
+and subsequent prediction now complete on both PCs.
+
+
+2026-10-18 early-start packet repair
+Reports 41952/26252: P1 prepared; P2 rejected an 80-byte activation packet
+before publishing its CombatStartExchange. The receiver previously selected
+that packet format only when the local exchange already existed.
+The receiver now always consumes 80-byte input-mode packets, validates Steam
+peer, mutual handshake, fresh sender/recipient nonces, build and encoding, and
+defers valid early packets. No early packet grants admission or changes native
+state. Existing 250 ms retransmission supplies it after exchange publication.
+
+Authenticated kind-12 stop packets are retried for ten seconds after terminal
+failure. The live worker stops on peer silence after nine seconds once queued.
+Terminal reports cancel local startup immediately, with existing owner-thread
+cleanup. Before any native routes are published, the owner may retire the startup
+hold and resume stock dispatch. Active or successor routes remain contained;
+this does not permit fallback after prediction/restoration. Existing round,
+resource, nonce and restoration verification remain mandatory.
+Counters: continuous_early_start_packets, continuous_stop_packets_received,
+continuous_stop_packets_sent; runtime continuous_startup_hold_released.
+Failure statuses now return nonzero from the live launcher.

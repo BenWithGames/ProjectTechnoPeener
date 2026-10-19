@@ -20,6 +20,11 @@ struct NativePredictionFrontier {
         if(s.all_cursor>s.frame || s.frame-s.all_cursor>=3)return budget;
         return remote_missing;
     }
+    static bool eligible(const Sample& sample,unsigned serviced_wait_reason,bool native_wait,bool fight_ready){
+        if(!fight_ready || (native_wait && serviced_wait_reason!=0 && serviced_wait_reason!=2))return false;
+        auto observed=sample;observed.wait_reason=serviced_wait_reason;
+        const auto reason=classify(observed);return reason==confirmed || reason==remote_missing;
+    }
     static bool read(uintptr_t base,uintptr_t object,Sample& out) noexcept {
         out={};NativeClockAccess<>::State s;if(!NativeClockAccess<>::inspect(base,object,s))return false;
         __try{

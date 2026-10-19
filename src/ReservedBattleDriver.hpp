@@ -8,6 +8,7 @@ namespace sc6::research {
 // Lifetime must cover publication of route(); no automatic route publication.
 template<class Session,class Adapter,class ClockBridge> class ReservedBattleDriver {
 public:
+    enum class Failure {none,clock,reader,frame,begin_boundary,tick,publication,exception};
     struct Boundary {uint64_t session{},round{};unsigned frame{};CombatFrameInput local;};
     using Reader=bool(*)(void*,uintptr_t,uintptr_t,Boundary&);
     using Publisher=bool(*)(void*,const Boundary&);
@@ -17,21 +18,24 @@ private:
     ExclusiveBattleRoute route_;
     void* context_{};Reader reader_{};
     bool bound_{};
+    Failure failure_{};
     void* publication_{};Publisher publish_{};
     static bool tick(void* context,uintptr_t argument,uintptr_t caller){
         auto& self=*static_cast<ReservedBattleDriver*>(context);
         try {
             Boundary boundary;
-            if(self.clock_.restart_required() || !self.reader_(self.context_,argument,caller,boundary) ||
-                boundary.frame!=self.adapter_.expected_frame())return self.stop();
-            if(!self.adapter_.begin_boundary(boundary.local))return self.stop();
+            if(self.clock_.restart_required())return self.fail(Failure::clock);
+            if(!self.reader_(self.context_,argument,caller,boundary))return self.fail(Failure::reader);
+            if(boundary.frame!=self.adapter_.expected_frame())return self.fail(Failure::frame);
+            if(!self.adapter_.begin_boundary(boundary.local))return self.fail(Failure::begin_boundary);
             const auto result=self.driver_.tick_reserved(self.clock_.reservation(),boundary.session,boundary.round,
                 GetCurrentThreadId(),boundary.frame,self.adapter_,boundary.local);
-            if(result!=SimulationBoundaryDriver<Session>::Disposition::consumed)return self.stop();
-            if(self.publish_ && !self.publish_(self.publication_,boundary))return self.stop();
+            if(result!=SimulationBoundaryDriver<Session>::Disposition::consumed)return self.fail(Failure::tick);
+            if(self.publish_ && !self.publish_(self.publication_,boundary))return self.fail(Failure::publication);
             return true;
-        }catch(...){return self.stop();}
+        }catch(...){return self.fail(Failure::exception);}
     }
+    bool fail(Failure reason)noexcept{if(failure_==Failure::none)failure_=reason;return stop();}
     bool stop()noexcept{clock_.stop();return false;}
 public:
     ReservedBattleDriver(Session& session,Adapter& adapter,ClockBridge& clock)
@@ -51,6 +55,7 @@ public:
         bound_=true;return true;
     }
     ExclusiveBattleRoute& route(){return route_;}
+    Failure failure()const{return failure_;}
     bool restart_required()const{return route_.failed() || driver_.restart_required() || clock_.restart_required();}
 };
 }

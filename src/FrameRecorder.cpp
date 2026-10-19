@@ -30,6 +30,12 @@
 #include "CombatResourcePreparation.hpp"
 #include "CombatPeerContext.hpp"
 #include "NativeArmingDispatch.hpp"
+#include "PostBattleHookGate.hpp"
+#include "NativeOuterCompletion.hpp"
+#include "NativeRawInputConsumer.hpp"
+#include "NativeConfirmedInputRecorder.hpp"
+#include "NativeFilterFramePreparation.hpp"
+#include <intrin.h>
 #include "ExclusiveBattleRoute.hpp"
 #include "EffectUpdateObserver.hpp"
 #include "NativeRangeObserver.hpp"
@@ -43,6 +49,68 @@
 #include "MatchDataset.hpp"
 
 extern "C" { void* SC6Original=nullptr; void SC6EntryBridge(); }
+extern "C" { void* SC6NativeOuterOriginal=nullptr; void SC6NativeOuterBridge(); }
+extern "C" { void* SC6NativeFilterOriginal=nullptr; void SC6NativeFilterBridge(); }
+extern "C" uintptr_t SC6NativeFilterCapture(const uintptr_t* registers)noexcept{
+    const auto error=GetLastError();
+    uint32_t raw=static_cast<uint32_t>(registers[0]);
+    if(auto* route=sc6::research::native_filter_preparation_route.load(std::memory_order_acquire)){
+        bool accepted=false;
+        try {accepted=route->context && route->filter && route->filter(route->context,registers[1],
+            static_cast<unsigned>(registers[2]),static_cast<uint32_t>(registers[3]),
+            (registers[4]&255)!=0,(registers[5]&255)!=0,(registers[6]&255)!=0,raw);}catch(...){accepted=false;}
+        if(!accepted){
+            for(;;)Sleep(1000);
+        }
+        SetLastError(error);return raw;
+    }
+    SetLastError(error);return registers[0];
+}
+static void* native_raw_original{};
+static void* native_recorder_original{};
+static void native_confirmed_recorder(uintptr_t clock){
+    const auto error=GetLastError();
+    if(const auto* route=sc6::research::native_confirmed_recorder_route.load(std::memory_order_acquire);route && route->clock==clock){
+        bool ok=false;try{ok=route->context && route->service && route->service(route->context,clock);}catch(...){ok=false;}
+        if(!ok){for(;;)Sleep(1000);}
+        SetLastError(error);return;
+    }
+    SetLastError(error);reinterpret_cast<void(*)(uintptr_t)>(native_recorder_original)(clock);
+}
+// Function-entry hook: Ghidra/machine code establish four integer register
+// arguments and a uint32 return. Scope only the combat builder's call site.
+static __declspec(noinline) uint32_t native_raw_lookup(uintptr_t clock,uint32_t slot,uint32_t identity,uint32_t frame){
+    const auto caller=reinterpret_cast<uintptr_t>(_ReturnAddress());
+    const auto error=GetLastError();
+    if(auto* consumer=sc6::research::native_raw_input_consumer.load(std::memory_order_acquire)){
+        uint32_t raw{};const auto result=consumer->read(clock,caller,slot,identity,frame,raw);
+        SetLastError(error);
+        if(result==sc6::research::NativeRawInputConsumer::Result::delivered)return raw;
+        if(result==sc6::research::NativeRawInputConsumer::Result::failed){
+            // An owned consumer failure cannot fall back after prediction.
+            for(;;)Sleep(1000);
+        }
+    }
+    SetLastError(error);
+    return reinterpret_cast<uint32_t(*)(uintptr_t,uint32_t,uint32_t,uint32_t)>(native_raw_original)(clock,slot,identity,frame);
+}
+static void contain_outer_failure()noexcept{
+    if(auto* gate=sc6::research::post_battle_hook_gate.load(std::memory_order_acquire);gate && gate->owner()==GetCurrentThreadId()){
+        unsigned empty=0;gate->failure.compare_exchange_strong(empty,static_cast<unsigned>(sc6::research::PostBattleHookGate::Failure::callback));
+        ++gate->contained;
+        for(;;)Sleep(1000);
+    }
+}
+extern "C" void SC6NativeOuterEnter(uintptr_t outer)noexcept{
+    const auto error=GetLastError();
+    if(!sc6::research::native_outer_completion.enter(GetCurrentThreadId(),outer))contain_outer_failure();
+    SetLastError(error);
+}
+extern "C" void SC6NativeOuterReturned(uintptr_t outer)noexcept{
+    const auto error=GetLastError();
+    if(!sc6::research::native_outer_completion.returned(GetCurrentThreadId(),outer))contain_outer_failure();
+    SetLastError(error);
+}
 extern "C" { void* SC6FieldOriginal=nullptr; void SC6FieldBridge(); }
 extern "C" { void* SC6ResetOriginal=nullptr; void SC6ResetBridge(); }
 extern "C" void SC6TraceFieldReset(const uintptr_t* registers,uintptr_t caller) noexcept {
@@ -57,12 +125,20 @@ extern "C" void SC6TraceFieldAfter(uintptr_t player) noexcept {
     sc6::research::field_update_trace.record(args,sc6::research::field_update_trace.base+0x3793DC,2);
 }
 extern "C" { void* SC6BattleAfterOriginal=nullptr; void SC6BattleAfterBridge(); }
-extern "C" void SC6TraceBattleAfter(uintptr_t outer) noexcept {
+extern "C" void SC6TraceBattleAfter(uintptr_t outer,uintptr_t input_header) noexcept {
     auto& trace=sc6::research::field_update_trace;
     const DWORD error=GetLastError();
     if(trace.enabled.load(std::memory_order_acquire) && GetCurrentThreadId()==trace.owner && trace.count){
         const auto last=trace.events[trace.count-1];
         if(last.assignment==2){trace.inspect_callbacks(outer);uintptr_t args[]={last.player,2,0,0};trace.record(args,trace.base+0x3FE816,3);}
+    }
+    if(auto* gate=sc6::research::post_battle_hook_gate.load(std::memory_order_acquire);
+       gate && gate->owner()==GetCurrentThreadId()){
+        // Keep the entire native caller chain suspended after an unsafe
+        // settlement. The transport/report worker remains available. Restart
+        // is required: returning would execute delegates, queue changes and
+        // the remaining native loops against a possibly partial restoration.
+        gate->enter(GetCurrentThreadId(),outer,input_header,[]{Sleep(1000);});
     }
     SetLastError(error);
 }
@@ -1117,6 +1193,7 @@ bool prepare_combat_recording_impl(std::uint64_t nonce,bool first_match){
 static std::unique_ptr<sc6::research::NativeArmingDispatch> continuous_request;
 static std::uint64_t continuous_request_nonce{};
 unsigned continuous_start_state_impl(){return continuous_request?1u+static_cast<unsigned>(continuous_request->state()):0u;}
+unsigned continuous_start_stage_impl(){return continuous_request?continuous_request->stage():0;}
 bool queue_continuous_start_impl(const ContinuousStartRequest& request){
  if(sc6::research::match_dataset::recording.load())return false;
  auto& r=state();AcquireSRWLockExclusive(&r.lock);bool result=false;
@@ -1134,6 +1211,51 @@ bool queue_continuous_start_impl(const ContinuousStartRequest& request){
      const auto round=round_event::snapshot();
      if(!resources || !resources->ready.load() || resources->failed.load() || resources->retired.load() ||
         resources->owner_thread.load()!=clock.thread || !round.round || !round.generation)return false;
+     if(!r.battle_after_hooked){
+         const unsigned char expected[]={0x48,0x8D,0x8B,0x30,0x0A,0x00,0x00};
+         unsigned char actual[sizeof(expected)]{};auto* target=reinterpret_cast<void*>(r.base+0x3FE816);
+         if(!copy(actual,reinterpret_cast<uintptr_t>(target),sizeof(actual)) || std::memcmp(actual,expected,sizeof(actual)) ||
+            MH_CreateHook(target,reinterpret_cast<void*>(&SC6BattleAfterBridge),&SC6BattleAfterOriginal)!=MH_OK)return false;
+         if(MH_EnableHook(target)!=MH_OK){MH_RemoveHook(target);return false;}
+         r.battle_after_hooked=true;
+     }
+     native_post_battle_hook_base.store(r.base,std::memory_order_release);
+     if(!native_outer_hook_base.load()){
+         const unsigned char expected[]={0x40,0x53,0x48,0x83,0xEC,0x30,0x48,0x8B,0xD9};
+         unsigned char actual[sizeof(expected)]{};auto* target=reinterpret_cast<void*>(r.base+0x3FBF30);
+         if(!copy(actual,reinterpret_cast<uintptr_t>(target),sizeof(actual)) || std::memcmp(actual,expected,sizeof(actual)) ||
+            MH_CreateHook(target,reinterpret_cast<void*>(&SC6NativeOuterBridge),&SC6NativeOuterOriginal)!=MH_OK)return false;
+         if(MH_EnableHook(target)!=MH_OK){MH_RemoveHook(target);return false;}
+         native_outer_hook_base.store(r.base,std::memory_order_release);
+     }
+     if(native_outer_hook_base.load()!=r.base)return false;
+     if(!native_raw_input_hook_base.load()){
+         const unsigned char expected[]={0x48,0x89,0x5C,0x24,0x08,0x48,0x89,0x6C,0x24,0x10};
+         unsigned char actual[sizeof(expected)]{};auto* target=reinterpret_cast<void*>(r.base+0x3F0720);
+         if(!copy(actual,reinterpret_cast<uintptr_t>(target),sizeof(actual)) || std::memcmp(actual,expected,sizeof(actual)) ||
+            MH_CreateHook(target,reinterpret_cast<void*>(&native_raw_lookup),&native_raw_original)!=MH_OK)return false;
+         if(MH_EnableHook(target)!=MH_OK){MH_RemoveHook(target);return false;}
+         native_raw_input_hook_base.store(r.base,std::memory_order_release);
+     }
+     if(native_raw_input_hook_base.load()!=r.base)return false;
+     if(!native_filter_hook_base.load()){
+         const unsigned char expected[]={0x48,0x8B,0x8E,0x98,0x14,0x00,0x00};
+         unsigned char actual[sizeof(expected)]{};auto* target=reinterpret_cast<void*>(r.base+0x3FCDCE);
+         if(!copy(actual,reinterpret_cast<uintptr_t>(target),sizeof(actual)) || std::memcmp(actual,expected,sizeof(actual)) ||
+            MH_CreateHook(target,reinterpret_cast<void*>(&SC6NativeFilterBridge),&SC6NativeFilterOriginal)!=MH_OK)return false;
+         if(MH_EnableHook(target)!=MH_OK){MH_RemoveHook(target);return false;}
+         native_filter_hook_base.store(r.base,std::memory_order_release);
+     }
+     if(native_filter_hook_base.load()!=r.base)return false;
+     if(!native_confirmed_recorder_hook_base.load()){
+         constexpr unsigned char expected[]={0x40,0x53,0x48,0x83,0xEC,0x50};
+         unsigned char actual[sizeof(expected)]{};auto* target=reinterpret_cast<void*>(r.base+0x3F6600);
+         if(!copy(actual,reinterpret_cast<uintptr_t>(target),sizeof(actual)) || std::memcmp(actual,expected,sizeof(expected)) ||
+            MH_CreateHook(target,reinterpret_cast<void*>(&native_confirmed_recorder),&native_recorder_original)!=MH_OK)return false;
+         if(MH_EnableHook(target)!=MH_OK){MH_RemoveHook(target);native_recorder_original=nullptr;return false;}
+         native_confirmed_recorder_hook_base.store(r.base,std::memory_order_release);
+     }
+     if(native_confirmed_recorder_hook_base.load()!=r.base)return false;
      NativeCombatSession::Config config;config.general_restore=true;
      config.base=r.base;config.caller=r.base+0x3FE816;config.clock_object=clock.object;
      config.original=reinterpret_cast<SingleUpdateCall::Routine>(SC6Original);
@@ -1146,7 +1268,8 @@ bool queue_continuous_start_impl(const ContinuousStartRequest& request){
      config.image_verified=config.bilateral_private=config.boundaries_owned=config.verified_void_entry=true;
      // No arbitrary character/profile approval is inferred from the handshake.
      auto queued=std::make_unique<NativeArmingDispatch>(config,ReplayDependencySource{},*r.observation,request.steam_peer,now+10000);
-     if(!queued->source_on_owner(resources,[](void* p){return static_cast<CombatResourcePreparation<>*>(p)->source_on_owner();}) || !queued->queue())return false;
+     if(!queued->source_on_owner(resources,[](void* p){return static_cast<CombatResourcePreparation<>*>(p)->source_on_owner();}) ||
+        !queued->production_rearm(*resources) || !queued->queue())return false;
      continuous_request_nonce=request.local_nonce;continuous_request=std::move(queued);return true;
  }();}catch(...){result=false;}
  ReleaseSRWLockExclusive(&r.lock);return result;
@@ -1167,6 +1290,7 @@ void recorder_poll() {
     abort_combat_recording=abort_combat_recording_impl;
     queue_continuous_start=queue_continuous_start_impl;
     continuous_start_state=continuous_start_state_impl;
+    continuous_start_stage=continuous_start_stage_impl;
     auto& r=state();auto now=GetTickCount64();if(now-r.lastPoll<250)return;r.lastPoll=now;
     if(r.verified)sc6::research::match_dataset::poll(r.directory,!r.active.load() && !r.restore_failed && !sc6::research::combat_resource_preparation.load() && !sc6::research::combat_routes.load() && !sc6::research::exclusive_battle_route.load());
     if(r.verified)sc6::research::effect_observer::poll(r.base,r.directory);

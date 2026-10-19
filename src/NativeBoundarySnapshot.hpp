@@ -221,7 +221,7 @@ struct NativeBoundarySnapshot {
         q.edge_requested=a.edge_requested;q.reversal_requested=a.reversal_requested;
         q.attempted=q.preflight_ok=q.save_valid=q.post_save_valid=q.audit_started=q.audit_done=true;
         q.ring_save_unchanged=q.ring_rotation_ok=q.delay_audit=q.delayed_requested=q.ring_capture_enabled=q.preserve_requested=q.camera_restore_requested=true;
-        if(!q.delayed_sources_ok())return reject(Rejection::sources);
+        if(!q.delayed_sources_ok(module))return reject(Rejection::sources);
         if(combat){
             q.combat_replay_requested=q.throw_audit=q.combat_flag_requested=q.recorded_input_replay=true;
             for(unsigned i=0;i<2;++i){q.input_checkpoints[i].valid=true;q.input_checkpoints[i].bytes=i?b.delayed_inputs:a.delayed_inputs;}

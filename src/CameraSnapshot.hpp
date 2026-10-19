@@ -28,6 +28,26 @@ struct CameraSnapshot {
     static bool replay_factor(unsigned a,unsigned b) noexcept {
         return (a==0 && b==0) || rising_factor(a,b);
     }
+    // Pinned 31A890 updates BOTH +250/+254 on the same branch: +0.1
+    // capped at one, -float(0x3D9CAC08) clamped at zero, or mode-1
+    // subtraction of one after clamping (therefore both zero). General
+    // combat must admit the falling branch; fixture rising policy stays strict.
+    static bool falling_factor(unsigned a,unsigned b) noexcept {
+        if(a>0x3F800000u || b>0x3F800000u)return false;
+        float value{},delta{};const unsigned bits=0x3D9CAC08u;
+        std::memcpy(&value,&a,4);std::memcpy(&delta,&bits,4);
+        value-=delta;if(value<0.0f)value=0.0f;
+        unsigned expected{};std::memcpy(&expected,&value,4);return b==expected;
+    }
+    static bool general_factor(unsigned a,unsigned b) noexcept {
+        return a<=0x3F800000u && b<=0x3F800000u &&
+            (b==0 || rising_factor(a,b) || falling_factor(a,b));
+    }
+    static bool general_factors(unsigned a0,unsigned a1,unsigned b0,unsigned b1) noexcept {
+        if(a0>0x3F800000u || a1>0x3F800000u || b0>0x3F800000u || b1>0x3F800000u)return false;
+        return (!b0 && !b1) || (rising_factor(a0,b0) && rising_factor(a1,b1)) ||
+            (falling_factor(a0,b0) && falling_factor(a1,b1));
+    }
     // Pinned 31AC60 resets decision counters to -1 or increments them, including
     // -1 -> 0. Keep other negative values and signed overflow out of the policy.
     // Event nibble 391088/39108D admits 0..14; 15 means no update.
@@ -90,11 +110,14 @@ struct CameraSnapshot {
             side=0;auto old=word(a.smoothing.data()+72);
             if(word(b.smoothing.data()+72)!=(old==0x7FFFFFFFu?old:old+1))return reject(10,1,72,old,word(b.smoothing.data()+72));
             if(word(b.smoothing.data()+76)!=(word(a.smoothing.data()+76)+1)%16)return reject(11,1,76,word(a.smoothing.data()+76),word(b.smoothing.data()+76));
+            if(charge_rising && decision_counters && !general_factors(word(a.targets.data()+0x68),word(a.targets.data()+0x6C),
+                word(b.targets.data()+0x68),word(b.targets.data()+0x6C)))
+                return reject(20,3,0x68,word(a.targets.data()+0x68),word(b.targets.data()+0x68));
             for(unsigned j=0;j<128;j+=4){
                 bool position=(j>=0x48 && j<0x54)||(j>=0x58 && j<0x64);
                 const auto av=word(a.targets.data()+j),bv=word(b.targets.data()+j);
                 if(charge_rising && (j==0x68 || j==0x6C)){
-                    if(!replay_factor(av,bv))return reject(12,3,j,av,bv);
+                    if(!(decision_counters?general_factor(av,bv):replay_factor(av,bv)))return reject(12,3,j,av,bv);
                 }else if(position){if((av&0x7F800000u)==0x7F800000u || (bv&0x7F800000u)==0x7F800000u)return reject(13,3,j,av,bv);}
                 else if(decision_counters && j==112){if(!camera_mode_pair(av,bv))return reject(17,3,j,av,bv);}
                 else if(decision_counters && j==124){if(!player_selection_pair(av,bv))return reject(18,3,j,av,bv);}
@@ -197,7 +220,7 @@ struct CameraSnapshot {
                     if(position){
                         if((av&0x7F800000u)==0x7F800000u || (bv&0x7F800000u)==0x7F800000u || cv!=0)return restore_reject(diagnostic,__LINE__);
                     }else if(factor){
-                        if((adjacent_charge?!replay_factor(av,bv):av!=((immediate_throw || adjacent_throw)?0x3F800000u:0u)) || cv!=0x3F800000u)return restore_reject(diagnostic,__LINE__);
+                        if((adjacent_charge?!(decision_counters?general_factor(av,bv):replay_factor(av,bv)):av!=((immediate_throw || adjacent_throw)?0x3F800000u:0u)) || cv!=0x3F800000u)return restore_reject(diagnostic,__LINE__);
                     }else if(j==0 && !immediate_throw && !adjacent_throw && av==0xFFFFFFFFu && bv==av && cv==0){
                         // Pinned camera selector:31A588/31AB88 interpret -1.
                         // Observed native load resets it; restore only this exact idle pattern.

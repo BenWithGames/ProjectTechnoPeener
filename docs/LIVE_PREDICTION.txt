@@ -1,0 +1,165 @@
+SC6Rollback LivePrediction experimental suite
+
+1. Close SC6 on both PCs. Extract the new ZIP and run Install-Observer.cmd.
+2. Launch SC6 and join the FIRST PRIVATE LOBBY. No warmup match.
+3. Partner runs Steam-TestSuite.cmd, with Ben's friend code, P2 and consent preset.
+   Ben uses Steam-TestSuite-Ben.cmd in Downloads, or Codex starts it.
+4. Start both scripts together, wait for the connection, then start the match.
+5. Play normally, including neutral inputs and round transitions. No idle period
+   or deliberately wrong input is required.
+6. Keep games open until reports finish. Collect-RollbackReport.cmd creates the
+   ZIP in Downloads. Send both reports to compare corrections and round coverage.
+7. Restart BOTH games before another run, or after a contained failure/freeze.
+
+This profile uses a separate authenticated raw-input channel, hold-last prediction,
+up to three unconfirmed frames, native snapshot restoration and correction replay.
+Only confirmed raw input reaches the native recorder. Round handoff settles pending
+corrections before releasing ownership, then requires fresh resources and bilateral
+admission for the next round. Native transition/timeout waits are not bypassed.
+
+The existing restoration checks, ownership checks, raw diagnostics and round guards
+remain enabled. A transport PASS or update count does not prove prediction worked.
+Look at the -continuous.txt and -continuous-events.csv reports for admissions,
+corrections, replayed frames, waits, restoration failures and round retirement.
+The bounded experiment stops at the capture limit or an unsafe failure; it is not
+an automatic ranked-play feature. First live validation of this integration is pending.
+
+2026-10-18 backend failure evidence update
+Partner report steam-inputs-7556: five native updates, two prediction admissions,
+no restoration/replay invocation, generic backend_failure. Ben received her stop
+packet after eight updates. Existing reports cannot distinguish the native clock,
+frame reservation or battle-dispatch checks; do not label this a proven repair.
+
+Ghidra read-only audit: work/ghidra-sc6-focus/prediction-fifth-update.
+RVA 3FDB80 services the native clock; 3E9EE0 mutates wait reason/count and calls
+listeners; 3E2000 calls recorder vtable slot 648 then increments counter 3A4.
+No evidence permits removing phase, identity, single-advance or reservation checks.
+
+New continuous_backend_* diagnostics preserve the first owner-thread termination
+snapshot before stop/cleanup. They include readiness, transport, storage, driver,
+bridge, dispatcher and native-clock failures; service/advance stage; observed,
+serviced and pre-wait counters; reservation flags; scheduler state/head/admission.
+Reporting reads atomic copies only. No additional native reads are performed by
+the report worker. Existing verification, round guards and fail containment remain.
+Clock stage: 1 pre-service validation, 2 native service/wait, 3 post-service validation,
+4 pre-advance validation, 5 native advance, 6 post-advance validation.
+Clock failure: 0 none, 1 identity, 2 layout, 3 phase, 4 order, 5 exception,
+6 service advanced the frame, 7 wrong advance count.
+Bridge failure: 0 none, 1 external stop, 2 prediction exception, 3 confirmation drain,
+4 reservation, 5 native clock/dispatcher, 6 completion.
+Dispatcher failure: 0 none, 1 external stop, 2 reentry, 3 service callback, 4 native clock.
+Driver failure: 0 none, 1 clock, 2 reader, 3 frame, 4 begin boundary, 5 tick,
+6 publication, 7 exception.
+Backend site: 0 other termination (including owner readiness poll), 1 input filter,
+2 native confirmed recorder. First diagnostic snapshot is never overwritten.
+
+2026-10-18 pending combat reservation sequencing fix
+Evidence: partner steam-inputs-46276 completed four battle updates, then clock
+advanced from 605 to 606 while reservation 605 / battle 697 remained reserved and
+advanced. The next admission rejected that still-pending reservation (bridge 4).
+No native clock failure, storage failure, restoration or replay occurred. The
+input filter reported termination after readiness had already been lost.
+
+Fresh read-only Ghidra audit: work/ghidra-sc6-focus/clock-combat-sequencing.
+3F5D20 services/waits/advances the clock without calling combat. 3E2000 invokes
+recorder slot 648 and increments 3A4. Separately 3FBF30 calls 3FE520 in outer state
+2. 3FE520 computes clock[3A4] minus outer[148C] and runs the combat loop for that
+delta, with its existing state/skip guards. This does not establish a mandatory
+combat call between every two clock services. The report proves the pending case;
+it does not identify which outer scheduling/skip branch deferred that entry.
+
+Fix: validate clock/reservation identity before prediction admission. If and only
+if one reservation is both reserved and advanced and native clock equals reserved
+clock + 1, service confirmations and native clock but withhold a new advance.
+Do not create a second reservation, reset counters, consume battle prematurely,
+or call the original dispatcher again. The completed reservation remains for the
+normal battle hook. Other mismatches still fail. A pending reservation that lasts
+10 seconds fails with bridge_failure=7 (pending_timeout). This is a watchdog,
+not a sleep or a routine per-frame delay. Native wait/phase and round guards stay.
+
+Additional atomic report copies: continuous_raw_pending_clock_services,
+continuous_raw_pending_clock_elapsed_ms, continuous_raw_pending_clock_max_ms.
+They update after successful battle updates and before terminal cleanup.
+Regression coverage: interleaved ready/native waits with one outstanding advance;
+confirmation draining and eventual consume/resume; wrong session/round/thread/
+identity/counter; partially completed reservation; duplicate consumption; timeout
+at exactly 10000ms and first failure preservation. Full two-PC validation pending.
+
+Record 16 temporary source audit (2026-10-18)
+Ghidra exports: work/ghidra-sc6-focus/record16-source.
+Partner 35256 source rejection: 4-byte record, writer RVA30ED1F,
+source 0x53A8ECC0F0 -> 0x53A8ECBEE0. Save RVA30EC90 copies global
+RVA470DEC4 into a stack local; load RVA30EDC0 reads into its own local
+and assigns the global. This is not the separately measured RNG RVA485EB28.
+A changed temporary address does not indicate a removed dependency.
+The exception requires the exact five writer return RVAs, lengths and stable
+owner-relative source addresses for the preceding four records. No generic
+4-byte exception, payload normalization, archived-pointer dereference or
+endpoint relaxation. Raw source addresses remain in the traces. Existing
+shape/ring, ownership, round, endpoint and diagnostic checks remain active.
+Focused regression tests cover unknown base/writer, lengths, owner changes,
+shape rejection and preserved raw addresses. Live validation remains pending.
+
+Round-two rearm transition handling (2026-10-18)
+Both reports 17180/30400 retired round one after 621 updates, then rejected
+rearm at clock inspection (failure 4), without recording its subcondition.
+Ghidra audit: work/ghidra-sc6-focus/round-rearm-audit. RVA3FDFA0 dispatches
+phase byte +4424 across 0..5; RVA3FC920 assigns phases and performs phase-2
+initialization; RVA3F8410 has separate phase-5 processing. Phase != 2 alone
+is not evidence of an invalid object. The exact failed live phase remains
+unknown in the old reports.
+Rearming now uses a read-only three-way inspection: valid phase 2 is ready,
+other audited phases wait, unknown phases or invalid layout/access fail.
+Active clock validation, bind, fight readiness, session/peer/thread identity,
+route retirement and bilateral successor admission remain strict. Waiting
+returns before configuration, resource acquisition or publication; native
+transition processing remains available. No native calls from inspection.
+Additional runtime diagnostics retain last phase, identity, frame, failure,
+exception, wait count and encountered waiting-phase mask across generations.
+Regression coverage checks all 256 byte values, transition to phase 2,
+malformed layout/vtable, null base, inaccessible object, strict discovery,
+and no native service/advance side effects. Full live round rearm still needs
+validation on both PCs.
+
+Live timer rejection audit (2026-10-18)
+Ben 49948: prepare stage, hop0/depth3, mode9, rejection16, no loader invoked.
+NativeHistoryRestore's first all-hop pass calls preflight_general; its sole
+combat rejection is timer_transition_ready. Friend 27164 received peer stop
+with no local failure. Thus the rejected check is known, but its phase/reason,
+slot/offset/values were absent from the published live restore diagnostic.
+No binary snapshots exist in these two reports, so the exact timer difference
+cannot be recovered. Do not claim this was a particular field or fixed state rule.
+Fresh Ghidra exports: work/ghidra-sc6-focus/live-timer-rejection. 349840 can
+assign rate, cursor, selector, category and state; 3499D0 advances/completes;
+38B740 initializes resource identity and counts. These behaviors are not grounds
+to accept an unknown changed pointer or callback. Timer acceptance is unchanged.
+Fixed the reporting omission: preserve timer phase/reason/side/slot/offset,
+expected/actual and valid masks plus all source/next/live timer slot words on
+failure, before cleanup. A zero live mask means no valid live read, not zero
+actual timer state. Formatting is deferred to report draining, no extra game
+memory reads, no disk writes on the frame thread. Full samples retain the
+related pointers, rate, selector, counts, callback and trailing fields.
+This package is diagnostic; live restoration fix remains blocked on those values.
+
+Record339 source identity fix (2026-10-18)
+Reports 73100,1964,24460: 16-byte record339, writer RVA30AB2F,
+source temporary shifts by 2928 bytes, rejected before native load.
+Ghidra audit work/ghidra-sc6-focus/record339-full uses PE pdata boundaries
+30A980..30AE75 and 30AE80..30B54A. Earlier partial export at return address
+30AB2F was not used to establish whole-function semantics.
+Player save builds a 16-byte reference-table index/offset descriptor in
+[rbp-20], writes it, and reuses that local for nine player pointer fields.
+Native load reads each descriptor into a new local and reconstructs its
+pointer using the supplied reference table. Archive source identity is not
+object ownership. This proves the source-address rule was too strict; it
+neither proves the original controller disconnect caused it nor proves a
+completed live correction.
+Exception requires the complete nine-record contiguous sequence of exact
+writer RVAs 30AB2F,30AB84,30ABDF,30AC34,30AC8F,30ACE4,30AD3F,30AD94,30ADEF,
+16-byte lengths in both captures and a single shared temporary per capture.
+Unknown writers, incomplete/malformed groups and other relocated sources
+still fail. No descriptor bytes are ignored or rewritten; all reference,
+ownership, endpoint, timer, round and retained-resource checks remain.
+Regression tests cover every group member, invalid module/writer/length/source
+layout, truncated group, shape failure, unmodified trace addresses and exact
+archive reads into a different destination. Live correction remains unverified.

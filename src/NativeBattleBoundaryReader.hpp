@@ -2,6 +2,7 @@
 #include "NativeRollbackWindow.hpp"
 #include "RoundEventObserver.hpp"
 #include "CombatUpdateAdapter.hpp"
+#include "NativeFilterFramePreparation.hpp"
 namespace sc6::research {
 struct NativeBattleBoundaryAccess {
     static bool counter(uintptr_t base,unsigned& value)noexcept{
@@ -31,7 +32,12 @@ public:
         if(first!=last || first<identity_.frame || first==UINT32_MAX || before.round!=after.round || before.counter!=after.counter ||
             before.generation!=after.generation)return fail();
         out.session=identity_.session;out.round=identity_.round;out.frame=first;
-        std::memcpy(out.local.envelope.data(),bytes.data(),40);return true;
+        std::memcpy(out.local.envelope.data(),bytes.data(),40);
+        if(auto* preparation=native_filter_preparation_route.load(std::memory_order_acquire)){
+            if(!preparation->context || !preparation->complete ||
+               !preparation->complete(preparation->context,first,out.local.envelope))return fail();
+        }
+        return true;
     }
     template<class Boundary> static bool callback(void* context,uintptr_t argument,uintptr_t caller,Boundary& out){
         return static_cast<NativeBattleBoundaryReader*>(context)->read(argument,caller,out);

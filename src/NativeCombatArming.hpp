@@ -20,6 +20,7 @@ public:
     }
 private:
     DWORD owner_;
+    unsigned preparation_stage_{};
     CombatStartMailbox mailbox_;
     CombatStartExchange exchange_;
     NativeStartHold<> hold_;
@@ -34,13 +35,17 @@ private:
     void* rearm_context_{};RearmProvider rearm_provider_{};
     native_clock_hook::StartupPoll poll_route_{this,[](void* context,uintptr_t object)noexcept{
         auto& self=*static_cast<NativeCombatArming*>(context);
-        if(GetCurrentThreadId()!=self.owner_)return;
+        if(GetCurrentThreadId()!=self.owner_ || object!=self.config_.clock_object)return;
         if(self.session_ && self.session_->retired()){
             self.phase_=Phase::retired;
             if(!self.hold_.retire()){self.stop();return;}
             try {self.rearm(object);}catch(...){self.stop();}
             return;
         }
+        // Native tail work may poll the clock before the wrapped call returns.
+        // Keep the settled old clock owned/withheld until receipt verification;
+        // do not interpret an intermediate round event as a completed handoff.
+        if(self.session_ && self.session_->awaiting_native_return())return;
         const auto round=round_event::snapshot();
         if(self.phase_==Phase::active && (round.round!=self.config_.identity.round || round.counter!=self.config_.identity.event ||
             round.generation!=self.config_.identity.generation)){self.stop(CombatRuntimeStatus::round_boundary);return;}
@@ -48,7 +53,12 @@ private:
         try {self.poll();}catch(...){self.stop();}
     }};
     bool stop(CombatRuntimeStatus::Reason reason=CombatRuntimeStatus::backend_failure){
-        if(session_)session_->terminate(reason);phase_=Phase::restart_required;return false;
+        const bool released=!previous_ && published_ &&
+            hold_.release_unactivated(combat_routes.load()!=nullptr || native_clock_hook::route.load()!=nullptr ||
+                exclusive_battle_route.load()!=nullptr);
+        if(!released)hold_.cancel();
+        phase_=Phase::restart_required;
+        if(session_){session_->status.startup_hold_released=released;session_->terminate(reason);}return false;
     }
     bool rearm(uintptr_t object){
         if(!rearm_provider_ || successor_)return true;
@@ -71,6 +81,10 @@ public:
     NativeCombatArming(const NativeCombatArming&)=delete;
     NativeCombatArming& operator=(const NativeCombatArming&)=delete;
     Phase phase()const{return phase_;}
+    unsigned preparation_stage()const{return preparation_stage_;}
+    void preparation_failed()noexcept{
+        if(GetCurrentThreadId()==owner_)stop(CombatRuntimeStatus::activation_failure);
+    }
     bool automatic_rearm(void* context,RearmProvider provider){
         if(attempted_ || rearm_provider_ || !context || !provider || GetCurrentThreadId()!=owner_)return false;
         rearm_context_=context;rearm_provider_=provider;return true;
@@ -78,6 +92,7 @@ public:
     bool prepare(const NativeCombatSession::Config& config,ReplayDependencySource source,
         observation::Shared& shared,uint64_t steam_peer,bool quiescent_verified){
         // Refuse before a native hold, resource access, or route publication.
+        preparation_stage_=1;
         if(!config.general_restore || !NativeBoundarySnapshot::general_restore_implemented)return false;
         if(attempted_ || GetCurrentThreadId()!=owner_ || !quiescent_verified)return false;
         attempted_=true;phase_=Phase::preparing;config_=config;
@@ -85,6 +100,7 @@ public:
         if(previous_ && (previous_->owner_!=owner_ || !previous_->session_ || !previous_->session_->retired() ||
             previous_->shared_!=&shared || previous_->steam_peer_!=steam_peer ||
             !previous_->session_->owns_current_routes()))return stop();
+        preparation_stage_=2;
         if(!NativeCombatSession::valid_config(config) || shared.reserved!=observation::owned_mode || config.identity.thread!=owner_ || !native_clock_hook::installed || native_clock_hook::installed_base!=config.base ||
             (!previous_ && combat_routes.load()) || native_clock_hook::route.load() ||
             native_clock_hook::start_hold.load()!=(previous_?&previous_->hold_:nullptr) ||
@@ -92,15 +108,19 @@ public:
             combat_start_exchange.load()!=(previous_?&previous_->exchange_:nullptr) ||
             native_clock_hook::startup_poll.load()!=(previous_?&previous_->poll_route_:nullptr))return stop();
         // Verify the actual supplied battle boundary before any publication.
+        preparation_stage_=3;
         NativeBattleBoundaryReader<> reader;
         if(!reader.bind(config.base,config.caller,config.identity,config.image_verified) ||
             !reader.frontier(config.identity.frame))return stop();
+        preparation_stage_=4;
         if(!exchange_.attach(mailbox_) || !exchange_.begin(steam_peer,config.offer,previous_?&previous_->exchange_:nullptr))return stop();
+        preparation_stage_=5;
         session_=std::make_unique<NativeCombatSession>(config,source,previous_?previous_->session_.get():nullptr);
         if(!session_->prepare(shared) || !hold_.bind(config.base,config.clock_object,owner_,config.clock_identity,config.clock_frame,
             GetTickCount64(),10000,config.image_verified,config.bilateral_private,config.boundaries_owned))return stop();
         // There is one owner-thread publisher. Consumers only load these;
         // failure after the first publication retains ownership for restart.
+        preparation_stage_=6;
         NativeStartHold<>* empty_hold=previous_?&previous_->hold_:nullptr;
         if(!native_clock_hook::start_hold.compare_exchange_strong(empty_hold,&hold_,std::memory_order_release))return stop();
         published_=true;

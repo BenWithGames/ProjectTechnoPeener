@@ -32,6 +32,10 @@ public:
     State state{State::idle};
     uint64_t corrections{},replayed{},stalls{};
     uint64_t head()const{return head_;}
+    bool seed_before_first_frame(const Input& seed){
+        if(state!=State::running || head_ || draining_ || dirty_)return false;
+        seed_=seed;return true;
+    }
     // A round reset must not discard speculative state or an unapplied
     // correction. Receipt alone is insufficient: reconcile must have retired
     // the confirmed prefix on the simulation thread first.

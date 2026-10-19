@@ -10,6 +10,9 @@ class CombatBoundaryReservation {
     bool bound_{},reserved_{},advanced_{},failed_{};
     bool fail(){failed_=true;return false;}
 public:
+    enum class ClockGate {ready,pending,restart_required};
+    struct Diagnostic {unsigned identity,clock,battle,reserved,advanced,failed;};
+    Diagnostic diagnostic()const{return {identity_,clock_,battle_,reserved_,advanced_,failed_};}
     bool bind(uint64_t session,uint64_t round,unsigned owner,unsigned identity,unsigned clock,unsigned battle){
         if(bound_ || failed_ || !session || !round || !owner)return false;
         session_=session;round_=round;owner_=owner;identity_=identity;clock_=clock;battle_=battle;bound_=true;return true;
@@ -20,6 +23,17 @@ public:
         if(!can_advance)return false;
         if(clock_==UINT32_MAX || battle_==UINT32_MAX)return fail();
         reserved_=true;return true;
+    }
+    // SC6's outer combat loop consumes the clock delta later (RVA 3FE520).
+    // A completed clock advance may therefore still await its battle entry
+    // on the next dispatcher call. Validate that EXACT one-step lead; do not
+    // create another reservation or discard the existing one.
+    ClockGate clock_gate(uint64_t session,uint64_t round,unsigned thread,unsigned identity,unsigned clock){
+        if(!bound_ || failed_)return ClockGate::restart_required;
+        if(session!=session_ || round!=round_ || thread!=owner_ || identity!=identity_){fail();return ClockGate::restart_required;}
+        if(!reserved_ && !advanced_ && clock==clock_)return ClockGate::ready;
+        if(reserved_ && advanced_ && clock_!=UINT32_MAX && clock==clock_+1)return ClockGate::pending;
+        fail();return ClockGate::restart_required;
     }
     bool clock_completed(bool advanced){
         if(!bound_ || failed_)return false;

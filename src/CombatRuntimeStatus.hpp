@@ -21,8 +21,17 @@ struct CombatRuntimeStatus {
     std::atomic<uint64_t> updates{};
     std::atomic<uint64_t> settlement_polls{},settlement_waits{};
     std::atomic<unsigned> settlement_result{},settlement_failure{},settlement_frame{};
-    std::atomic<bool> restored{};
+    std::atomic<bool> native_outer_committed{};
+    std::atomic<uint64_t> native_outer_token{};
+    std::atomic<uint64_t> rearm_polls{};
+    std::atomic<unsigned> rearm_result{},rearm_failure{},rearm_frame{};
+    std::atomic<unsigned> rearm_clock_phase{},rearm_clock_identity{},rearm_clock_frame{},rearm_clock_failure{},rearm_clock_exception{},rearm_clock_phase_mask{};
+    std::atomic<uint64_t> rearm_clock_waits{};
+    std::atomic<bool> restored{},startup_hold_released{};
     std::array<std::atomic<uint64_t>,NativeRestoreDiagnostic::count> restore_details{};
+    std::array<std::array<std::atomic<uint64_t>,9>,16> restore_payload_details{};
+    std::atomic<bool> restore_timer_evidence_valid{};
+    std::array<std::atomic<uint32_t>,NativeRestoreDiagnostic::timer_word_count> restore_timer_words{};
     void request_stop(){stop_requested.store(true,std::memory_order_release);}
     // Exactly one worker drains all generations, including late retired packets.
     // Keep current keys unchanged; prefix old summaries to avoid overwriting them.
@@ -48,6 +57,7 @@ struct CombatRuntimeStatus {
     void write(std::ostream& events,std::ostream& summary){
         if(drain)drain(context,events,summary);
         summary<<"continuous_runtime_schema=1\ncontinuous_runtime_active="<<active.load()
+            <<"\ncontinuous_startup_hold_released="<<startup_hold_released.load()
             <<"\ncontinuous_stop_requested="<<stop_requested.load()
             <<"\ncontinuous_stop_reason="<<reason.load()
             <<"\ncontinuous_restart_required="<<restart_required.load()
@@ -60,6 +70,29 @@ struct CombatRuntimeStatus {
             <<"\ncontinuous_settlement_result="<<settlement_result.load()
             <<"\ncontinuous_settlement_failure="<<settlement_failure.load()
             <<"\ncontinuous_settlement_frame="<<settlement_frame.load()<<'\n';
+        summary<<"continuous_native_outer_token="<<native_outer_token.load()
+            <<"\ncontinuous_native_outer_committed="<<native_outer_committed.load()<<'\n';
+        summary<<"continuous_rearm_polls="<<rearm_polls.load()
+            <<"\ncontinuous_rearm_result="<<rearm_result.load()
+            <<"\ncontinuous_rearm_failure="<<rearm_failure.load()
+            <<"\ncontinuous_rearm_frame="<<rearm_frame.load()<<'\n';
+        summary<<"continuous_rearm_clock_phase="<<rearm_clock_phase.load()
+            <<"\ncontinuous_rearm_clock_identity="<<rearm_clock_identity.load()
+            <<"\ncontinuous_rearm_clock_frame="<<rearm_clock_frame.load()
+            <<"\ncontinuous_rearm_clock_failure="<<rearm_clock_failure.load()
+            <<"\ncontinuous_rearm_clock_exception="<<rearm_clock_exception.load()
+            <<"\ncontinuous_rearm_clock_waits="<<rearm_clock_waits.load()
+            <<"\ncontinuous_rearm_clock_phase_mask="<<rearm_clock_phase_mask.load()<<'\n';
+        summary<<"continuous_restore_timer_evidence_schema=1\ncontinuous_restore_timer_evidence_valid="<<restore_timer_evidence_valid.load()<<'\n';
+        if(restore_timer_evidence_valid.load()){
+            constexpr const char* samples[]={"source","next","live"};
+            for(unsigned sample=0;sample<3;++sample)for(unsigned side=0;side<2;++side)for(unsigned slot=0;slot<3;++slot)
+                for(unsigned word=0;word<32;++word)summary<<"continuous_restore_timer_"<<samples[sample]<<"_side"<<side<<"_slot"<<slot<<"_offset"<<(word*4)<<'='<<restore_timer_words[((sample*2+side)*3+slot)*32+word].load()<<'\n';
+        }
+        constexpr const char* payload_fields[]={"record","length","writer","saved_source","loaded_source","first","last","expected","actual"};
+        summary<<"continuous_restore_payload_schema=1\n";
+        for(unsigned record=0;record<16 && record<restore_details[NativeRestoreDiagnostic::payload_retained].load();++record)
+            for(unsigned field=0;field<9;++field)summary<<"continuous_restore_payload_"<<record<<'_'<<payload_fields[field]<<'='<<restore_payload_details[record][field].load()<<'\n';
         for(unsigned i=0;i<restore_details.size();++i)summary<<"continuous_restore_"<<NativeRestoreDiagnostic::names[i]<<'='<<restore_details[i].load()<<'\n';
     }
 };

@@ -1,4 +1,5 @@
 #pragma once
+#include "NativeRollbackTiming.hpp"
 #include "NativeBoundarySnapshot.hpp"
 #include "TwoFrameIdleReplay.hpp"
 #include "ImmediateIdleCorrection.hpp"
@@ -26,6 +27,25 @@ public:
     PayloadDiagnostic payload_diagnostic;
     unsigned diagnostic_stage{}; // Last restoration check entered; no guard behavior changes.
     NativeBoundarySnapshot::Rejection rejection=NativeBoundarySnapshot::Rejection::none;
+    // History restoration destroys this scratch after verified loading, before
+    // scheduler replay. It owns no retained dependencies or replay state. Reuse
+    // at that same lifetime boundary is distinct from the fixture replay API.
+    bool detached_load_reusable() const noexcept {
+        return attempted && prepared && verified && !fault && native_payload_verified &&
+            completion.verified && probe && current.data && !current.effects &&
+            !current.fault && !current.exception && !probe->fault && !probe->exception &&
+            probe->restore_invoked && probe->restore_completed && probe->delayed_loaded &&
+            probe->camera_restore_verified && !probe->saved.stream.failures &&
+            !probe->after_save.stream.failures && !probe->restored.stream.failures;
+    }
+    bool recycle_detached_load() noexcept {
+        if(!detached_load_reusable())return false;
+        auto snapshot=std::move(current.data),scratch=std::move(probe);
+        snapshot->reset_for_reuse();scratch->reset_for_reuse();
+        std::destroy_at(this);
+        ::new (this) NativeAdjacentRestore(std::move(snapshot),std::move(scratch));
+        return true;
+    }
     // Call only after replay comparison completes and no caller retains views
     // into this workspace. A successful load alone does NOT authorize reuse.
     bool recycle_after_replay() noexcept {
@@ -185,13 +205,15 @@ private:
         restore_input_used=true;
         diagnostic_stage=5;
         if(probe->selector_enabled && !probe->selectors[0].dependencies(probe->selector_diagnostic))return fail();
-        {rng_trace::Scope rng_phase(1);probe->delayed_step(base,saved_argument,writer,reader,check);}
+        {NativeRollbackTiming::Scope measured(NativeRollbackTiming::load_fixups);
+        rng_trace::Scope rng_phase(1);probe->delayed_step(base,saved_argument,writer,reader,check);}
         if(probe->fault || !probe->restore_completed || !probe->delayed_loaded || !probe->camera_restore_verified)return fail();
         const auto& saved=*source.data;auto& p=*probe;
         // Accept only the already-proven native self-pointer rebuild, with exact
         // source identity; only the separately proven reader-unused padding
         // below may differ in its pinned 16-byte record.
         diagnostic_stage=6;
+        NativeRollbackTiming::Scope measured(NativeRollbackTiming::verification);
         native_payload_verified=native_equal(saved,p,base,&payload_diagnostic);
         if(!native_payload_verified)return fail();
         diagnostic_stage=7;
@@ -286,10 +308,10 @@ public:
             // Exact fast path follows the self-pointer check; mismatches retain
             // the complete existing diagnostic/compatibility path.
             if(!invalid_self && !std::memcmp(x.stream.payload.data()+offset+skip,y.stream.payload.data()+offset+skip,static_cast<size_t>(size-skip))){offset+=size;continue;}
-            const bool padding=size==16 && x.traces[i].writer==base+0x32AC76 &&
+            const bool padding=size==16 && x.traces[i].writer==y.traces[i].writer &&
                 b.restore_completed && b.saved.sealed && i<b.saved.writes &&
-                b.saved.lengths[i]==16 && b.saved.traces[i].writer==base+0x32AC76 &&
-                b.saved.traces[i].reader==base+0x32AD1B;
+                b.saved.lengths[i]==16 && b.saved.traces[i].writer==x.traces[i].writer &&
+                NativeReferencePadding::audited(x.traces[i].writer,b.saved.traces[i].reader,base);
             const bool corrected_flag=b.restore_completed &&
                 x.traces[i].source==y.traces[i].source &&
                 b.throw_camera_flag.corrected_record_matches(x.stream.payload.data()+offset,

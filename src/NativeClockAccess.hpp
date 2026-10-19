@@ -39,6 +39,8 @@ private:
     bool bound_{},failed_{},serviced_{},native_wait_{};
     State serviced_state_{};
     State wait_state_{};
+    State observed_state_{};
+    unsigned stage_{};
     Failure failure_{};
     unsigned exception_{};
     bool fail(Failure reason){failed_=true;failure_=reason;return false;}
@@ -57,6 +59,7 @@ private:
             out.phase=*reinterpret_cast<const unsigned char*>(object_+0x4424);
             out.wait_reason=*reinterpret_cast<const unsigned char*>(object_+0x4425);
             out.wait_count=word(0x3A8);out.published=word(0x3B0);
+            observed_state_=out;
             if(out.slots!=2 || (out.local_mask!=1 && out.local_mask!=2) ||
                 out.remote_mask!=(out.local_mask^3u) || out.all_mask!=3 || out.mode!=1 ||
                 out.frame>static_cast<uint32_t>(INT32_MAX) || out.identity>static_cast<uint32_t>(INT32_MAX))return fail(Failure::layout);
@@ -87,6 +90,17 @@ private:
         __except(EXCEPTION_EXECUTE_HANDLER){exception_=GetExceptionCode();return fail(Failure::exception);}
     }
 public:
+    enum class Inspection {invalid,waiting,ready};
+    // Ghidra RVA3FDFA0 handles phases 0..5; RVA3FC920 performs transitions.
+    // Only rearming may wait on other valid phases. Bind/active access stay strict.
+    static Inspection inspect_rearm(uintptr_t base,uintptr_t object,State& out,Failure& failure,unsigned& exception){
+        out={};failure=Failure::none;exception=0;
+        if(!base || !object){failure=Failure::layout;return Inspection::invalid;}
+        NativeClockAccess probe;probe.base_=base;probe.object_=object;
+        if(!probe.read(out)){failure=probe.failure_;exception=probe.exception_;return Inspection::invalid;}
+        if(out.phase>5){failure=Failure::phase;return Inspection::invalid;}
+        return out.phase==2?Inspection::ready:Inspection::waiting;
+    }
     // Read-only discovery; no ownership claim and no native calls.
     static bool inspect(uintptr_t base,uintptr_t object,State& out){
         out={};if(!base || !object)return false;
@@ -111,30 +125,35 @@ public:
         if(!bound_)return Result::unbound;
         if(serviced_){fail(Failure::order);return Result::restart_required;}
         State before{},after{};
-        if(!validate(before) || !invoke_service() || !validate(after))return Result::restart_required;
+        stage_=1;if(!validate(before))return Result::restart_required;
+        stage_=2;if(!invoke_service())return Result::restart_required;
+        stage_=3;if(!validate(after))return Result::restart_required;
         if(after.frame!=before.frame){fail(Failure::service_advanced);return Result::restart_required;}
         serviced_state_=after;serviced_=true;
         return native_wait_?Result::native_wait:Result::ready;
     }
     // Close EVERY successful service cycle, even when withholding admission.
     // Thus a prediction-budget wait does not stop subsequent network servicing.
-    Result finish(bool scheduler_admits){
+    Result finish(bool scheduler_admits,bool prediction_authorized=false){
         if(failed_)return Result::restart_required;
         if(!bound_)return Result::unbound;
         if(!serviced_){fail(Failure::order);return Result::restart_required;}
         State before{},after{};
-        if(!validate(before))return Result::restart_required;
+        stage_=4;if(!validate(before))return Result::restart_required;
         serviced_=false;
         if(before.frame!=serviced_state_.frame){fail(Failure::advance_count);return Result::restart_required;}
-        if(native_wait_)return Result::native_wait;
+        if(native_wait_ && !prediction_authorized)return Result::native_wait;
         if(!scheduler_admits)return Result::withheld;
         if(before.frame==static_cast<uint32_t>(INT32_MAX)){fail(Failure::advance_count);return Result::restart_required;}
-        if(!invoke_advance() || !validate(after))return Result::restart_required;
+        stage_=5;if(!invoke_advance())return Result::restart_required;
+        stage_=6;if(!validate(after))return Result::restart_required;
         if(after.frame!=before.frame+1){fail(Failure::advance_count);return Result::restart_required;}
         return Result::advanced;
     }
     const State& last_serviced_state()const{return serviced_state_;}
     const State& last_wait_state()const{return wait_state_;}
+    const State& last_observed_state()const{return observed_state_;}
+    unsigned stage()const{return stage_;}
     Failure failure()const{return failure_;}
     unsigned exception()const{return exception_;}
     bool restart_required()const{return failed_;}

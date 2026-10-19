@@ -6,9 +6,11 @@
 #include "../src/ReservedBattleDriver.hpp"
 #include "../src/SchedulerConfirmationQueue.hpp"
 #include "../src/OwnedInputPublication.hpp"
+#include "../src/NativeRawInputConsumer.hpp"
 #include <memory>
 #include <iostream>
 #include <thread>
+#include <sstream>
 using namespace sc6::research;
 static uint32_t simulationCounter;
 static uint64_t value;
@@ -39,7 +41,91 @@ struct ClockFixture {
     bool restart_required()const{return stopped || reserve.restart_required();}
     void stop(){stopped=true;reserve.stop();}
 };
+static void shared_raw_history_test(){
+    struct RawBackend:Backend {
+        using Backend::capture;
+        std::array<std::byte,40> captured{};
+        std::array<uint32_t,10> boundary{};
+        bool capture(Snapshot& s,uint32_t expected,const std::array<std::byte,40>& bytes){captured=bytes;return Backend::capture(s,expected);}
+        bool begin_boundary(uint32_t expected,const std::array<uint32_t,10>& words){boundary=words;return simulationCounter==expected;}
+    };
+    PredictionInputDelivery<> history;assert(history.begin(101,202,2,{0,0}));
+    std::array<uint32_t,10> auxiliary{};auxiliary[4]=17;
+    assert(history.append(1,std::nullopt,{},auxiliary));
+    assert(history.append(1,2,{},auxiliary));
+    RawInputHistoryView view;
+    assert(!view.bind(history,102,202,303,500,GetCurrentThreadId()));
+    assert(view.bind(history,101,202,303,500,GetCurrentThreadId()));
+    NativeRawInputConsumer native;
+    assert(native.bind(view,0x1234,0x3FCDCE,7,1000,500,101,202,303));
+    uint32_t raw{};
+    assert(native.read(0x1234,0x3FCDCE,1,7,1000,raw)==NativeRawInputConsumer::Result::delivered && raw==0);
+    assert(native.read(0x1234,0x999,1,7,1000,raw)==NativeRawInputConsumer::Result::pass);
+    RawBackend backend;simulationCounter=500;value=0;excess=false;
+    CombatUpdateAdapter adapter(backend,update,&simulationCounter,GetCurrentThreadId(),2,500);
+    assert(adapter.attach_raw_history(view,101,202,303));
+    CombatFrameInput poison;poison.envelope.fill(0xFFFFFFFF);
+    assert(adapter.begin_boundary(poison) && backend.boundary==history.frame(0)->envelope);
+    Backend::Snapshot before;assert(adapter.save(before,poison,poison));
+    assert(std::memcmp(backend.captured.data(),history.frame(0)->envelope.data(),40)==0);
+    assert(adapter.step(poison,poison) && last==history.frame(0)->envelope);
+    assert(adapter.step(poison,poison) && last[3]==2);
+    assert(history.confirm(101,202,0,2)==PredictionInputDelivery<>::Arrival::accepted);
+    assert(native.read(0x1234,0x3FCDCE,1,7,1000,raw)==NativeRawInputConsumer::Result::delivered && raw==2);
+    assert(adapter.load(before));
+    assert(adapter.step(poison,poison) && last[3]==2);
+    assert(adapter.step(poison,poison) && last[3]==0 && last[4]==17);
+    CombatFrameInput endpoint;endpoint.envelope[4]=29;
+    assert(adapter.begin_settlement_boundary(endpoint) && backend.boundary==endpoint.envelope);
+    // A consumed history range is mandatory; no fallback to poison envelopes.
+    assert(!adapter.step(poison,poison) && adapter.failure==decltype(adapter)::input);
+    bool foreign=true;std::thread thread([&]{std::array<uint32_t,10> output{};foreign=view.envelope(101,202,303,500,output);});thread.join();
+    assert(!foreign);
+    assert(native.read(0x1234,0x3FCDCE,1,8,1000,raw)==NativeRawInputConsumer::Result::failed);
+    assert(history.reconciled(history.revision(),history.head()));
+    assert(history.publish_confirmed([](auto,auto,auto,const auto&){return true;}));
+    assert(history.request_handoff() && view.retire());
+    std::array<uint32_t,10> output{};assert(!view.envelope(101,202,303,500,output));
+}
 int main(){
+    {
+        NativeRollbackTiming timing;timing.frequency=1000000;
+        timing.add(NativeRollbackTiming::capture,77,100,20100);
+        timing.add(NativeRollbackTiming::capture,78,100,60100);
+        const auto& b=timing.buckets[NativeRollbackTiming::capture];
+        assert(b.calls==2 && b.ticks==80000 && b.maximum==60000 && b.max_frame==78);
+        assert(b.over_frame==2 && b.over_50ms==1);
+        timing.add(NativeRollbackTiming::capture,79,200,100);
+        timing.add(NativeRollbackTiming::capture,79,0,100);
+        assert(timing.invalid_clock==2 && b.calls==2);
+        std::ostringstream out;timing.write(out);
+        assert(out.str().find("continuous_timing_capture_mean_us=40000\n")!=std::string::npos);
+        assert(out.str().find("continuous_timing_capture_max_frame=78\n")!=std::string::npos);
+        assert(!NativeRollbackTiming::active);
+        {NativeRollbackTiming::Binding binding(&timing,90);
+         try {NativeRollbackTiming::Scope measured(NativeRollbackTiming::verification);throw 1;}catch(int){}
+         {NativeRollbackTiming::Binding disabled(nullptr,91);assert(!NativeRollbackTiming::active);}
+         assert(NativeRollbackTiming::active==&timing && NativeRollbackTiming::active_frame==90);}
+        assert(!NativeRollbackTiming::active && timing.buckets[NativeRollbackTiming::verification].calls==1);
+    }
+    for(unsigned slot=1;slot<=2;++slot){
+        struct TimedBackend:Backend {
+            NativeRollbackTiming timing;
+            NativeRollbackTiming* timing_sink(){return &timing;}
+        } backend;
+        simulationCounter=100;value=0;excess=false;
+        CombatUpdateAdapter adapter(backend,update,&simulationCounter,GetCurrentThreadId(),slot,100);
+        CombatFrameInput input;Backend::Snapshot before;assert(adapter.save(before));
+        for(unsigned i=0;i<3;++i)assert(adapter.step(input,input));
+        assert(adapter.load(before));
+        for(unsigned i=0;i<3;++i)assert(adapter.step(input,input));
+        assert(adapter.step(input,input));
+        assert(backend.timing.buckets[NativeRollbackTiming::live_update].calls==4);
+        assert(backend.timing.buckets[NativeRollbackTiming::replay].calls==3);
+        assert(simulationCounter==104 && adapter.calls==7);
+        assert(!NativeRollbackTiming::active);
+    }
+    shared_raw_history_test();
     {
         auto shared=std::make_unique<sc6::observation::Shared>();
         shared->signature=sc6::observation::magic;shared->schema=sc6::observation::version;

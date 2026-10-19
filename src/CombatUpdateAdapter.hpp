@@ -2,6 +2,8 @@
 #include "SingleUpdateCall.hpp"
 #include "RecordedInput.hpp"
 #include "NetworkInputComposer.hpp"
+#include "RawInputHistoryView.hpp"
+#include "NativeRollbackTiming.hpp"
 namespace sc6::research {
 struct CombatFrameInput {
     NetworkInputComposer::Envelope envelope{};
@@ -23,8 +25,17 @@ template<class Backend> class CombatUpdateAdapter {
     volatile uint32_t* counter_{};
     DWORD owner_{};unsigned remote_slot_{};
     uint32_t expected_{};
+    uint32_t replay_end_{};
     RecordedInput delivery_;
     bool failed_{};
+    const RawInputHistoryView* raw_history_{};
+    uint64_t raw_session_{},raw_round_{},raw_event_{};
+    bool compose(const CombatFrameInput& local,const CombatFrameInput& remote,
+                 NetworkInputComposer::Envelope& out){
+        if(raw_history_)return raw_history_->envelope(raw_session_,raw_round_,raw_event_,expected_,out);
+        const auto composed_input=NetworkInputComposer::compose(local.envelope,remote.envelope,remote_slot_,expected_,expected_);
+        if(!composed_input)return false;out=*composed_input;return true;
+    }
 public:
     using Snapshot=typename Backend::Snapshot;
     enum Failure : unsigned {none,identity,capture,restore,counter,update,input};
@@ -35,6 +46,10 @@ public:
         :backend_(backend),original_(original),counter_(counter),owner_(owner),remote_slot_(remote_slot),expected_(first){}
     bool failed()const{return failed_;}
     uint32_t expected_frame()const{return expected_;}
+    bool attach_raw_history(const RawInputHistoryView& history,uint64_t session,uint64_t round,uint64_t event){
+        if(raw_history_ || calls || failed_ || !history.identity(session,round,event))return false;
+        raw_history_=&history;raw_session_=session;raw_round_=round;raw_event_=event;return true;
+    }
     CombatFrameInput predict(const CombatFrameInput& prior)const{
         CombatFrameInput predicted{};
         if(remote_slot_>=1 && remote_slot_<=2)predicted.envelope[(remote_slot_-1)*2]=prior.envelope[(remote_slot_-1)*2];
@@ -49,9 +64,9 @@ public:
     }
     bool save(Snapshot& out,const CombatFrameInput& local,const CombatFrameInput& remote){
         if(!ready() || !check_counter())return false;
-        const auto composed=NetworkInputComposer::compose(local.envelope,remote.envelope,remote_slot_,expected_,expected_);
-        if(!composed)return fail(identity);
-        std::array<std::byte,40> bytes{};std::memcpy(bytes.data(),composed->data(),40);
+        NetworkInputComposer::Envelope composed;
+        if(!compose(local,remote,composed))return fail(input);
+        std::array<std::byte,40> bytes{};std::memcpy(bytes.data(),composed.data(),40);
         if(!RecordedInput::valid_envelope(bytes))return fail(input);
         if constexpr(requires {backend_.capture(out,expected_,bytes);}){
             if(!backend_.capture(out,expected_,bytes))return fail(capture);
@@ -60,21 +75,37 @@ public:
     }
     bool begin_boundary(const CombatFrameInput& local){
         if(!ready() || !check_counter())return false;
+        auto envelope=local.envelope;
+        if(raw_history_ && !raw_history_->envelope(raw_session_,raw_round_,raw_event_,expected_,envelope))return fail(input);
         if constexpr(requires {backend_.begin_boundary(expected_,local.envelope);})
-            if(!backend_.begin_boundary(expected_,local.envelope))return fail(capture);
+            if(!backend_.begin_boundary(expected_,envelope))return fail(capture);
+        return true;
+    }
+    // Post-battle settlement has no next input-history frame. Preserve the
+    // actual native endpoint instead of requesting a nonexistent future input.
+    bool begin_settlement_boundary(const CombatFrameInput& endpoint){
+        if(!ready() || !check_counter())return false;
+        if constexpr(requires {backend_.begin_boundary(expected_,endpoint.envelope);})
+            if(!backend_.begin_boundary(expected_,endpoint.envelope))return fail(capture);
         return true;
     }
     bool load(const Snapshot& saved){
         if(!ready())return false;
+        const auto prior=expected_;
         if(!backend_.restore(saved))return fail(restore);
         expected_=backend_.frame(saved);
+        replay_end_=prior;
         return check_counter();
     }
     bool step(const CombatFrameInput& local,const CombatFrameInput& remote){
+        NativeRollbackTiming* timing=nullptr;
+        if constexpr(requires {backend_.timing_sink();})timing=backend_.timing_sink();
+        NativeRollbackTiming::Binding binding(timing,expected_);
+        NativeRollbackTiming::Scope measured(expected_<replay_end_?NativeRollbackTiming::replay:NativeRollbackTiming::live_update);
         if(!ready() || !check_counter())return false;
-        const auto composed=NetworkInputComposer::compose(local.envelope,remote.envelope,remote_slot_,expected_,expected_);
-        if(!composed)return fail(identity);
-        std::array<std::byte,40> bytes{};std::memcpy(bytes.data(),composed->data(),bytes.size());
+        NetworkInputComposer::Envelope composed;
+        if(!compose(local,remote,composed))return fail(input);
+        std::array<std::byte,40> bytes{};std::memcpy(bytes.data(),composed.data(),bytes.size());
         if(!RecordedInput::valid_envelope(bytes))return fail(input);
         SingleUpdateCall call;
         const bool ok=call.run(original_,delivery_.assign(bytes),counter_,expected_,owner_);
