@@ -1,0 +1,11 @@
+# Earlier raw input sending
+
+The Ghidra 3FE520/3E2000 disassembly audit confirms combat advancement depends on the admitted clock delta. Do not force that delta. Latest scheduler traces show about 18% prediction-limit refusal with a three-frame limit; enqueue-to-owner delay remains about 8.3ms. No evidence supports claiming all latency is restoration cost.
+
+A dedicated worker checks immutable local raw publication using a high-resolution one-millisecond waitable timer. It sends at most four fresh entries per wake, using existing authenticated nonces, Steam peer, channel and packet format. It does not read native game memory, run Steam callbacks, alter input sampling, advance clocks or perform corrections. Normal polling retains retransmission and receive validation. The old sender remains as a fallback; receiver duplicate coalescing is retained. Worker and control sends use the existing Steam SendP2PPacket entry point, with separate application counters. No Steam handles/pipes are created or destroyed by the worker.
+
+Control thread stops and joins the worker at terminal reports and mod teardown. Routes have process lifetime; nonce checks prevent sending a different session's archive. Retired routes are skipped. Worker setup failures are counted and leave normal sending available. There are no sleeps or waits added on the simulation thread.
+
+Diagnostics: fresh_raw_sender_sent, failed, ticks, faults; first_sends counts wins against the polling sender; publication_age_total_ticks and max_ticks measure publication to first successful worker send using local QPC (outer_timing_frequency). They are not transit or input-to-screen measurements. Existing queue/admission/outer/correction diagnostics remain unchanged. Continuous capture timeout is now ten minutes instead of four; this is a test limit, not an optimization.
+
+Tests cover failed-send retry, identity rejection, round replacement, retired routes, wire envelope, real timer-worker delivery and joined shutdown, plus existing concurrent raw queue tests. Live improvement remains unmeasured. This reduces sender polling delay; receiver owner-thread cadence and network latency still exist, so it cannot guarantee elimination of prediction-limit stalls.

@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstring>
 #include "EffectAllocationSites.hpp"
+#include "EffectMemoryGate.hpp"
 namespace sc6::research {
 // Owner-thread, bounded original-input replay journal. Preserve allocation-entry
 // inputs, never copy an expected endpoint to manufacture a successful comparison.
@@ -28,6 +29,15 @@ struct EffectBirthJournal {
         if(failure || mode!=Mode::record || amount>count)return false;
         for(unsigned i=amount;i<count;++i)events[i-amount]=events[i];
         count-=amount;discarded+=amount;cursor=end=0;return true;
+    }
+    enum class Compaction : unsigned {applied=1,deferred=2,stopped=3,rejected=4};
+    // Optional maintenance: a contended lock must leave journal and retained
+    // cursors unchanged. Mandatory capture/restore accesses remain fail-closed.
+    Compaction try_discard_prefix(EffectMemoryGate& gate,const std::atomic<bool>& stopped,unsigned amount){
+        EffectMemoryGate::AccessOutcome outcome{};bool accepted=false;
+        const bool entered=gate.try_access(stopped,[&]{accepted=discard_prefix(amount);},&outcome);
+        if(entered)return accepted?Compaction::applied:Compaction::rejected;
+        return outcome==EffectMemoryGate::AccessOutcome::contended?Compaction::deferred:Compaction::stopped;
     }
     // Branch from a restored snapshot. Future allocation entries are newly
     // recorded; never apply the obsolete prediction's allocation-entry seed.

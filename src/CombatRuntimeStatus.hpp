@@ -9,7 +9,7 @@ namespace sc6::research {
 // Published once after preparation. Object/context have process lifetime.
 // The worker may request a stop but may not release game-owned references.
 struct CombatRuntimeStatus {
-    enum Reason : unsigned {none,requested,backend_failure,capture_limit,activation_failure,exception,round_boundary};
+    enum Reason : unsigned {none,requested,backend_failure,capture_limit,activation_failure,exception,round_boundary,startup_stall};
     uint64_t session{};
     // Immutable before release-publication. All generations have process lifetime.
     CombatRuntimeStatus* previous{};
@@ -18,17 +18,24 @@ struct CombatRuntimeStatus {
     void (*drain)(void*,std::ostream&,std::ostream&){};
     std::atomic<bool> stop_requested{},active{},restart_required{},history_retired{};
     std::atomic<unsigned> reason{},adapter_failure{},adapter_exception{};
-    std::atomic<uint64_t> updates{};
+    std::atomic<uint64_t> updates{},activated_at{};
+    bool first_update_expired(uint64_t now)const{
+        const auto since=activated_at.load(std::memory_order_acquire);
+        return active.load() && !updates.load() && since && now>=since && now-since>=10000;
+    }
     std::atomic<uint64_t> settlement_polls{},settlement_waits{};
     std::atomic<unsigned> settlement_result{},settlement_failure{},settlement_frame{};
     std::atomic<bool> native_outer_committed{};
     std::atomic<uint64_t> native_outer_token{};
+    std::atomic<unsigned> rearm_peer_reason{},rearm_peer_read{};
+    std::atomic<uint64_t> rearm_peer_tick{},rearm_peer_now{},rearm_peer_waits{};
     std::atomic<uint64_t> rearm_polls{};
     std::atomic<unsigned> rearm_result{},rearm_failure{},rearm_frame{};
     std::atomic<unsigned> rearm_clock_phase{},rearm_clock_identity{},rearm_clock_frame{},rearm_clock_failure{},rearm_clock_exception{},rearm_clock_phase_mask{};
     std::atomic<uint64_t> rearm_clock_waits{};
     std::atomic<bool> restored{},startup_hold_released{};
     std::array<std::atomic<uint64_t>,NativeRestoreDiagnostic::count> restore_details{};
+    std::array<std::atomic<uint64_t>,22> topology_details{};
     std::array<std::array<std::atomic<uint64_t>,9>,16> restore_payload_details{};
     std::atomic<bool> restore_timer_evidence_valid{};
     std::array<std::atomic<uint32_t>,NativeRestoreDiagnostic::timer_word_count> restore_timer_words{};
@@ -76,6 +83,9 @@ struct CombatRuntimeStatus {
             <<"\ncontinuous_rearm_result="<<rearm_result.load()
             <<"\ncontinuous_rearm_failure="<<rearm_failure.load()
             <<"\ncontinuous_rearm_frame="<<rearm_frame.load()<<'\n';
+        summary<<"continuous_rearm_peer_reason="<<rearm_peer_reason.load()
+            <<"\ncontinuous_rearm_peer_read="<<rearm_peer_read.load()<<"\ncontinuous_rearm_peer_tick="<<rearm_peer_tick.load()
+            <<"\ncontinuous_rearm_peer_now="<<rearm_peer_now.load()<<"\ncontinuous_rearm_peer_waits="<<rearm_peer_waits.load()<<'\n';
         summary<<"continuous_rearm_clock_phase="<<rearm_clock_phase.load()
             <<"\ncontinuous_rearm_clock_identity="<<rearm_clock_identity.load()
             <<"\ncontinuous_rearm_clock_frame="<<rearm_clock_frame.load()
@@ -83,6 +93,9 @@ struct CombatRuntimeStatus {
             <<"\ncontinuous_rearm_clock_exception="<<rearm_clock_exception.load()
             <<"\ncontinuous_rearm_clock_waits="<<rearm_clock_waits.load()
             <<"\ncontinuous_rearm_clock_phase_mask="<<rearm_clock_phase_mask.load()<<'\n';
+        summary<<"continuous_transform_topology_schema=1\n";
+        constexpr const char* topology_names[]={"reason","record","field","saved","next","saved_count","next_count","saved_valid","next_valid","saved_address","saved_side","saved_kind","saved_list","saved_parent","saved_size","next_address","next_side","next_kind","next_list","next_parent","next_size","reserved"};
+        for(unsigned i=0;i<topology_details.size();++i)summary<<"continuous_transform_topology_"<<topology_names[i]<<'='<<topology_details[i].load()<<'\n';
         summary<<"continuous_restore_timer_evidence_schema=1\ncontinuous_restore_timer_evidence_valid="<<restore_timer_evidence_valid.load()<<'\n';
         if(restore_timer_evidence_valid.load()){
             constexpr const char* samples[]={"source","next","live"};

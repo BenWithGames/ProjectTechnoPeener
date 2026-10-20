@@ -10,6 +10,7 @@ struct ContinuousStartRequest {
     std::uint64_t local_nonce{},remote_nonce{},steam_peer{},build{},ticket{};
     unsigned local_slot{},clock_identity{},clock_frame{},battle_frame{};
     bool private_match_confirmed{};
+    bool prediction_enabled{true};
 };
 inline bool (*queue_continuous_start)(const ContinuousStartRequest&){};
 // 0 = no request, 1 = waiting, 2 = preparing, 3 = prepared, 4 = rejected.

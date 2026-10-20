@@ -350,6 +350,15 @@ int main(){
         for(unsigned v:{0u,0x40000000u,0x80000000u,0x7F800000u,0x7FC00000u}){auto bad=next;put(bad.slots[1][0],0x40,v);assert(!P::timer_pair(p->blend_timer_source,bad));}
         auto bad_source=p->blend_timer_source;put(bad_source.slots[1][0],0x3C,524);assert(!P::timer_pair(bad_source,next));
         put(bad_source.slots[1][0],0x3C,207);put(bad_source.slots[1][0],0x58,1);auto bad_next=next;put(bad_next.slots[1][0],0x58,1);assert(!P::timer_pair(bad_source,bad_next));
+        // Captured 45352 transition: active selector 211 -> 200, cursor 11 -> 4.
+        put(a,0x3C,211);put(a,0x40,1093664768u);put(a,0x48,2);
+        next=p->blend_timer_source;put(next.slots[1][0],0x3C,200);put(next.slots[1][0],0x40,1082130432u);
+        p->blend_timer_next=next;assert(p->timer_transition_ready());
+        assert(!P::timer_compatible(p->blend_timer_source,next,d,2));
+        for(unsigned state:{0u,3u,0xFFFFFFFFu}){auto bad=p->blend_timer_source;put(bad.slots[1][0],0x48,state);assert(!P::timer_pair(bad,next));}
+        for(unsigned cursor:{0u,0x80000000u,0x7F800000u,0x7FC00000u}){auto bad=p->blend_timer_source;put(bad.slots[1][0],0x40,cursor);assert(!P::timer_pair(bad,next));}
+        for(unsigned off:{0u,8u,16u,0x1Cu,0x38u,0x44u,0x4Cu,0x58u,0x68u}){auto bad=next;bad.slots[1][0][off]^=std::byte{1};assert(!P::timer_pair(p->blend_timer_source,bad));}
+        for(unsigned selector:{524u,0xFFFFFFFFu}){auto bad=next;put(bad.slots[1][0],0x3C,selector);assert(!P::timer_pair(p->blend_timer_source,bad));}
         p->measurements[0].valid=p->measurements[2].valid=true;
         for(unsigned side=0;side<2;++side){p->measurements[0].players[side]=p->measurements[2].players[side]=reinterpret_cast<uintptr_t>((*players)[side].data());
             for(unsigned i=0;i<3;++i)std::memcpy((*players)[side].data()+0x97268+i*128,next.slots[side][i].data(),128);}
@@ -494,6 +503,8 @@ int main(){
 
     {
         using TS=sc6::research::TransformSnapshot;
+
+
         auto a=std::make_unique<TS>();auto b=std::make_unique<TS>();a->valid=b->valid=true;a->count=3;b->count=2;
         a->records[0].address=b->records[0].address=0x100000001ULL;
         for(unsigned i=1;i<3;++i){auto& r=a->records[i];r.address=0x200000000ULL+i*32;r.side=2;r.kind=4;r.size=24;r.parent=0;
@@ -1389,6 +1400,23 @@ int main(){
         *reinterpret_cast<uintptr_t*>(group+0x48)=node+0x100;
         require(t->capture(owners) && !t->same_topology(*original));
         using TS=sc6::research::TransformSnapshot;
+        TS::TopologyDiagnostic topology{};
+        require(!t->same_topology(*original,&topology) && topology[0]==4 && topology[2]==0);
+        require(topology[9]!=topology[15]);
+        require(t->copy_recorded_from(*original) && t->same_topology(*original,&topology) && !topology[0]);
+        for(unsigned field=0;field<6;++field){
+            require(t->copy_recorded_from(*original));
+            auto& r=t->records[0];
+            switch(field){case 0:++r.address;break;case 1:++r.side;break;case 2:++r.kind;break;
+                case 3:++r.list;break;case 4:++r.parent;break;case 5:++r.size;break;}
+            require(!t->same_topology(*original,&topology) && topology[0]==4 && topology[1]==0 && topology[2]==field);
+            require(topology[3]!=topology[4]);
+        }
+        require(t->copy_recorded_from(*original));++t->count;
+        require(!t->same_topology(*original,&topology) && topology[0]==2);
+        t->count=static_cast<unsigned>(t->records.size()+1);
+        require(!t->same_topology(*original,&topology) && topology[0]==3);
+        t->valid=false;require(!t->same_topology(*original,&topology) && topology[0]==1);
         auto groups=base+0x710000,nodes=base+0x720000;
         *reinterpret_cast<uintptr_t*>(owners[0]+0x10)=groups;
         for(unsigned i=0;i<TS::group_limit;++i)
@@ -1688,8 +1716,8 @@ int main(){
                     const auto root=gs->data->transforms[0].records[0].address;
                     const auto previous_group=P::ptr(root+0x10);
                     *reinterpret_cast<uintptr_t*>(root+0x10)=reinterpret_cast<uintptr_t>(finite_group.data());
-                    require(gs->data->transforms[0].capture(gs->data->blends[0].owners,base));
-                    require(gn->data->transforms[0].capture(gn->data->blends[0].owners,base));
+                    require(gs->data->transforms[0].capture(gs->data->blends[0].owners,base,true));
+                    require(gn->data->transforms[0].capture(gn->data->blends[0].owners,base,true));
                     for(auto* state:{gs.get(),gn.get()})for(auto& cam:state->data->cameras[0].records)if(cam.smoothing_valid){
                         unsigned one=0x3F800000u;std::memcpy(cam.targets.data()+0x68,&one,4);std::memcpy(cam.targets.data()+0x6C,&one,4);
                         *reinterpret_cast<unsigned*>(cam.owner+0x250)=one;*reinterpret_cast<unsigned*>(cam.owner+0x254)=one;
@@ -3201,6 +3229,52 @@ int main(){
             require(*reinterpret_cast<unsigned*>(camera+0x144)==archived144);
         } else if(failure>=23 && failure!=35)require(*reinterpret_cast<unsigned*>(camera+0x144)==0);
     }
+    // Owned collision-target matrices: exact completion and transactional failures.
+    for(unsigned scenario=0;scenario<12;++scenario){
+        auto a=std::make_unique<P>(),b=std::make_unique<P>(),c=std::make_unique<P>();
+        auto& x=a->transforms[0];x.valid=true;x.fixed_constraint_slots=true;x.count=7;
+        const auto root=base+0x700000,target=base+0x703000,vt=base+0x3E88E38;
+        x.records[0].address=root;x.records[0].kind=0;x.records[0].size=512;
+        std::memcpy(x.records[0].bytes.data()+8,&target,8);
+        x.records[1].address=target;x.records[1].kind=26;x.records[1].size=8;
+        std::memcpy(x.records[1].bytes.data(),&vt,8);
+        const unsigned kinds[]={27,18,19,20,21},sizes[]={8,64,64,32,16},offsets[]={0x28,0x80,0x40,0x10,0xC0};
+        for(unsigned j=0;j<5;++j){auto& r=x.records[2+j];r.address=target+offsets[j];r.kind=kinds[j];r.size=sizes[j];r.parent=1;}
+        auto& y=b->transforms[0];y=x;float newer=2.0f;
+        std::memcpy(y.records[3].bytes.data(),&newer,4);std::memcpy(y.records[4].bytes.data(),&newer,4);
+        c->transforms[3]=y;
+        a->rings[0].valid=b->rings[0].valid=c->restored_rings.valid=true;
+        for(auto& h:b->rings[0].headers)h.index=2;
+        a->blends[0].valid=b->blends[0].valid=c->blends[3].valid=true;
+        a->cameras[0].valid=b->cameras[0].valid=c->cameras[4].valid=true;
+        for(unsigned side=0;side<2;++side){auto owner=base+0x710000+side*0x10000;
+            a->blends[0].owners[side]=b->blends[0].owners[side]=c->blends[3].owners[side]=owner;
+            std::memset(reinterpret_cast<void*>(owner+0x22A8),0,8);}
+        // Corrupt all layouts together so topology equality alone cannot hide bad ownership.
+        for(auto* t:{&x,&y,&c->transforms[3]}){
+            if(scenario==1)t->records[1].side=1;
+            if(scenario==2)t->records[1].parent=3;
+            if(scenario==3)t->records[5].parent=0;
+            if(scenario==4)t->records[6].address+=8;
+            if(scenario==5)t->records[1].bytes[0]^=std::byte{1};
+            if(scenario==6)t->fixed_constraint_slots=false;
+        }
+        for(unsigned i=0;i<c->transforms[3].count;++i){const auto& r=c->transforms[3].records[i];std::memcpy(reinterpret_cast<void*>(r.address),r.bytes.data(),r.size);}
+        if(scenario==7)*reinterpret_cast<unsigned char*>(target)^=1;
+        if(scenario==8){float third=3.0f;std::memcpy(c->transforms[3].records[4].bytes.data(),&third,4);std::memcpy(reinterpret_cast<void*>(target+0x40),&third,4);}
+        if(scenario==9)*reinterpret_cast<unsigned char*>(target+0x28)^=1;
+        if(scenario==10){unsigned nan=0x7FC00000;std::memcpy(x.records[3].bytes.data(),&nan,4);}
+        if(scenario==11){ // Mixed saved/next words are valid; exact saved endpoint required.
+            float other=4.0f;std::memcpy(y.records[3].bytes.data()+4,&other,4);
+        }
+        std::array<std::byte,0xD0> before{};std::memcpy(before.data(),reinterpret_cast<void*>(target),before.size());
+        auto correction=std::make_unique<sc6::research::ImmediateIdleCorrection>();
+        const bool ok=correction->apply(*a,*b,*c,base);
+        if(ok!=(scenario==0 || scenario==11))std::fprintf(stderr,"owned completion scenario=%u section=%u line=%u\n",scenario,correction->section,correction->failure_line);
+        require(ok==(scenario==0 || scenario==11));
+        if(ok){require(correction->verified);for(unsigned i:{3u,4u})require(!std::memcmp(reinterpret_cast<void*>(x.records[i].address),x.records[i].bytes.data(),64));}
+        else require(!std::memcmp(before.data(),reinterpret_cast<void*>(target),before.size()));
+    }
     // Audited 3E885E0 camera limits: exact restoration, transactional rejection.
     for(unsigned scenario=0;scenario<13;++scenario){
         auto a=std::make_unique<P>(),b=std::make_unique<P>(),c=std::make_unique<P>();
@@ -3279,6 +3353,7 @@ int main(){
     VirtualFree(reinterpret_cast<void*>(base),0,MEM_RELEASE);
     std::puts("PASS: full probe mock round-trip, no load on preflight/idle rejection, read bounds/shape, forbidden operations, incomplete read, state mismatch, postflight rejection, bookkeeping, once-only, invalid base; preservation restores scalars/RNG, retains rebuilt pointers, rejects unexpected fields/RNG before writes.");
 }
+
 
 
 

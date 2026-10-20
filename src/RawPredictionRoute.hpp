@@ -1,6 +1,8 @@
 #pragma once
 #include "PredictionInputDelivery.hpp"
 #include <atomic>
+#include <Windows.h>
+#include <memory>
 namespace sc6::research {
 // Typed raw input, deliberately separate from the filtered-envelope protocol.
 // The transport authenticates Steam identity before submit; nonces prevent
@@ -9,7 +11,7 @@ struct RawInputConfirmation {
     uint64_t sender{},recipient{},round{},event{},frame{};
     uint32_t slot{},raw{};
 };
-// One transport producer; owner-thread consumption and reconciliation. The
+// Serialized transport producers; owner-thread consumption and reconciliation. The
 // route owns its truth archive until retirement so retransmits cannot alias a
 // reused prediction slot. Construction does not publish a native hook.
 template<unsigned Records=7200,unsigned Queue=32> class RawPredictionRoute {
@@ -21,10 +23,20 @@ public:
     struct Counters {uint64_t drained{},duplicates{},corrections{},appended{},applied{},published{};};
 private:
     struct Truth {uint32_t raw{};bool seen{};};
+    struct ArrivalTime {uint64_t enqueued{},drained{};};
+    std::unique_ptr<std::array<ArrivalTime,Records>> arrival_times_=std::make_unique<std::array<ArrivalTime,Records>>();
+    static uint64_t timestamp(){LARGE_INTEGER q{};QueryPerformanceCounter(&q);return q.QuadPart;}
+    // Producer-only first accepted words. Identity is fixed for this route;
+    // conflicting retransmissions must still reach owner-side validation.
+    std::unique_ptr<std::array<Truth,Records>> enqueued_truth_=std::make_unique<std::array<Truth,Records>>();
+    std::atomic<uint64_t> coalesced_{},queue_full_{};
     std::array<Truth,Records> truth_{};
     std::array<uint32_t,Records> outgoing_{};
+    std::unique_ptr<std::array<uint64_t,Records>> published_times_=std::make_unique<std::array<uint64_t,Records>>();
+    std::unique_ptr<std::array<std::atomic<uint64_t>,Records>> first_send_=std::make_unique<std::array<std::atomic<uint64_t>,Records>>();
     std::atomic<unsigned> outgoing_count_{};
     std::array<RawInputConfirmation,Queue> queue_{};
+    std::array<uint64_t,Queue> queue_times_{};
     std::atomic<unsigned> write_{},read_{};
     std::atomic<bool> bound_{};
     std::atomic<bool> retired_{};
@@ -70,9 +82,12 @@ public:
         if(producer_.test_and_set(std::memory_order_acquire))return Submit::full;
         struct Unlock {std::atomic_flag& gate;~Unlock(){gate.clear(std::memory_order_release);}} unlock{producer_};
         if(retired_.load(std::memory_order_acquire))return archived(p)?Submit::retired:Submit::rejected;
+        auto& accepted=(*enqueued_truth_)[p.frame-origin_];
+        if(accepted.seen && accepted.raw==p.raw){coalesced_.fetch_add(1,std::memory_order_relaxed);return Submit::accepted;}
         const unsigned w=write_.load(std::memory_order_relaxed),r=read_.load(std::memory_order_acquire);
-        if(w-r==Queue)return Submit::full;
-        queue_[w%Queue]=p;write_.store(w+1,std::memory_order_release);return Submit::accepted;
+        if(w-r==Queue){queue_full_.fetch_add(1,std::memory_order_relaxed);return Submit::full;}
+        if(!accepted.seen)accepted={p.raw,true};
+        queue_[w%Queue]=p;queue_times_[w%Queue]=timestamp();write_.store(w+1,std::memory_order_release);return Submit::accepted;
     }
     bool drain(uint64_t thread){
         if(!owner(thread))return false;
@@ -81,12 +96,12 @@ public:
         for(unsigned n=0;n<Queue;++n){
             const unsigned r=read_.load(std::memory_order_relaxed),w=write_.load(std::memory_order_acquire);
             if(r==w)break;
-            const auto p=queue_[r%Queue];read_.store(r+1,std::memory_order_release);
+            const auto p=queue_[r%Queue];const auto enqueued=queue_times_[r%Queue];read_.store(r+1,std::memory_order_release);
             ++counters_.drained;const auto index=p.frame-origin_;auto& truth=truth_[index];
             if(truth.seen){if(truth.raw!=p.raw)return fail(Failure::conflict);++counters_.duplicates;continue;}
             // A never-confirmed expired frame cannot be silently accepted.
             if(index<delivery_.first())return fail(Failure::delivery);
-            truth={p.raw,true};
+            truth={p.raw,true};(*arrival_times_)[index]={enqueued,timestamp()};
             if(highest_<index+1)highest_=index+1;
             if(index<delivery_.head()){
                 if(delivery_.confirm(local_,round_,index,p.raw)!=Delivery::Arrival::accepted)
@@ -97,24 +112,40 @@ public:
         return true;
     }
     bool append(uint64_t thread,uint32_t local_raw,const std::array<Filter,2>& filters,
-                const std::array<uint32_t,10>& auxiliary,bool pending=false){
+                const std::array<uint32_t,10>& auxiliary,bool pending=false,std::optional<uint32_t> native_confirmed=std::nullopt){
         if(!owner(thread) || handoff_ || !drain(thread))return false;
         const auto index=delivery_.head();if(index>=Records)return fail(Failure::overflow);
-        const auto& t=truth_[index];
+        auto& t=truth_[index];
+        if(native_confirmed){
+            if(t.seen && t.raw!=*native_confirmed)return fail(Failure::conflict);
+            t.raw=*native_confirmed;t.seen=true;
+        }
         if(!delivery_.append(local_raw,t.seen?std::optional<uint32_t>(t.raw):std::nullopt,filters,auxiliary,pending))return false;
-        outgoing_[index]=local_raw;
+        outgoing_[index]=local_raw;(*published_times_)[index]=timestamp();
         outgoing_count_.store(static_cast<unsigned>(index+1),std::memory_order_release);
         ++counters_.appended;return true;
     }
     // Immutable owner-to-transport archive. Retransmission never reads the
     // mutable prediction ring and never publishes a predicted remote input.
+    uint64_t coalesced()const{return coalesced_.load(std::memory_order_relaxed);}
+    uint64_t queue_full()const{return queue_full_.load(std::memory_order_relaxed);}
     unsigned outgoing_count()const{return outgoing_count_.load(std::memory_order_acquire);}
     bool seed_before_first_frame(uint64_t thread,std::array<uint32_t,2> previous){
         return owner(thread) && delivery_.seed_before_first_frame(previous);
     }
+    bool mark_first_send(unsigned index,uint64_t& age){
+        if(index>=outgoing_count())return false;
+        const auto now=timestamp();uint64_t empty=0;
+        if(!(*first_send_)[index].compare_exchange_strong(empty,now))return false;
+        age=now-(*published_times_)[index];return true;
+    }
     bool outgoing(unsigned index,RawInputConfirmation& out)const{
         if(!bound_.load(std::memory_order_acquire) || index>=outgoing_count())return false;
         out={local_,peer_,round_,event_,origin_+index,slot_,outgoing_[index]};return true;
+    }
+    bool arrival_times(uint64_t thread,uint64_t index,uint64_t& enqueued,uint64_t& drained)const{
+        if(thread!=owner_ || index>=Records || !truth_[index].seen)return false;
+        enqueued=(*arrival_times_)[index].enqueued;drained=(*arrival_times_)[index].drained;return true;
     }
     bool truth(uint64_t thread,uint64_t index,uint32_t& raw)const{
         if(thread!=owner_ || !bound_ || failed() || index>=Records || !truth_[index].seen)return false;

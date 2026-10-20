@@ -1,0 +1,11 @@
+# Transform rejection, Ben 57640 / friend 6584
+
+Ben: 256 live frames, 26 completed corrections, 72 replayed frames; failure reason 4, adapter restore failure 3. General preflight stage 3, hop 1, depth 3, rejection 11. Native restoration was not invoked for this attempt. The last capture completed at native frame 511. Friend: 259 live frames, 16 corrections, 47 replayed frames; no local failure and received peer stop.
+
+At this exact call site, rejection 11 can only come from the external_wind_lifecycle mismatch or TransformSnapshot::same_topology. The latter compares validity, count and each record's address, side, kind, list, parent and size. Snapshot value bytes are not compared here. The archived bundles contain no failed snapshot topology, so the actual differing member cannot be recovered from them.
+
+Ghidra was run read-only with SC6EffectManagerAudit against SoulcaliburVI.exe. Fresh output: work/ghidra-sc6-focus/capture-transform-57640. RVA 3342A0 traverses the manager list through next +10 and invokes object virtual methods. RVA 334960 allocates a 1E0-byte object and inserts it at the list head, updating links. These paths demonstrate that membership and address changes are real native lifecycle changes. They do not prove which object changed in this run, nor authorize treating different pointers as interchangeable. Dynamic global effect members are already separated into NativeEffectSession; player graph compatibility remains strict.
+
+Change: preserve the first structural mismatch with both record identities and counts in continuous_transform_topology_* before teardown. Reason 1 invalid snapshot, 2 count, 3 out-of-bounds count, 4 record metadata, 5 external lifecycle mode. Field 0 address, 1 side, 2 kind, 3 list, 4 parent, 5 size. Count mismatches also examine the common prefix so inserted objects do not hide the first shifted record. No raw address is dereferenced for diagnostic formatting. Existing acceptance rules remain; corrupt excessive counts now reject before traversal.
+
+Regression coverage checks six metadata fields, counts, validity, oversized counts, and success clearing prior evidence. This is an evidence/validation hardening build, not a proven fix for the observed native lifecycle change. All ownership, exact value verification and round safety checks remain enabled.

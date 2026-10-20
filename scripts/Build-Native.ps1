@@ -21,11 +21,16 @@ if (!$vs) { throw 'MSVC x64 tools not found.' }
 & (Join-Path $PSScriptRoot 'Test-OuterStackContinuation.ps1')
 & (Join-Path $PSScriptRoot 'Test-OuterStackContinuation.ps1') -Optimized
 & (Join-Path $PSScriptRoot 'Test-CombatUpdateAdapter.ps1')
+& (Join-Path $PSScriptRoot 'Test-InputLatency.ps1')
+& (Join-Path $PSScriptRoot 'Test-NativeOuterTiming.ps1')
+& (Join-Path $PSScriptRoot 'Test-ConstraintSlots.ps1')
 & (Join-Path $PSScriptRoot 'Test-NativeClockAccess.ps1')
 & (Join-Path $PSScriptRoot 'Test-NativePredictionFrontier.ps1')
 & (Join-Path $PSScriptRoot 'Test-NativeInputWords.ps1')
 & (Join-Path $PSScriptRoot 'Test-NativeRawInputLookup.ps1')
 & (Join-Path $PSScriptRoot 'Test-RawPredictionRoute.ps1')
+& (Join-Path $PSScriptRoot 'Test-FreshRawSender.ps1')
+& (Join-Path $PSScriptRoot 'Test-RearmPeerAdmission.ps1')
 & (Join-Path $PSScriptRoot 'Test-LiveRawIntegration.ps1')
 & (Join-Path $PSScriptRoot 'Test-NativeFilterPreparation.ps1')
 & (Join-Path $PSScriptRoot 'Test-EffectLifetime.ps1')
@@ -100,6 +105,7 @@ Invoke-DeveloperCommands @(
     "dumpbin /exports `"$dllDir\main.dll`""
 )
 Write-Host 'DLL staged locally. This does not install or launch the game.'
+
 
 
 

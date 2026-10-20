@@ -16,6 +16,7 @@ public:
     NativeBoundarySnapshot current{NativeBoundarySnapshot::Mode::idle};
     std::unique_ptr<FullStateProbe> probe=std::make_unique<FullStateProbe>();
     bool attempted{},prepared{},verified{},fault{},restore_input_used{};
+    TransformSnapshot::TopologyDiagnostic topology_diagnostic{};
     RecordedInput restore_input;
     ImmediateIdleCorrection completion;
     bool native_payload_verified{};
@@ -149,7 +150,7 @@ public:
     bool preflight_general(const NativeBoundarySnapshot& a,const NativeBoundarySnapshot& b){
         if(attempted || fault)return false;
         if(a.mode!=NativeBoundarySnapshot::Mode::general_combat || b.mode!=a.mode){rejection=NativeBoundarySnapshot::Rejection::mode;return fail();}
-        rejection=a.structural_readiness(b);
+        rejection=a.structural_readiness(b,&topology_diagnostic);
         if(rejection!=NativeBoundarySnapshot::Rejection::none)return fail();
         if(a.data->selector_enabled!=b.data->selector_enabled || (a.data->selector_enabled &&
            (!a.data->selectors[0].compatible(b.data->selectors[0],probe->selector_diagnostic) ||

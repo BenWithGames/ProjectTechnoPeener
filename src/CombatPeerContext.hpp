@@ -18,6 +18,19 @@ public:
             value={protocol.expected_peer,protocol.local_nonce,protocol.remote_nonce,now,slot,true};
         AcquireSRWLockExclusive(&lock_);latest_=value;ReleaseSRWLockExclusive(&lock_);return value.valid;
     }
+    enum class Check : unsigned {ready,missing,future,stale};
+    static Check classify(uint64_t now,const Snapshot& value){
+        if(!value.valid)return Check::missing;
+        if(now<value.tick)return Check::future;
+        return now-value.tick>250?Check::stale:Check::ready;
+    }
+    template<class Clock> Check inspect_current(Snapshot& out,uint64_t& now,Clock clock){
+        AcquireSRWLockShared(&lock_);out=latest_;ReleaseSRWLockShared(&lock_);
+        // Sample AFTER copying: a publisher cannot make this observation newer
+        // than an earlier caller timestamp sampled before lock acquisition.
+        now=clock();return classify(now,out);
+    }
+    Check inspect_current(Snapshot& out,uint64_t& now){return inspect_current(out,now,[]{return GetTickCount64();});}
     bool read(uint64_t now,Snapshot& out){
         // Writers only replace this small value under the lock; no I/O or
         // game calls occur there. Contention must not look like lost consent

@@ -13,16 +13,16 @@ public:
 private:
     RawPredictionRoute<>& route_;
     Config config_{};
-    bool bound_{},failed_{};
+    bool bound_{},failed_{},prediction_enabled_{true};
     unsigned local_slot_{};
     bool fail(){failed_=true;return false;}
 public:
     uint64_t filters{},sealed{},failures{};
     explicit NativeFilterFramePreparation(RawPredictionRoute<>& route):route_(route){}
-    bool bind(Config config,unsigned local_slot){
+    bool bind(Config config,unsigned local_slot,bool prediction_enabled=true){
         if(bound_ || failed_ || !config.outer || !config.clock || config.owner!=GetCurrentThreadId() ||
            local_slot<1 || local_slot>2 || route_.failed() || route_.delivery().head())return false;
-        config_=config;local_slot_=local_slot;bound_=true;return true;
+        config_=config;local_slot_=local_slot;prediction_enabled_=prediction_enabled;bound_=true;return true;
     }
     Result filter(uintptr_t outer,unsigned slot,uint32_t reverse,bool suppress_edges,bool suppress_held,
                   bool restrict_buttons,uint32_t& raw){
@@ -35,7 +35,15 @@ public:
         if(index>UINT32_MAX-config_.battle_origin)return reject();
         const auto head=route_.delivery().head();
         if(index==head){
-            if(!route_.append(config_.owner,sample.local_raw,{},{},true))return reject();
+            std::optional<uint32_t> confirmed;
+            if(!prediction_enabled_){
+                uint32_t value{};
+                if constexpr(requires{Access::confirmed_remote(config_,local_slot_,native_frame,value);}){
+                    if(!Access::confirmed_remote(config_,local_slot_,native_frame,value))return reject();
+                    confirmed=value;
+                }else return reject();
+            }
+            if(!route_.append(config_.owner,sample.local_raw,{},{},true,confirmed))return reject();
         }else if(head==0 || index!=head-1)return reject();
         if(!route_.resolve_filter(config_.owner,index,slot,{sample.disabled,suppress_edges,suppress_held,restrict_buttons}))return reject();
         const auto* frame=route_.delivery().frame(index);std::array<uint32_t,2> previous{};

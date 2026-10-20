@@ -1,4 +1,4 @@
-param([switch]$CheckpointCapture,[switch]$NativeReplay,[switch]$LateInputs,[switch]$WindowReuse,[switch]$StartupPreparation,[switch]$Continuous,
+param([switch]$CheckpointCapture,[switch]$NativeReplay,[switch]$LateInputs,[switch]$WindowReuse,[switch]$StartupPreparation,[switch]$Continuous,[switch]$PredictionDisabled,
       [switch]$TestSuite,[ValidateSet('Boundary','Hold','Snapshots','ReferenceReplay','PredictionCorrection','RepeatedCorrection','AttackCorrection','RepeatedAttackCorrection','CombatCorrection','CombatCorrectionBaseline','TargetedRetention','RetainedObjectReplay','OwnedRecordingReplay','RepeatedOwnedReplay','MultiRoundReplay','FullMatchReplay')][string]$SuiteProfile='Snapshots',
       [ValidateRange(0,180)][int]$ObserveSeconds=60,
       [string]$FriendCode,[ValidateRange(0,2)][int]$PlayerSlot=0,[switch]$Consent)
@@ -23,6 +23,7 @@ function Read-ReportSnapshot([string]$Path) {
 }
 
 try {
+    if($PredictionDisabled -and -not $Continuous){throw 'PredictionDisabled requires Continuous mode.'}
     if($Continuous -and ($TestSuite -or $StartupPreparation -or $CheckpointCapture -or $NativeReplay -or $LateInputs -or $WindowReuse)){throw 'Continuous mode cannot be combined with another test.'}
     if($Continuous){$StartupPreparation=$true}
     if($TestSuite){$StartupPreparation=$true}
@@ -46,6 +47,7 @@ try {
     elseif($TestSuite -and $SuiteProfile -eq 'FullMatchReplay'){Write-Host 'TEST SUITE: FullMatchReplay; verified three-frame original-input windows throughout one match, at least 120 frames apart. Completes only at native match end.'}
     elseif($TestSuite -and $SuiteProfile -eq 'MultiRoundReplay'){Write-Host "TEST SUITE: MultiRoundReplay; three spaced original-input replay cycles during combat, then $ObserveSeconds seconds of observation."}
     elseif($TestSuite){Write-Host "TEST SUITE: $SuiteProfile; then $ObserveSeconds seconds of normal-play observation. Both PCs must choose identical settings. PredictionCorrection runs one controlled correction; RepeatedCorrection runs three while both players stay idle; AttackCorrection injects one A then corrects three frames; RepeatedAttackCorrection repeats that attack correction three times; continuous rollback remains disabled. Restart after the run."}
+    elseif($Continuous -and $PredictionDisabled){Write-Host 'LATENCY BASELINE: prediction disabled, native waits retained. Same instrumented mod, NOT unmodified SC6. Both PCs must select baseline; restart between modes. Play normally.'}
     elseif($Continuous){Write-Host 'LIVE PREDICTION TEST: hold-last remote raw input, up to three unconfirmed frames, correction replay and guarded round rearming. Start in the first private lobby; no warmup. Play normally. Close BOTH games after a stop. Two-player validation is pending.'}
     elseif($StartupPreparation){Write-Host 'STARTUP CHECK: agreement, brief clock hold and four snapshots. No restoration or replay. Restart afterward.'}
     if($TestSuite -and $SuiteProfile -in @('MultiRoundReplay','FullMatchReplay')){Write-Host 'No warmup required. Start both scripts in the first private lobby before entering the match. Loading nominates the resource thread; a verified battle boundary must confirm it before replay.'}
@@ -68,7 +70,7 @@ try {
     if(@(Get-ChildItem -LiteralPath $captureDir -Filter '*.arm').Count){throw 'Another diagnostic is pending.'}
     $arm=Join-Path $captureDir 'steam-inputs.arm'
     $stream=[IO.File]::Open($arm,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
-    $armMode=if($Continuous){'PRIVATE_STEAM_CONTINUOUS'}elseif($TestSuite){'PRIVATE_STEAM_SUITE'}elseif($StartupPreparation){'PRIVATE_STEAM_PREPARE'}elseif($WindowReuse){'PRIVATE_STEAM_REUSE'}elseif($LateInputs){'PRIVATE_STEAM_LATE'}elseif($NativeReplay){'PRIVATE_STEAM_REPLAY'}elseif($CheckpointCapture){'PRIVATE_STEAM_CHECKPOINTS'}else{'PRIVATE_STEAM_INPUTS'}
+    $armMode=if($Continuous -and $PredictionDisabled){'PRIVATE_STEAM_CONTINUOUS_BASELINE'}elseif($Continuous){'PRIVATE_STEAM_CONTINUOUS'}elseif($TestSuite){'PRIVATE_STEAM_SUITE'}elseif($StartupPreparation){'PRIVATE_STEAM_PREPARE'}elseif($WindowReuse){'PRIVATE_STEAM_REUSE'}elseif($LateInputs){'PRIVATE_STEAM_LATE'}elseif($NativeReplay){'PRIVATE_STEAM_REPLAY'}elseif($CheckpointCapture){'PRIVATE_STEAM_CHECKPOINTS'}else{'PRIVATE_STEAM_INPUTS'}
     if($TestSuite -and $SuiteProfile -in @('CombatCorrection','CombatCorrectionBaseline')){Write-Host 'COMBAT CORRECTION: play normally from round start. Each attempt first restores and replays the three original-input frames. Prediction runs only after that reference replay passes. Clean pre-mutation rejections and inconclusive windows are skipped automatically: up to 12 attempts with fresh bilateral frame negotiation between attempts; clean unstarted round-boundary cancellations wait and retry. Stop after three corrections verified on both PCs. Stop if restart is required.'}
     if($TestSuite -and $SuiteProfile -eq 'OwnedRecordingReplay'){Write-Host 'OWNED RECORDING: play normally. Retain four consecutive snapshots, rewind three frames, replay ORIGINAL inputs and verify, then release dependencies. One bounded attempt; no wall break or prediction difference required. Restart if requested.'}
     if($TestSuite -and $SuiteProfile -eq 'RepeatedOwnedReplay'){Write-Host 'REPEATED OWNED REPLAY: play normally. Three four-snapshot windows, spaced 120 simulation frames after each completed window. Three original frames replayed per cycle. No deliberate wrong inputs or wall break required. Round changes cancel; any unsafe failure stops.'}
@@ -95,7 +97,7 @@ try {
                 $currentStatus=$Matches[1]
                 if($currentStatus -ne $lastStatus){Write-Host "Status: $currentStatus";$lastStatus=$currentStatus}
                 if(($NativeReplay -or $WindowReuse) -and $text -match '(?m)^native_restart_required=1\r?$'){$finalText=$text;break}
-                if($currentStatus -notin @('running','continuous_running','waiting_for_local_round_marker','waiting_for_combat_clock','waiting_for_combat_resources','waiting_for_resource_retirement','waiting_for_boundary_agreement','waiting_for_boundary_hold','waiting_for_boundary_snapshots','observing_suite_gameplay','observing_targeted_retention','observing_retained_object_replay','flushing_full_match_evidence','waiting_for_retained_failure_evidence','waiting_for_suite_peer_result','waiting_for_reference_replay','waiting_for_prediction_correction','waiting_for_repeated_correction','waiting_for_continuous_activation')){$finalText=$text;break}
+                if($currentStatus -notin @('running','continuous_running','waiting_for_local_round_marker','waiting_for_combat_clock','waiting_for_combat_resources','waiting_for_resource_retirement','waiting_for_boundary_agreement','waiting_for_boundary_hold','waiting_for_boundary_snapshots','observing_suite_gameplay','observing_targeted_retention','observing_retained_object_replay','flushing_full_match_evidence','waiting_for_retained_failure_evidence','waiting_for_suite_peer_result','waiting_for_reference_replay','waiting_for_prediction_correction','waiting_for_repeated_correction','waiting_for_continuous_activation','waiting_for_fight_ready_pairs')){$finalText=$text;break}
             }
         }
     }while((Get-Date) -lt $deadline)

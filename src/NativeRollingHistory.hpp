@@ -37,42 +37,71 @@ template<unsigned Capacity=4> class NativeRollingHistory {
             if(!s.effects || s.effects->owner!=effects_ || !s.effects->valid)return false;
             first=(std::min)(first,s.effects->birth_cursor);return true;
         }))return false;
-        if(!effects_->compact_birth_history(first,count_))return false;
+        bool compacted=false;
+        if(!effects_->compact_birth_history(first,count_,compacted))return false;
+        if(!compacted)return true; // Busy optional maintenance: preserve every cursor.
         for(unsigned i=0;i<count_;++i)if(!pool_.visit(handles_[i],[&](NativeBoundarySnapshot& s){
             s.effects->birth_cursor-=first;return true;
         }))return false;
         return true;
     }
 public:
+    // Owner-thread evidence, copied to report atomics before teardown.
+    std::array<uint64_t,10> capture_diagnostic{};
     unsigned count()const{return count_;}
     bool failed()const{return failed_;}
     bool capture_owned(const RollbackBoundaryKey& key,unsigned oldest_required,uintptr_t base,uintptr_t argument,ReplayDependencySource& source,bool approved_profile=false,bool general_restore=false){
+        capture_diagnostic={1,key.frame,oldest_required,count_,0,0,0,0,0,0};
         if(failed_ || !key.same_round(key) || key.thread!=GetCurrentThreadId() || !base || !source.available())return false;
+        capture_diagnostic[0]=2;
         if(effects_ && effects_!=source.effects)return false;
         if(general_restore && source.effects){
+            capture_diagnostic[0]=3;
             if(!source.effects->begin(base,key.session,key.round,source.effect_references))return false;
             effects_=source.effects;
         }
         return append(key,oldest_required,[&](auto& pool,const auto& handle,const auto& boundary){
             std::array<uintptr_t,2> before{},after{};
+            capture_diagnostic[0]=4;
             if(!descriptors(base,before))return false;
             ResourceDependencyCapture references(ResourceDependencyCapture::native_object_dispose,ResourceDependencyCapture::native_control_dispose);
+            capture_diagnostic[0]=5;
             if(!source.seed(source.context,boundary.frame))return false;
+            capture_diagnostic[0]=6;
             const auto fingerprint=GeneratedBufferFingerprint::read(source.generated->buffer,source.generated->size);
             if(!fingerprint.valid)return false;
+            capture_diagnostic[0]=7;
             const bool captured=pool.visit(handle,[&](NativeBoundarySnapshot& snapshot){
                 if(general_restore && effects_){
                     snapshot.effects=std::make_unique<NativeEffectSession::Binding>();
+                    capture_diagnostic[0]=8;
                     if(!effects_->capture(*snapshot.effects))return false;
                     snapshot.data->external_wind_lifecycle=true;
                 }
+                capture_diagnostic[0]=9;
                 const bool saved=(general_restore?snapshot.capture_general(base,argument):snapshot.capture_supported(base,argument,approved_profile)) && snapshot.data->before_keys[0]==boundary.frame;
-                return saved && (!snapshot.effects || effects_->compare(*snapshot.effects));
+                capture_diagnostic[4]=snapshot.capture_stage;
+                capture_diagnostic[5]=snapshot.exception;
+                capture_diagnostic[6]=snapshot.fault;
+                capture_diagnostic[7]=snapshot.valid;
+                capture_diagnostic[8]=snapshot.data->before_keys[0];
+                capture_diagnostic[9]=saved;
+                if(!saved)return false;
+                capture_diagnostic[0]=10;
+                return !snapshot.effects || effects_->compare(*snapshot.effects);
             });
-            if(!captured || !descriptors(base,after) || before!=after || !references.covers(before[0],before[1]) ||
-                !fingerprint.matches(GeneratedBufferFingerprint::read(source.generated->buffer,source.generated->size)))return false;
-            if(!references.bind(pool,handle) || !source.generated->bind(pool,handle))return false;
+            if(!captured)return false;
+            capture_diagnostic[0]=11;
+            if(!descriptors(base,after))return false;
+            capture_diagnostic[0]=14;if(before!=after)return false;
+            capture_diagnostic[0]=15;if(!references.covers(before[0],before[1]))return false;
+            capture_diagnostic[0]=16;
+            if(!fingerprint.matches(GeneratedBufferFingerprint::read(source.generated->buffer,source.generated->size)))return false;
+            capture_diagnostic[0]=12;
+            if(!references.bind(pool,handle))return false;
+            capture_diagnostic[0]=17;if(!source.generated->bind(pool,handle))return false;
             guards_[count_-1]={base,source.generated->root,source.generated->control,before,fingerprint};
+            capture_diagnostic[0]=13;
             return valid_guard(guards_[count_-1]);
         });
     }
@@ -81,23 +110,31 @@ public:
     }
     template<class Capture> bool append(const RollbackBoundaryKey& key,unsigned oldest_required,Capture capture){
         if(failed_ || !key.same_round(key) || key.thread!=GetCurrentThreadId())return false;
+        capture_diagnostic[0]=21;
         if(replay_next_ && (!replay_next_->same_round(key) || replay_next_->frame!=key.frame))return false;
+        capture_diagnostic[0]=22;
         if(count_ && (!keys_[count_-1].same_round(key) || keys_[count_-1].frame==UINT32_MAX || key.frame!=keys_[count_-1].frame+1))return false;
         // Never evict a frame still required by an unresolved correction.
+        capture_diagnostic[0]=23;
         if(count_==Capacity && keys_[0].frame>=oldest_required)return false;
+        capture_diagnostic[0]=24;
         if(!pool_.bind_current_thread())return false;
         if(count_==Capacity){
+            capture_diagnostic[0]=25;
             if(!pool_.retire(handles_[0])){failed_=true;return false;}
             for(unsigned i=1;i<count_;++i){handles_[i-1]=handles_[i];keys_[i-1]=keys_[i];guards_[i-1]=guards_[i];}
             --count_;
         }
+        capture_diagnostic[0]=26;
         if(!compact_births()){failed_=true;return false;}
+        capture_diagnostic[0]=27;
         auto h=pool_.acquire(key.session,key.round,key.frame,NativeBoundarySnapshot::Mode::combat_capture_only,key.slot);
         if(!h){failed_=true;return false;}
         guards_[count_]={};handles_[count_]=*h;keys_[count_++]=key;
         bool ok=false;
         try {ok=capture(pool_,*h,key);} catch(...){failed_=true;return false;}
         if(!ok || !pool_.visit(*h,[](NativeBoundarySnapshot& s){return s.valid && !s.fault;})){failed_=true;return false;}
+        capture_diagnostic[0]=0;
         replay_next_.reset();
         return true;
     }

@@ -3,6 +3,7 @@
 #include "NativeCombatConfiguration.hpp"
 #include "ReplayOwnedResources.hpp"
 #include "CombatPeerContext.hpp"
+#include "RearmPeerAdmission.hpp"
 namespace sc6::research {
 // Immutable request after queue(). Request, shared mapping and resource source
 // must remain alive for the process lifetime. Native preparation runs only from
@@ -18,6 +19,7 @@ private:
     void* rearm_context_{};
     NativeCombatArming::RearmProvider rearm_provider_{};
     CombatResourcePreparation<>* rearm_resources_{};
+    RearmPeerAdmission peer_admission_;
     NativeCombatArming::RearmResult production_rearm(uintptr_t object,NativeCombatSession::Config& out,ReplayDependencySource& source){
         using R=NativeCombatArming::RearmResult;
         out={};source={};
@@ -31,9 +33,16 @@ private:
         const auto* routes=combat_routes.load(std::memory_order_acquire);
         if(cancelled_.load() || !routes || !routes->retired() || !rearm_resources_ ||
            GetCurrentThreadId()!=config_.identity.thread || object!=config_.clock_object)return finish(R::failed,1);
-        const auto now=GetTickCount64();CombatPeerContext::Snapshot peer;
-        if(!combat_peer_context.read(now,peer) || peer.peer!=steam_peer_ || peer.local_nonce!=config_.identity.session ||
-           peer.remote_nonce!=config_.identity.peer || peer.local_slot!=config_.identity.slot || shared_.nonce!=peer.local_nonce)return finish(R::failed,2);
+        uint64_t now{};CombatPeerContext::Snapshot peer;
+        const auto peer_check=combat_peer_context.inspect_current(peer,now);
+        const auto peer_result=peer_admission_.check(peer,peer_check,now,steam_peer_,config_.identity.session,
+            config_.identity.peer,config_.identity.slot,shared_.nonce);
+        if(runtime){
+            runtime->rearm_peer_reason=peer_admission_.reason;runtime->rearm_peer_read=peer_admission_.read_check;
+            runtime->rearm_peer_tick=peer.tick;runtime->rearm_peer_now=now;runtime->rearm_peer_waits=peer_admission_.waits;
+        }
+        if(peer_result==RearmPeerAdmission::Result::failed)return finish(R::failed,2);
+        if(peer_result==RearmPeerAdmission::Result::waiting)return finish(R::waiting);
         const auto round=round_event::snapshot();
         if(round.counter<=config_.identity.event)return finish(R::waiting);
         if(!round.round || round.generation<config_.identity.generation || config_.offer.ticket==UINT64_MAX)return finish(R::failed,3);

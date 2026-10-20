@@ -95,6 +95,20 @@ static void post_battle_tests(){
     assert(nested.poll(recursive,nested_engine,reenter,Input{},11,12,7,0,true)==R::restart_required);
 }
 int main(){
+    {Session s;Adapter a;sc6::research::RollbackJournal<> j;assert(s.attach_journal(j));
+     assert(s.begin(42,1));assert(s.admission_evidence(42,1).reason==0);
+     for(int i=0;i<3;++i)assert(s.advance(a,{}));
+     auto e=s.admission_evidence(42,1);assert(e.reason==5 && e.head==3 && e.confirmed==0);
+     s.trace_admission(42,1);assert(s.head()==3);
+     assert(s.receive(42,1,0,{})==Session::Arrival::accepted);
+     e=s.admission_evidence(42,1);assert(e.reason==0 && e.confirmed==1 && e.settled==0);
+     assert(s.request_handoff(42,1));assert(s.admission_evidence(42,1).reason==2);
+     assert(s.admission_evidence(99,1).reason==1);
+     s.trace_confirmation(0,100,200);sc6::research::RollbackEvent row;bool saw=false;
+     while(j.pop(row))if(row.kind==sc6::research::RollbackEvent::confirmation_delivery){assert(row.aux0==100 && row.aux1==200 && row.qpc);saw=true;}
+     assert(saw);
+    }
+
     {
         using Scope=sc6::research::NativeOuterCompletion;
         struct State {uint64_t token{};unsigned completions{};} state;

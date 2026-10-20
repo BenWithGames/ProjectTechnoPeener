@@ -135,6 +135,20 @@ static void memory_gate_tests(){
     try {gate.try_access(stopped,[]{throw std::runtime_error("test");});assert(false);}catch(const std::runtime_error&){}
     assert(gate.try_access(stopped,[]{},&outcome));
     assert(outcome==sc6::research::EffectMemoryGate::AccessOutcome::entered); // Exception unwinds lock.
+    // Contention retry is bounded and never repeats an entered callback.
+    std::latch held(1),unlock(1);
+    std::thread holder([&]{gate.release_decision([&]{held.count_down();unlock.wait();return false;});});
+    held.wait();unsigned attempts{},reads{},retries{};
+    assert(!gate.try_access_bounded(stopped,[&]{++reads;},[&]{++retries;return true;},4,attempts,outcome));
+    assert(attempts==4 && retries==3 && reads==0 && outcome==sc6::research::EffectMemoryGate::AccessOutcome::contended);
+    assert(gate.try_access_bounded(stopped,[&]{++reads;},[&]{unlock.count_down();holder.join();return true;},4,attempts,outcome));
+    assert(attempts==2 && reads==1 && outcome==sc6::research::EffectMemoryGate::AccessOutcome::entered);
+    stopped=true;retries=0;
+    assert(!gate.try_access_bounded(stopped,[&]{++reads;},[&]{++retries;return true;},4,attempts,outcome));
+    assert(attempts==1 && reads==1 && retries==0 && outcome==sc6::research::EffectMemoryGate::AccessOutcome::stopped);
+    stopped=false;bool read_valid=false;
+    assert(gate.try_access_bounded(stopped,[&]{++reads;read_valid=false;},[&]{++retries;return true;},4,attempts,outcome));
+    assert(attempts==1 && !read_valid && reads==2 && retries==0);
     assert(!gate.release_decision([]{return false;}));
     assert(gate.try_access(stopped,[]{})); // No lock left for native free to run under.
 }
@@ -295,14 +309,26 @@ static void apply_image_tests(){
     image_head=0;assert(alloc::observe_release(old_address,0x70,alloc::base+0x3340F9,&image_native_free)==0 && image_frees==0);
     older[0x12F]=std::byte{99};
     assert(runtime.allocation(new_address,0x130,0x3345B4));image_head=new_address;
+    std::latch restore_held(1),restore_unlock(1);
+    std::thread restore_holder([&]{runtime.route()->gate->release_decision([&]{restore_held.count_down();restore_unlock.wait();return false;});});
+    restore_held.wait();unsigned restore_callbacks=0;
+    assert(!runtime.apply_effect_image(snapshot,saved,current,[&](const Image&,const Image&){++restore_callbacks;return true;}));
+    assert(runtime.restore_check==2 && runtime.restore_gate_outcome==2 && runtime.restore_attempts>0 && runtime.restore_attempts<=64);
+    assert(runtime.restore_retry_exhausted==1 && !runtime.restore_mutated && !restore_callbacks);
+    assert(image_head==new_address && older[0x12F]==std::byte{99});
+    restore_unlock.count_down();restore_holder.join();
     assert(!runtime.apply_effect_image(snapshot,saved,current,[](const Image&,const Image&){return false;}));
+    assert(runtime.restore_check==9 && !runtime.restore_mutated && runtime.restore_attempts==1);
     assert(image_head==new_address && older[0x12F]==std::byte{99});
     ++environment_epoch;
     assert(!runtime.apply_effect_image(snapshot,saved,current,[](const Image&,const Image&){return true;}));
+    assert(runtime.restore_check==5 && !runtime.restore_mutated);
     assert(image_head==new_address && older[0x12F]==std::byte{99});--environment_epoch;
     assert(!runtime.apply_effect_image(snapshot,saved,current,[](const Image&,const Image&){++environment_epoch;return true;}));
+    assert(runtime.restore_check==11 && !runtime.restore_mutated);
     assert(image_head==new_address && older[0x12F]==std::byte{99} && image_frees==0);--environment_epoch;
     assert(runtime.apply_effect_image(snapshot,saved,current,[](const Image&,const Image&){return true;}));
+    assert(runtime.restore_check==0 && runtime.restore_mutated);
     assert(image_head==old_address && older[0x12F]==std::byte{42} && image_frees==0);
     assert(runtime.native_deferred==1 && runtime.snapshot_protected==1 && runtime.revivals==1 && runtime.allocator_releases==0);
     assert(runtime.collect() && image_frees==1 && last_image_free==new_address && runtime.allocator_releases==1);
@@ -323,6 +349,7 @@ static void failed_image_write_test(){
     auto snapshot=runtime.capture_image(1,manager_address,saved);assert(snapshot.generation);
     DWORD previous{};assert(VirtualProtect(manager,4096,PAGE_READONLY,&previous));
     assert(!runtime.apply_effect_image(snapshot,saved,current,[](const Image&,const Image&){return true;}));
+    assert(runtime.restore_check==12 && runtime.restore_mutated && runtime.restore_attempts==1);
     assert(runtime.restart_required() && runtime.stopped() && runtime.write_exception());
     assert(!runtime.collect() && !runtime.expire(snapshot) && !runtime.finish(true));
     DWORD ignored{};assert(VirtualProtect(manager,4096,previous,&ignored));assert(VirtualFree(manager,0,MEM_RELEASE));

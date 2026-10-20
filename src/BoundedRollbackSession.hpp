@@ -55,22 +55,31 @@ public:
     enum class Admission {ready,waiting,restart_required};
     // Read-only forecast of advance after reconcile. No native work belongs in
     // clock admission; confirmations arriving later can only free more space.
-    Admission admission(uint64_t session,uint64_t round)const{
-        if(session!=session_ || round!=round_ || state==State::idle || state==State::restart_required || head_==UINT64_MAX)
-            return Admission::restart_required;
-        if(draining_)return Admission::waiting;
+    struct AdmissionEvidence {Admission result{Admission::restart_required};unsigned reason{1};uint64_t confirmed{},settled{},head{},dirty{UINT64_MAX};};
+    AdmissionEvidence admission_evidence(uint64_t session,uint64_t round)const{
+        AdmissionEvidence e;e.confirmed=e.settled=settled_;e.head=head_;if(dirty_)e.dirty=*dirty_;
+        if(session!=session_ || round!=round_ || state==State::idle || state==State::restart_required || head_==UINT64_MAX)return e;
+        if(draining_){e.result=Admission::waiting;e.reason=2;return e;}
         if(dirty_){
-            if(*dirty_>=head_ || head_-*dirty_>Limit)return Admission::restart_required;
+            if(*dirty_>=head_ || head_-*dirty_>Limit){e.reason=3;return e;}
             for(auto n=*dirty_;n<head_;++n){const auto& f=frames_[n%Capacity];
-                if(!f.valid || f.number!=n || !f.simulated)return Admission::restart_required;
+                if(!f.valid || f.number!=n || !f.simulated){e.reason=4;return e;}
             }
         }
-        auto confirmed=settled_;
-        while(confirmed<head_){const auto& f=frames_[confirmed%Capacity];
-            if(!f.valid || f.number!=confirmed || !f.confirmed)break;
-            ++confirmed;
+        while(e.confirmed<head_){const auto& f=frames_[e.confirmed%Capacity];
+            if(!f.valid || f.number!=e.confirmed || !f.confirmed)break;
+            ++e.confirmed;
         }
-        return head_-confirmed<Limit?Admission::ready:Admission::waiting;
+        e.result=head_-e.confirmed<Limit?Admission::ready:Admission::waiting;
+        e.reason=e.result==Admission::ready?0:5;return e;
+    }
+    Admission admission(uint64_t session,uint64_t round)const{return admission_evidence(session,round).result;}
+    void trace_admission(uint64_t session,uint64_t round)const{
+        if(!journal_)return;const auto e=admission_evidence(session,round);
+        journal_->push(session_,round_,e.confirmed,e.head,RollbackEvent::admission,e.reason,e.settled,e.dirty);
+    }
+    void trace_confirmation(uint64_t frame,uint64_t enqueued,uint64_t drained){
+        if(journal_)journal_->push(session_,round_,frame,head_,RollbackEvent::confirmation_delivery,0,enqueued,drained);
     }
     // Attach before begin; journal must outlive this simulation session.
     bool attach_journal(RollbackJournal<>& journal){if(state!=State::idle)return false;journal_=&journal;return true;}

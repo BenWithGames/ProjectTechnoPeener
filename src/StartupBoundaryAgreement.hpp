@@ -9,12 +9,13 @@ public:
 private:
     Words local_{};bool bound_{},received_{},ack_{},failed_{};
 public:
-    bool begin(const StartupBoundaryPairs& pairs,unsigned slot){
-        if(bound_ || slot<1 || slot>2 || pairs.count.load(std::memory_order_acquire)!=120 ||
+    bool begin(const StartupBoundaryPairs& pairs,unsigned slot,bool early=false){
+        const unsigned required=early?2u:120u,target=early?60u:600u;
+        if(bound_ || slot<1 || slot>2 || pairs.count.load(std::memory_order_acquire)<required ||
             pairs.overwritten.load() || pairs.unpaired.load() || pairs.discontinuities.load())return false;
         const auto& first=pairs.rows[0];
-        if(first.clock>UINT32_MAX-600 || first.battle>UINT32_MAX-600)return false;
-        local_={1,first.identity,first.clock,first.battle,first.clock+600,first.battle+600,slot,0,120,0};
+        if(first.clock>UINT32_MAX-target || first.battle>UINT32_MAX-target)return false;
+        local_={1,first.identity,first.clock,first.battle,first.clock+target,first.battle+target,slot,0,required,0};
         bound_=true;return true;
     }
     bool bound()const{return bound_;}

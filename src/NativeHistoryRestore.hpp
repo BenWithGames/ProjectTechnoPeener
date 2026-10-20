@@ -2,6 +2,7 @@
 #include "NativeRollingHistory.hpp"
 #include "NativeRestoreDiagnostic.hpp"
 #include "NativeRollbackTiming.hpp"
+#include "NativeStartupTiming.hpp"
 namespace sc6::research {
 // One restore attempt, using the existing verified adjacent loader. Unsupported
 // combat modes still reject during preparation. Caller must replay to the head
@@ -14,6 +15,7 @@ public:
     Stage stage{Stage::unused};unsigned hop{},depth{};bool attempted{},loaded{};
     unsigned source_mode{},next_mode{};
     NativeHistoryRestore(){
+        NativeStartupScope measured(NativeStartupTiming::workspace_construct);
         if constexpr(std::is_same_v<Workspace,NativeAdjacentRestore>)(void)FullStateProbe::reset_defaults();
         for(auto& w:work_)w=std::make_unique<Workspace>();
     }
@@ -89,6 +91,7 @@ public:
         out.values[0]=static_cast<unsigned>(stage);out.values[1]=hop;out.values[2]=depth;
         out.values[3]=source_mode;out.values[4]=next_mode;
         const auto& selected=*work_[(std::min)(hop,2u)];
+        if constexpr(requires {selected.topology_diagnostic;})out.topology=selected.topology_diagnostic;
         if constexpr(requires {selected.rejection;selected.diagnostic_stage;selected.probe;}){
             out.values[5]=static_cast<unsigned>(selected.rejection);out.values[6]=selected.diagnostic_stage;
             if(selected.probe){out.values[7]=selected.probe->exception;out.values[8]=selected.probe->delayed_failure_line;}

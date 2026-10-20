@@ -50,11 +50,16 @@ struct FullStateProbe {
     // RVA349840 activates category zero using a bounded descriptor selector,
     // cursor 3 and state 2. RVA3499D0 then advances the cursor. The resource
     // initializer 38B740 snapshots the category-zero count at slot+1C.
+    // 3498B8 tests state != 0, not state == 1: active timers can be
+    // reselected as well. Restrict this policy to audited states 1 and 2.
     static bool timer_activation(const std::array<std::byte,128>& a,const std::array<std::byte,128>& b,unsigned phase) noexcept {
         const auto word=[](const auto& v,unsigned off){return CombatBlend::word(v.data()+off);};
         const auto header=CombatBlend::wide(a.data()),descriptors=CombatBlend::wide(a.data()+8);
         const auto count=word(a,0x1C),cursor=word(b,0x40),rate=word(a,0x44);
-        return phase!=2 && word(a,0x48)==1 && word(b,0x48)==2 && word(a,0x40)==0 &&
+        const auto state=word(a,0x48),prior_cursor=word(a,0x40);
+        const bool restartable=(state==1 && prior_cursor==0) ||
+            (state==2 && prior_cursor>0 && prior_cursor<0x7F800000u);
+        return phase!=2 && restartable && word(b,0x48)==2 &&
             word(a,0x18)==0 && word(a,0x38)==0 && word(b,0x38)==0 &&
             header>=0x10000 && header<=UINTPTR_MAX-0x40 && descriptors==header+0x40 &&
             CombatBlend::wide(a.data()+0x10)>=0x10000 && count>0 && count<0x80000000u &&
@@ -686,7 +691,7 @@ struct FullStateProbe {
                 std::memcpy(out.bytes[side].data()+1372,reinterpret_cast<void*>(owner+0x22A8),8);
                 if(ptr(player+0x971F8)!=owner || ptr(b+0x470DE90+side*8)!=player)return false;
             }
-            if(!transforms[checkpoint].capture(out.owners,b))return false;
+            if(!transforms[checkpoint].capture(out.owners,b,true))return false;
             if(external_wind_lifecycle && !transforms[checkpoint].separate_effects())return false;
             if(checkpoint && !transforms[checkpoint].same_topology(transforms[0]))
                 return transforms[checkpoint].reject(9,out.owners[0]);

@@ -1,4 +1,5 @@
 #pragma once
+#include "NativeStartupTiming.hpp"
 #include "NativeRollbackWindow.hpp"
 #include "ResourceDescriptorObserver.hpp"
 #include "GeneratedOwnerObserver.hpp"
@@ -72,6 +73,7 @@ private:
   self->owner_=GetCurrentThreadId();
   for(unsigned i=0;i<self->count_;++i)if(self->descriptors_[i].control==control){if(self->descriptors_[i].payload!=payload)self->cancel(2);return;}
   if(self->count_==2){self->cancel(3);return;}
+  NativeStartupScope measured(NativeStartupTiming::descriptor_acquire);
   auto& entry=self->descriptors_[self->count_];
   if(!entry.lease.acquire(control,self->owner_,0,ResourceDependencyCapture::native_object_dispose,ResourceDependencyCapture::native_control_dispose)){self->cancel(4);return;}
   entry.object=object;entry.control=control;entry.payload=payload;++self->count_;self->has_owned_=true;
@@ -82,6 +84,7 @@ private:
   if(!self->accept_thread(row.thread,5))return;
   self->owner_=row.thread;
   if(self->generated.active() && self->generated.root!=row.root)return;
+  NativeStartupScope measured(NativeStartupTiming::buffer_acquire);
   if(!self->generated.acquire(row.root,row.buffer,row.control,row.size,generated_observer::dispose_buffer,generated_observer::dispose_buffer_control))self->cancel(6);else self->has_owned_=true;
  }
  static void clear(uintptr_t object,uintptr_t caller,bool locked){if(const auto self=active_.load())self->on_scoped_clear(object,caller,locked);}
@@ -123,6 +126,7 @@ public:
   out<<"suite_wind_native_integrated=1\nsuite_wind_requested="<<wind_requested_.load()<<'\n';
   if(!wind){out<<"suite_wind_captures=0\nsuite_wind_loads=0\nsuite_wind_comparisons=0\n";return;}
   wind->retention_report(out);
+  out<<"suite_wind_restore_session_phase="<<wind->restore_phase.load()<<'\n';
   out<<"suite_wind_failure="<<wind->failure.load()<<"\nsuite_wind_captures="<<wind->captures.load()
      <<"\nsuite_wind_loads="<<wind->loads.load()<<"\nsuite_wind_comparisons="<<wind->comparisons.load()
      <<"\nsuite_wind_retirements="<<wind->retirements.load()<<"\nsuite_wind_added="<<wind->added.load()
@@ -232,7 +236,7 @@ public:
   return true;
  }
  ReplayDependencySource source(){
-  if(wind_requested_.load() && ready() && !wind_){wind_=std::make_unique<NativeEffectSession>();wind_->configure(effect_allocations::release_original);wind_report_.store(wind_.get(),std::memory_order_release);}
+  if(wind_requested_.load() && ready() && !wind_){NativeStartupScope measured(NativeStartupTiming::effect_session);wind_=std::make_unique<NativeEffectSession>();wind_->configure(effect_allocations::release_original);wind_report_.store(wind_.get(),std::memory_order_release);}
   return {this,seed,&generated,[](void* context){return static_cast<ReplayOwnedResources*>(context)->ready();},wind_.get(),{this,effect_ranges}};
  }
  bool start(uintptr_t module,bool first_match=false){

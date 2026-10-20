@@ -30,7 +30,7 @@ public:
         overlay.publish(sc6::steam_handshake::running?sc6::steam_handshake::overlay_stats():sc6::automatic_steam::overlay_stats());
         try { sc6::recorder_poll(); } catch (...) { sc6::recorder_stop(); }
     }
-    ~SC6RollbackMod() override { sc6::steam_handshake::stopped=true; sc6::steam_observer::active=false; overlay.stop(); sc6::recorder_stop(); }
+    ~SC6RollbackMod() override { sc6::research::fresh_raw_sender.stop(); sc6::steam_handshake::stopped=true; sc6::steam_observer::active=false; overlay.stop(); sc6::recorder_stop(); }
     // on_update only handles control and output; samples come from EntryBridge.
 };
 

@@ -2,6 +2,8 @@
 #include <cassert>
 #include <cstdio>
 #include <sstream>
+#include <thread>
+#include <latch>
 using sc6::research::EffectBirthJournal;
 using Buffer=std::array<unsigned char,0x1E0>;
 static uintptr_t address(Buffer& b){return reinterpret_cast<uintptr_t>(b.data());}
@@ -76,5 +78,33 @@ int main(){
     assert(b==unchanged && rolling.count==3 && rolling.events[2].caller==0x334516);
     assert(!rolling.discard_prefix(4));assert(rolling.discard_prefix(2));
     assert(rolling.count==1 && rolling.events[0].caller==0x334516);
+    // A worker holding the release bookkeeping gate is not journal corruption.
+    // Defer without touching entries/cursors, then discard exactly once later.
+    {
+        sc6::research::EffectMemoryGate gate;std::atomic<bool> stopped{};
+        EffectBirthJournal maintenance;assert(maintenance.start(1,2,3));
+        for(unsigned i=0;i<3;++i)assert(maintenance.allocation(address(a),0x180,0x2FC720));
+        const auto original=maintenance.events;
+        std::array<unsigned,3> retained{1,2,3};
+        std::latch locked(1),release(1);
+        std::thread worker([&]{gate.release_decision([&]{locked.count_down();release.wait();return false;});});
+        locked.wait();
+        auto result=maintenance.try_discard_prefix(gate,stopped,1);
+        assert(result==EffectBirthJournal::Compaction::deferred);
+        assert(maintenance.count==3 && maintenance.discarded==0 && !maintenance.failure);
+        assert(std::memcmp(original.data(),maintenance.events.data(),sizeof(original))==0);
+        assert(retained[0]==1 && retained[2]==3);
+        release.count_down();worker.join();
+        result=maintenance.try_discard_prefix(gate,stopped,1);
+        assert(result==EffectBirthJournal::Compaction::applied);
+        for(auto& cursor:retained)--cursor;
+        assert(maintenance.count==2 && maintenance.discarded==1 && retained[0]==0 && retained[2]==2);
+        assert(maintenance.try_discard_prefix(gate,stopped,0)==EffectBirthJournal::Compaction::applied);
+        assert(maintenance.discarded==1);
+        assert(maintenance.try_discard_prefix(gate,stopped,3)==EffectBirthJournal::Compaction::rejected);
+        maintenance.seal();assert(maintenance.try_discard_prefix(gate,stopped,0)==EffectBirthJournal::Compaction::rejected);
+        stopped=true;assert(maintenance.try_discard_prefix(gate,stopped,0)==EffectBirthJournal::Compaction::stopped);
+        assert(maintenance.count==2 && maintenance.discarded==1);
+    }
     std::puts("Effect birth journal tests passed");
 }

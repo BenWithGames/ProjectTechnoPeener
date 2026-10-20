@@ -1,0 +1,11 @@
+# Active animation timer reselection
+
+Report steam-inputs-45352 rejected preparation at hop 1 of a two-frame correction, phase 1, reason 2, player index 1, slot 0, offset 0x3C. Full captured words show selector 211 -> 200, cursor 11.0 -> 4.0, state 2 -> 2, rate 1.0 and count 524. The remaining slot words, including resource identity, are unchanged. This is not a camera rejection; this attempt stopped before native loading.
+
+Fresh Ghidra decompilation/disassembly is in work/ghidra-sc6-focus/live-timer-reactivation. RVA 3498B8 compares state against zero, not against inactive state 1. With valid resource bounds and matching owner tag, 3498EB writes the rate, 3498F4 resets the cursor to 3, 3498FF resets category to zero, 349907 writes the requested selector and 34990F writes state 2. Thus reselection while already active is permitted by the native function. RVA 3499D0 subsequently advances the cursor by the rate. The existing code's state==1 requirement incorrectly rejected this captured transition. The fresh activation and advance functions decompiled successfully; the initializer export in this run had a one-byte body and is not new evidence for initialization.
+
+The compatibility rule now accepts the existing inactive/zero-cursor case or an active/positive-finite-cursor source. It still requires an active destination with cursor at least 3, category zero, unchanged resource pointers/count/rate/tag/callback bytes, in-range selectors and the existing dependency checks. It does not broaden unobserved state values. Phase 2 endpoint checks remain exact for selector changes: a live endpoint may not independently reselect again. Existing restoration writes the saved selector/cursor/state and checks the full restored timer image.
+
+Regression tests reproduce the captured active transition, restore its saved values into mock player storage, reject stale resource identity without writes, reject invalid source states/cursors and out-of-range selectors, retain endpoint rejection, and retain inactive activation coverage. The full suite keeps camera, ownership, replay, startup timing, workspace reuse and round safety checks.
+
+Native live validation remains required. This is a compatibility correction based on the native writer and captured state, not permission to ignore arbitrary animation mismatches.

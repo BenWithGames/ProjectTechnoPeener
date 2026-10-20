@@ -2,6 +2,7 @@
 #include "NativeCombatSession.hpp"
 #include "CombatStartPacket.hpp"
 #include "RoundFightReadiness.hpp"
+#include "NativeStartupTiming.hpp"
 namespace sc6::research {
 // Process-lifetime owner of startup routes. Must be heap allocated and called
 // at an independently verified quiescent boundary on the simulation thread.
@@ -27,6 +28,8 @@ private:
     std::unique_ptr<NativeCombatSession> session_;
     NativeCombatSession::Config config_;
     bool attempted_{},published_{};
+    uint64_t hold_begin_{};
+    void finish_hold_timing(){if(hold_begin_){native_startup_timing.add(NativeStartupTiming::hold_wall,config_.identity.round,hold_begin_,NativeRollbackTiming::now(),owner_);hold_begin_=0;}}
     Phase phase_{Phase::idle};
     NativeCombatArming* previous_{};
     std::unique_ptr<NativeCombatArming> successor_;
@@ -53,6 +56,7 @@ private:
         try {self.poll();}catch(...){self.stop();}
     }};
     bool stop(CombatRuntimeStatus::Reason reason=CombatRuntimeStatus::backend_failure){
+        finish_hold_timing();
         const bool released=!previous_ && published_ &&
             hold_.release_unactivated(combat_routes.load()!=nullptr || native_clock_hook::route.load()!=nullptr ||
                 exclusive_battle_route.load()!=nullptr);
@@ -62,6 +66,7 @@ private:
     }
     bool rearm(uintptr_t object){
         if(!rearm_provider_ || successor_)return true;
+        NativeStartupScope measured(NativeStartupTiming::rearm_poll,config_.identity.round);
         if(!session_ || !session_->retired() || !shared_ || session_->status.stop_requested.load())return stop();
         NativeCombatSession::Config config;ReplayDependencySource source;
         const auto result=rearm_provider_(rearm_context_,object,config,source);
@@ -91,6 +96,7 @@ public:
     }
     bool prepare(const NativeCombatSession::Config& config,ReplayDependencySource source,
         observation::Shared& shared,uint64_t steam_peer,bool quiescent_verified){
+        NativeStartupScope measured(previous_?NativeStartupTiming::prepare_rearm:NativeStartupTiming::prepare_first,config.identity.round);
         // Refuse before a native hold, resource access, or route publication.
         preparation_stage_=1;
         if(!config.general_restore || !NativeBoundarySnapshot::general_restore_implemented)return false;
@@ -112,10 +118,14 @@ public:
         NativeBattleBoundaryReader<> reader;
         if(!reader.bind(config.base,config.caller,config.identity,config.image_verified) ||
             !reader.frontier(config.identity.frame))return stop();
+        preparation_stage_=7;
+        const auto fight=RoundFightReadiness::read(config.base,config.identity.round,config.identity.generation,config.identity.frame);
+        if(!fight.permits(config.identity.round,config.identity.generation,config.identity.frame,owner_))return stop();
         preparation_stage_=4;
         if(!exchange_.attach(mailbox_) || !exchange_.begin(steam_peer,config.offer,previous_?&previous_->exchange_:nullptr))return stop();
         preparation_stage_=5;
-        session_=std::make_unique<NativeCombatSession>(config,source,previous_?previous_->session_.get():nullptr);
+        {NativeStartupScope allocation(previous_?NativeStartupTiming::session_rearm:NativeStartupTiming::session_first,config.identity.round);
+        session_=std::make_unique<NativeCombatSession>(config,source,previous_?previous_->session_.get():nullptr);}
         if(!session_->prepare(shared) || !hold_.bind(config.base,config.clock_object,owner_,config.clock_identity,config.clock_frame,
             GetTickCount64(),10000,config.image_verified,config.bilateral_private,config.boundaries_owned))return stop();
         // There is one owner-thread publisher. Consumers only load these;
@@ -129,7 +139,7 @@ public:
         CombatStartExchange* empty_exchange=previous_?&previous_->exchange_:nullptr;
         if(!combat_start_exchange.compare_exchange_strong(empty_exchange,&exchange_,std::memory_order_release))return stop();
         if(!hold_.announce(exchange_,config.offer.ticket,config.clock_object,GetTickCount64()))return stop();
-        phase_=Phase::holding;
+        phase_=Phase::holding;hold_begin_=NativeRollbackTiming::now();
         const native_clock_hook::StartupPoll* empty_poll=previous_?&previous_->poll_route_:nullptr;
         if(!native_clock_hook::startup_poll.compare_exchange_strong(empty_poll,&poll_route_,std::memory_order_release))return stop();
         return true;
@@ -145,6 +155,8 @@ public:
         if(!hold_.ready(config_.clock_object,GetTickCount64()))return stop();
         CombatStartAgreement agreement;
         if(!mailbox_.take(agreement))return true;
+        finish_hold_timing();
+        NativeStartupScope activation(NativeStartupTiming::activation,config_.identity.round);
         if(!session_->activate(agreement))return stop(CombatRuntimeStatus::activation_failure);
         phase_=Phase::active;return true;
     }

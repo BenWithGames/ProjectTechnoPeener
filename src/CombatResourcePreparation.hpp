@@ -1,4 +1,5 @@
 #pragma once
+#include "NativeStartupTiming.hpp"
 #include "ReplayOwnedResources.hpp"
 #include "NativeClockDiscovery.hpp"
 #include "NativePredictionFrontier.hpp"
@@ -28,6 +29,7 @@ public:
     bool enable_live_prediction(){
         if(failed.load() || stop_.load() || retired.load())return false;
         if(live_prediction_enabled.load())return true;
+        NativeStartupScope measured(NativeStartupTiming::hook_install);
         if constexpr(requires {resource().enable_wind();resource().enable_animation_copy();}){
             if(!resource().enable_wind() || !resource().enable_animation_copy()){failed=true;return false;}
         }else {failed=true;return false;}
@@ -60,6 +62,8 @@ public:
     }
     NativePredictionFrontier::Observation prediction_frontier;
     StartupBoundaryPairs pairs;
+    FightStartupPairs fight_pairs;
+    uintptr_t fight_pair_base_{};
     RetryBoundaryObservation retry_observation;
     NativeHoldRehearsal<> hold_test;
     StartupSnapshotCapture<> snapshots;
@@ -247,6 +251,7 @@ public:
             clock_samples=samples+1;
         }
         pairs.clock(observed.clock.identity,observed.clock.frame);
+        fight_pair_base_=observed.base;fight_pairs.clock(observed.clock.identity,observed.clock.frame);
         retry_observation.clock(observed.clock.identity,observed.clock.frame);
         clock_identity=observed.clock.identity;clock_frame=observed.clock.frame;
         clock_slot=observed.clock.local_mask;clock_ready.store(true,std::memory_order_release);
@@ -259,6 +264,7 @@ public:
     std::atomic<unsigned> cancellation{},boundary_frame{},owner_thread{};
     std::atomic<unsigned> cancel_thread{},cancel_expected{},cancel_had_refs{},deferred{},deferred_thread{};
     bool start(uintptr_t base,bool first_match=false){
+        NativeStartupScope measured(NativeStartupTiming::resources_first);
         first_match_requested=first_match;
         if constexpr(requires {resource().start(base,first_match);})return resource().start(base,first_match);
         else return !first_match && resource().start(base);
@@ -269,6 +275,7 @@ public:
         else return {};
     }
     ReplayDependencySource successor_source_on_owner(){
+        NativeStartupScope measured(NativeStartupTiming::resources_rearm);
         if(GetCurrentThreadId()!=owner_thread.load() || stop_.load() || retired.load() || failed.load() || !ready.load())return {};
         if constexpr(requires(Resources& next,Resources& prior){next.start_successor(prior);}){
             const auto count=successor_count_.load();
@@ -326,7 +333,12 @@ public:
             return;
         }
         if(boundary_valid && resource().ready()){
-            if(clock_ready.load()){pairs.battle(frame);retry_observation.battle(frame,GetTickCount64());}
+            if(clock_ready.load()){
+                pairs.battle(frame);retry_observation.battle(frame,GetTickCount64());
+                const auto round=round_event::snapshot();
+                const auto fight=RoundFightReadiness::read(fight_pair_base_,round.round,round.generation,frame);
+                fight_pairs.battle(frame,fight.permits(round.round,round.generation,frame,GetCurrentThreadId()),fight.status,fight.vtable,fight.handler);
+            }
             if(clock_ready.load() && battle_samples.load()<512){
                 if(!battle_samples.load())battle_first=frame;
                 battle_last=frame;++battle_samples;

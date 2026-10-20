@@ -1127,6 +1127,35 @@ int main(){
             StartupBoundaryAgreement denied;assert(!denied.begin(changed_pair,1));
         }
         StartupBoundaryPairs empty;StartupBoundaryAgreement invalid;assert(!invalid.begin(empty,1));
+        FightStartupPairs gated;
+        for(unsigned i=0;i<180;++i){gated.clock(1,i);gated.battle(i+221,false,1,0x3E87378,0x384040);}
+        assert(gated.pairs.count==0 && gated.waiting==180);
+        gated.clock(1,180);gated.battle(401,true,3,0x3E873D0,0x384EE0);
+        gated.clock(1,181);gated.battle(402,true,3,0x3E873D0,0x384EE0);
+        assert(gated.pairs.count==2 && gated.pairs.discontinuities==0);
+        StartupBoundaryAgreement gatedAgreement;assert(gatedAgreement.begin(gated.pairs,1,true));
+        assert(gatedAgreement.target_clock()==240 && gatedAgreement.target_battle()==461);
+        gated.clock(2,0);gated.battle(0,false,4,0x3E873D0,0x384EE0);
+        assert(gated.pairs.count==2 && gated.pairs.rows[0].clock==180);
+        sc6::research::CombatRuntimeStatus watchdog;
+        watchdog.active=true;watchdog.activated_at=100;
+        assert(!watchdog.first_update_expired(99) && !watchdog.first_update_expired(10099));
+        assert(watchdog.first_update_expired(10100));watchdog.updates=1;
+        assert(!watchdog.first_update_expired(20000));watchdog.updates=0;watchdog.active=false;
+        assert(!watchdog.first_update_expired(20000));
+
+        StartupBoundaryPairs early;early.clock(1,10);early.battle(20);
+        StartupBoundaryAgreement earlyA,earlyB;assert(!earlyA.begin(early,1,true));
+        early.clock(1,11);early.battle(21);
+        assert(earlyA.begin(early,1,true) && earlyB.begin(early,2,true));
+        assert(earlyA.target_clock()==70 && earlyA.target_battle()==80);
+        assert(earlyA.receive(earlyB.outgoing()));assert(earlyB.receive(earlyA.outgoing()));
+        assert(earlyA.receive(earlyB.outgoing()) && earlyA.ready() && earlyB.ready());
+        StartupBoundaryAgreement legacy;assert(!legacy.begin(early,1));
+        StartupBoundaryPairs discontinuous;discontinuous.clock(1,10);discontinuous.battle(20);
+        discontinuous.clock(1,12);discontinuous.battle(22);
+        StartupBoundaryAgreement rejected;assert(!rejected.begin(discontinuous,1,true));
+
     }
     {
         StartupBoundaryPairs pairs;
@@ -1533,6 +1562,13 @@ int main(){
         assert(failedStorage.timing.buckets[NativeRollbackTiming::restore].calls==1);
         assert(failedStorage.timing.buckets[NativeRollbackTiming::cleanup].calls==0);
         auto actualHistory=std::make_unique<NativeRollingHistory<4>>();
+        assert(!actualHistory->capture_general_owned(identity,97,0,0,source));
+        assert(actualHistory->capture_diagnostic[0]==1);
+        assert(actualHistory->capture_diagnostic[1]==identity.frame);
+        assert(actualHistory->capture_diagnostic[2]==97);
+        assert(actualHistory->capture_diagnostic[4]==0);
+        assert(actualHistory->release());
+        assert(actualHistory->capture_diagnostic[0]==1); // teardown preserves failure evidence
         NativeSchedulerStorage<> native(*actualHistory,source,0,identity);
         assert(!native.begin_boundary(100,{}));
         decltype(native)::Snapshot invalid;assert(!native.restore(invalid));

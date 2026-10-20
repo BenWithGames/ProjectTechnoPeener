@@ -1,0 +1,11 @@
+# First activation and round-rearm costs
+
+The 45352 report validated workspace reuse: first-round restore mean 6.151 ms and workspace reset 0.408 ms; second-round restore mean 9.185 ms and workspace reset 0.713 ms. It does not measure session startup allocation, so it cannot establish the cause of the reported 50-second and round-start hitches.
+
+This build adds process-cumulative startup timings to the main and continuous reports. It does not change restoration policy, waits, hook placement or round readiness. The unresolved animation transition rejection at side 1, slot 0, offset 0x3C remains guarded.
+
+Measured spans: resource start, successor resource acquisition, descriptor/buffer reference acquisition, effect-session construction, diagnostic hook installation, first/successor combat-session construction, first/successor preparation, restore-workspace construction, activation, rearm polling, and elapsed hold time awaiting agreement. Session construction includes history and restore scratch allocations; workspace construction is its nested component. Resource start installs callbacks; actual synchronous acquisitions have separate spans.
+
+Every bucket reports count, mean/max microseconds, maximum's round/thread, and latest start/end QPC timestamps. A zero round denotes an unlabelled nested callback, not round zero. Durations overlap and must not be added. Hold-wall elapsed time is not CPU time and does not itself prove a render hitch. Startup scopes perform timestamp reads and bounded atomic updates only; formatting and file output remain on the report worker. Aggregates are process-cumulative, including retired rounds; do not sum duplicated retired-report copies. There is no per-frame render-time trace, so these measurements locate startup work but cannot alone account for every frame-time spike.
+
+Regression coverage checks aggregation, conversion, independent first/rearm buckets, maximum round/thread attribution, invalid timestamps and exception-unwind recording. Existing full-build integration tests exercise startup and round-rearm paths. Compare one first-lobby run without a warmup, then let a second round begin. Play normally; report freezes and hitch timings. Both peers need the same build for comparable evidence.

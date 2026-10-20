@@ -1,4 +1,5 @@
 #pragma once
+#include "NativeOuterTiming.hpp"
 #include <Windows.h>
 #include <array>
 #include <atomic>
@@ -20,7 +21,7 @@ struct NativeRollbackTiming {
     static uint64_t now()noexcept{LARGE_INTEGER q{};return QueryPerformanceCounter(&q) && q.QuadPart>0?static_cast<uint64_t>(q.QuadPart):0;}
     void add(Kind kind,uint64_t frame,uint64_t begin,uint64_t end)noexcept{
         if(kind>=count || !frequency || !begin || end<begin){invalid_clock.fetch_add(1,std::memory_order_relaxed);return;}
-        const auto elapsed=end-begin;auto& b=buckets[kind];
+        const auto elapsed=end-begin;native_outer_timing.phase(kind,frame,elapsed);auto& b=buckets[kind];
         b.ticks.fetch_add(elapsed,std::memory_order_relaxed);
         if(elapsed>b.maximum.load(std::memory_order_relaxed)){
             b.max_frame.store(frame,std::memory_order_relaxed);b.maximum.store(elapsed,std::memory_order_relaxed);

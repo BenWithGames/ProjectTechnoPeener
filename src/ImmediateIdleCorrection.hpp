@@ -40,8 +40,24 @@ struct ImmediateIdleCorrection {
                 else if(r.kind==1 && r.size==88 && r.parent<x.count && x.records[r.parent].kind==0 && x.records[r.parent].side==r.side){length=64;}
                 else if((r.kind==18 || r.kind==19) && r.size==64 && r.parent<x.count){
                     const auto& link=x.records[r.parent];
-                    if(link.kind!=16 || link.size!=8 || link.side!=r.side)return reject(__LINE__);
-                    auto target=TransformSnapshot::pointer(link.bytes.data());
+                    if(link.size!=8 || link.side!=r.side)return reject(__LINE__);
+                    uintptr_t target{};
+                    if(link.kind==16 && !x.fixed_constraint_slots){
+                        target=TransformSnapshot::pointer(link.bytes.data());
+                    }else if(link.kind==26 && x.fixed_constraint_slots){
+                        // Fixed contact slots reference independently captured owner-list targets.
+                        // Validate the complete target layout before accepting either matrix.
+                        target=link.address;
+                        if(link.parent>=x.count || x.records[link.parent].kind!=0 ||
+                           x.records[link.parent].side!=r.side || r.parent+5>=x.count ||
+                           TransformSnapshot::pointer(link.bytes.data())!=base+0x3E88E38)return reject(__LINE__);
+                        const unsigned kinds[]={27,18,19,20,21},sizes[]={8,64,64,32,16},offsets[]={0x28,0x80,0x40,0x10,0xC0};
+                        for(unsigned j=0;j<5;++j){const auto& child=x.records[r.parent+1+j];
+                            if(child.parent!=r.parent || child.kind!=kinds[j] || child.side!=r.side ||
+                               child.size!=sizes[j] || child.address!=target+offsets[j])return reject(__LINE__);
+                        }
+                        if(i!=r.parent+(r.kind==18?2u:3u))return reject(__LINE__);
+                    }else return reject(__LINE__);
                     if(target<0x10000 || target>UINTPTR_MAX-0xC0 || r.address!=target+(r.kind==18?0x80:0x40) ||
                        *reinterpret_cast<uintptr_t*>(target)!=base+0x3E88E38 ||
                        std::memcmp(link.bytes.data(),y.records[r.parent].bytes.data(),8) ||

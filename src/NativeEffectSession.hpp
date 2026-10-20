@@ -30,9 +30,14 @@ private:
 public:
     const EffectBirthJournal& birth_evidence()const{return runtime_.births;}
     // Only the sole rolling-history owner may trim/rebase retained cursors.
-    bool compact_birth_history(unsigned first,unsigned retained){
-        return active_ && !runtime_.stopped() && captures.load()-retirements.load()==retained &&
-            runtime_.edit_births([&](EffectBirthJournal& births){return births.discard_prefix(first);});
+    std::atomic<uint64_t> birth_compaction_attempts{},birth_compaction_deferred{};
+    std::atomic<unsigned> birth_compaction_result{},birth_compaction_first{},birth_compaction_retained{};
+    bool compact_birth_history(unsigned first,unsigned retained,bool& compacted){
+        compacted=false;++birth_compaction_attempts;birth_compaction_first=first;birth_compaction_retained=retained;
+        if(!active_ || runtime_.stopped() || captures.load()-retirements.load()!=retained){birth_compaction_result=5;return false;}
+        const auto result=runtime_.compact_births(first);birth_compaction_result=static_cast<unsigned>(result);
+        if(result==EffectBirthJournal::Compaction::deferred){++birth_compaction_deferred;return true;}
+        compacted=result==EffectBirthJournal::Compaction::applied;return compacted;
     }
     bool branch_birth_history(unsigned at,unsigned retained){
         if(!active_ || runtime_.stopped() || captures.load()-retirements.load()!=retained)return false;
@@ -48,7 +53,12 @@ public:
         if(!ok)failure=8;return ok;
     }
     bool end_birth_replay(){const bool ok=runtime_.births.finish() && !runtime_.stopped();if(!ok)failure=8;return ok;}
-    template<class Stream> void retention_report(Stream& out)const{out<<"suite_wind_capture_session_check="<<capture_check.load()<<'\n';runtime_.retention_report(out);out<<"suite_emitter_schema=1\nsuite_emitter_check="<<emitter_check.load()<<"\nsuite_emitter_count="<<emitter_count.load()<<"\nsuite_emitter_restores="<<emitter_restores.load()<<"\nsuite_emitter_compares="<<emitter_compares.load()<<'\n';}
+    template<class Stream> void retention_report(Stream& out)const{out<<"suite_wind_capture_session_check="<<capture_check.load()<<'\n';runtime_.retention_report(out);
+        out<<"suite_birth_compaction_schema=1\nsuite_birth_compaction_attempts="<<birth_compaction_attempts.load()
+           <<"\nsuite_birth_compaction_deferred="<<birth_compaction_deferred.load()
+           <<"\nsuite_birth_compaction_result="<<birth_compaction_result.load()
+           <<"\nsuite_birth_compaction_first="<<birth_compaction_first.load()
+           <<"\nsuite_birth_compaction_retained="<<birth_compaction_retained.load()<<'\n';out<<"suite_emitter_schema=1\nsuite_emitter_check="<<emitter_check.load()<<"\nsuite_emitter_count="<<emitter_count.load()<<"\nsuite_emitter_restores="<<emitter_restores.load()<<"\nsuite_emitter_compares="<<emitter_compares.load()<<'\n';}
     // Read after owner retirement; no live object traversal from report worker.
     unsigned retention_result()const{
         if(failure.load() || runtime_.births.failure || captures.load()!=retirements.load() ||
@@ -59,7 +69,7 @@ public:
     struct EmitterEvidence {WindEmitterSnapshot expected,actual;} emitter_evidence;
     std::atomic<unsigned> emitter_check{},emitter_restores{},emitter_compares{},emitter_count{};
     void configure(effect_release::NativeRelease release){if(!active_)native_release_=release;}
-    std::atomic<unsigned> failure{},captures{},loads{},comparisons{},retirements{},added{},removed{},mismatch_object{UINT32_MAX},mismatch_offset{UINT32_MAX};
+    std::atomic<unsigned> restore_phase{},failure{},captures{},loads{},comparisons{},retirements{},added{},removed{},mismatch_object{UINT32_MAX},mismatch_offset{UINT32_MAX};
     std::atomic<bool> mutated{};
     std::atomic<unsigned> capture_check{};
     std::atomic<uint64_t> external_check{},external_visits{},external_column{},external_interval{},external_candidate{},external_address{},external_extent{};
@@ -104,12 +114,12 @@ public:
     }
     bool restore(Binding& binding){
         runtime_.births.seal();
-        failure=3;evidence.expected=binding.image;evidence.actual={};if(!validate(binding))return false;
-        emitter_evidence.expected=binding.emitters;emitter_check=2;
+        restore_phase=1;failure=3;evidence.expected=binding.image;evidence.actual={};if(!validate(binding))return false;
+        restore_phase=2;emitter_evidence.expected=binding.emitters;emitter_check=2;
         if(!emitter_evidence.actual.capture(module_) || !binding.emitters.compatible(emitter_evidence.actual)){failure=7;return false;}
         Image current;
         unsigned add=0,remove=0;
-        const bool ok=runtime_.apply_effect_image(binding.snapshot,binding.image,current,[&](const Image& saved,const Image& live){
+        restore_phase=3;const bool ok=runtime_.apply_effect_image(binding.snapshot,binding.image,current,[&](const Image& saved,const Image& live){
             for(unsigned i=0;i<saved.count;++i){bool found=false;for(unsigned j=0;j<live.count;++j)found|=saved.objects[i].address==live.objects[j].address;if(!found)++add;}
             for(unsigned i=0;i<live.count;++i){bool found=false;for(unsigned j=0;j<saved.count;++j)found|=live.objects[i].address==saved.objects[j].address;if(!found)++remove;}
             return binding.references.validate();
@@ -117,10 +127,10 @@ public:
         evidence.actual=current;
         mutated=mutated || ok || runtime_.restart_required();
         if(!ok)return false;
-        emitter_check=3;
+        restore_phase=4;emitter_check=3;
         if(!binding.emitters.restore(module_,emitter_evidence.actual)){failure=7;return false;}
         ++emitter_restores;emitter_check=0;
-        added+=add;removed+=remove;++loads;failure=0;return true;
+        added+=add;removed+=remove;++loads;failure=0;restore_phase=0;return true;
     }
     bool compare(Binding& reference){
         failure=4;evidence.expected=reference.image;evidence.actual={};if(!validate(reference) || serial_==UINT64_MAX)return false;

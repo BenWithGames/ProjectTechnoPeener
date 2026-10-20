@@ -14,15 +14,46 @@ struct TransformSnapshot {
     std::array<Record,2*(1+group_limit+3*node_limit)+5+4*global_node_limit+2048> records{};
     unsigned count{},failure{},trapped_exception{}; uintptr_t failure_address{};
     bool reject(unsigned reason,uintptr_t address){failure=reason;failure_address=address;return false;}
-    bool valid{};
+    bool valid{},fixed_constraint_slots{};
     bool copy_recorded_from(const TransformSnapshot& source) noexcept {
         if(source.count>source.records.size())return false;
         if(this==&source)return true;
         std::memcpy(records.data(),source.records.data(),source.count*sizeof(Record));
         count=source.count;failure=source.failure;trapped_exception=source.trapped_exception;
-        failure_address=source.failure_address;valid=source.valid;
+        failure_address=source.failure_address;valid=source.valid;fixed_constraint_slots=source.fixed_constraint_slots;
         return true;
     }
+    // Scratch only: rebuilt for each capture/validation, never cached across native updates.
+    template<unsigned Capacity> struct AddressIndex {
+        static_assert(Capacity && !(Capacity&(Capacity-1)));
+        struct Entry {uintptr_t address{};unsigned side{},record{};};
+        std::array<Entry,Capacity> entries{};
+        static unsigned bucket(uintptr_t address,unsigned side) noexcept {
+            auto x=(address>>3)^(static_cast<uintptr_t>(side)*0x9E3779B97F4A7C15ull);
+            x^=x>>33;x*=0xFF51AFD7ED558CCDull;x^=x>>33;
+            return static_cast<unsigned>(x)&(Capacity-1);
+        }
+        unsigned find(uintptr_t address,unsigned side=0)const noexcept {
+            if(!address)return UINT32_MAX;
+            auto slot=bucket(address,side);
+            for(unsigned n=0;n<Capacity;++n){const auto& e=entries[slot];
+                if(!e.address)return UINT32_MAX;
+                if(e.address==address && e.side==side)return e.record;
+                slot=(slot+1)&(Capacity-1);
+            }
+            return UINT32_MAX;
+        }
+        bool insert(uintptr_t address,unsigned side,unsigned record) noexcept {
+            if(!address)return false;
+            auto slot=bucket(address,side);
+            for(unsigned n=0;n<Capacity;++n){auto& e=entries[slot];
+                if(!e.address){e={address,side,record};return true;}
+                if(e.address==address && e.side==side)return false;
+                slot=(slot+1)&(Capacity-1);
+            }
+            return false;
+        }
+    };
     static uintptr_t pointer(const std::byte* p){uintptr_t v{};std::memcpy(&v,p,8);return v;}
     bool append(uintptr_t address,unsigned side,unsigned kind,unsigned list,unsigned parent,unsigned size){
         failure_address=address;
@@ -31,7 +62,8 @@ struct TransformSnapshot {
         auto& r=records[count];r={};r.address=address;r.side=side;r.kind=kind;r.list=list;r.parent=parent;r.size=size;
         std::memcpy(r.bytes.data(),reinterpret_cast<void*>(address),size);++count;return true;
     }
-    bool capture(const uintptr_t* owners,uintptr_t module_base=0) noexcept {
+    bool capture(const uintptr_t* owners,uintptr_t module_base=0,bool fixed_slots=false) noexcept {
+        fixed_constraint_slots=fixed_slots;
         valid=false;count=0;failure=0;trapped_exception=0;failure_address=0;
         __try {
             for(unsigned side=0;side<2;++side){
@@ -46,9 +78,9 @@ struct TransformSnapshot {
                         if(++groups>group_limit)return reject(4,group);
                         auto g=count;
                         if(!append(group,side,1,list,root,0x58))return false;
-                        auto node=pointer(records[g].bytes.data()+0x48);auto first_node=count;
+                        auto node=pointer(records[g].bytes.data()+0x48);AddressIndex<1024> seen_nodes;
                         while(node){
-                            for(unsigned n=first_node;n<count;++n)if(records[n].kind==2 && records[n].address==node)return reject(5,node);
+                            if(!seen_nodes.insert(node,0,count))return reject(5,node);
                             if(++nodes>node_limit)return reject(6,node);
                             auto n=count;
                             if(!append(node,side,2,list,g,0x80))return false;
@@ -65,7 +97,12 @@ struct TransformSnapshot {
                                 if(links<0 || links>4 || constraints<0 || constraints>4)return reject(12,node+0xD8);
                                 for(unsigned j=0;j<static_cast<unsigned>(links);++j)
                                     if(!append(node+0xE0+j*0x10,side,14,list,n,12))return false;
-                                for(unsigned j=0;j<static_cast<unsigned>(constraints);++j){
+                                if(fixed_constraint_slots){
+                                    // Ghidra336F80 adds collision contacts to four embedded slots.
+                                    // Capture the slots, not a variable-length graph of active contacts.
+                                    for(unsigned j=0;j<4;++j)
+                                        if(!append(node+0x120+j*0x60,side,25,list,n,0x58))return false;
+                                }else for(unsigned j=0;j<static_cast<unsigned>(constraints);++j){
                                     auto entry=node+0x120+j*0x60;
                                     if(!append(entry,side,15,list,n,16))return false;
                                     auto link=count;
@@ -91,7 +128,30 @@ struct TransformSnapshot {
                         group=pointer(records[g].bytes.data()+0x40);
                     }
                 }
+                if(fixed_constraint_slots && module_base){
+                    // 34BE26..34BEC7 walks these owner lists before the group solver.
+                    // Capture target dependencies independently of current contact count.
+                    const auto first=count;unsigned owned=0;
+                    for(unsigned list=0;list<2;++list){
+                        auto target=pointer(records[root].bytes.data()+8+list*0x10);
+                        while(target){
+                            for(unsigned j=first;j<count;++j)
+                                if(records[j].kind==26 && records[j].address==target)return reject(13,target);
+                            if(++owned>node_limit || target>UINTPTR_MAX-0xD0)return reject(13,target);
+                            const auto t=count;
+                            if(!append(target,side,26,list,root,8) || !append(target+0x28,side,27,list,t,8))return false;
+                            if(pointer(records[t].bytes.data())==module_base+0x3E88E38){
+                                if(!append(target+0x80,side,18,list,t,64) ||
+                                   !append(target+0x40,side,19,list,t,64) ||
+                                   !append(target+0x10,side,20,list,t,32) ||
+                                   !append(target+0xC0,side,21,list,t,16))return false;
+                            }
+                            target=pointer(records[t+1].bytes.data());
+                        }
+                    }
+                }
             }
+            if(fixed_constraint_slots && !constraint_dependencies(module_base))return reject(14,failure_address);
             if(module_base){
                 auto global_record=count;
                 if(!append(module_base+0x470E038,2,5,0,0,8) || !append(module_base+0x4846450,2,6,0,0,4))return false;
@@ -130,11 +190,30 @@ struct TransformSnapshot {
             valid=true;failure_address=0;return true;
         }__except(EXCEPTION_EXECUTE_HANDLER){trapped_exception=GetExceptionCode();return reject(8,failure_address);}
     }
-    bool same_topology(const TransformSnapshot& other)const{
-        if(!valid || !other.valid || count!=other.count)return false;
-        for(unsigned i=0;i<count;++i){auto& a=records[i];auto& b=other.records[i];
-            if(a.address!=b.address || a.side!=b.side || a.kind!=b.kind || a.list!=b.list || a.parent!=b.parent || a.size!=b.size)return false;
+    // Pure snapshot comparison: never dereference potentially retired game objects.
+    // reason, record, field, saved, next, counts, validity, differing record metadata.
+    using TopologyDiagnostic=std::array<uint64_t,22>;
+    bool same_topology(const TransformSnapshot& other,TopologyDiagnostic* diagnostic=nullptr)const{
+        if(diagnostic){*diagnostic={};(*diagnostic)[5]=count;(*diagnostic)[6]=other.count;
+            (*diagnostic)[7]=valid;(*diagnostic)[8]=other.valid;}
+        auto reject=[&](unsigned reason,unsigned record,unsigned field,uint64_t a,uint64_t b){
+            if(diagnostic){auto& d=*diagnostic;d[0]=reason;d[1]=record;d[2]=field;d[3]=a;d[4]=b;
+                if(record<count && record<records.size()){
+                    const auto& r=records[record];d[9]=r.address;d[10]=r.side;d[11]=r.kind;d[12]=r.list;d[13]=r.parent;d[14]=r.size;}
+                if(record<other.count && record<other.records.size()){
+                    const auto& r=other.records[record];d[15]=r.address;d[16]=r.side;d[17]=r.kind;d[18]=r.list;d[19]=r.parent;d[20]=r.size;}}
+            return false;
+        };
+        if(!valid || !other.valid)return reject(1,UINT32_MAX,0,valid,other.valid);
+        if(fixed_constraint_slots!=other.fixed_constraint_slots)return reject(6,UINT32_MAX,0,fixed_constraint_slots,other.fixed_constraint_slots);
+        if(count>records.size() || other.count>other.records.size())return reject(3,UINT32_MAX,0,count,other.count);
+        const unsigned common=count<other.count?count:other.count;
+        for(unsigned i=0;i<common;++i){const auto& a=records[i];const auto& b=other.records[i];
+            const uint64_t av[]={a.address,a.side,a.kind,a.list,a.parent,a.size};
+            const uint64_t bv[]={b.address,b.side,b.kind,b.list,b.parent,b.size};
+            for(unsigned f=0;f<6;++f)if(av[f]!=bv[f])return reject(4,i,f,av[f],bv[f]);
         }
+        if(count!=other.count)return reject(2,common,0,count,other.count);
         return true;
     }
     // Dynamic global wind lists are owned/compared separately only when a
@@ -286,7 +365,90 @@ struct TransformSnapshot {
         }__except(EXCEPTION_EXECUTE_HANDLER){return false;}
     }
     static bool wind_field(unsigned kind){return (kind>=7 && kind<=11) || kind==23 || kind==24;}
+    // Pure captured dependency validation. Never dereference inactive slot pointers.
+    bool constraint_dependencies(uintptr_t base)const noexcept {
+        if(!base || count>records.size())return false;
+        AddressIndex<2048> owned_targets;
+        for(unsigned k=0;k<count;++k){const auto& t=records[k];
+            if(t.kind!=26 || t.size!=8 || pointer(t.bytes.data())!=base+0x3E88E38)continue;
+            // Preserve the first matching record used by the previous linear search.
+            if(owned_targets.find(t.address,t.side)!=UINT32_MAX)continue;
+            if(!owned_targets.insert(t.address,t.side,k))return false;
+        }
+        for(unsigned i=0;i<count;++i){const auto& node=records[i];
+            if(node.kind!=2)continue;
+            const auto vt=pointer(node.bytes.data());
+            if(vt!=base+0x3E88DB8 && vt!=base+0x3E88DF8)continue;
+            if(node.size!=0x80 || node.side>1 || i+1>=count)return false;
+            const auto& payload=records[i+1];
+            if(payload.kind!=12 || payload.parent!=i || payload.address!=node.address+0x80 || payload.size!=0x60)return false;
+            std::int16_t links{},contacts{};
+            std::memcpy(&links,payload.bytes.data()+0x58,2);std::memcpy(&contacts,payload.bytes.data()+0x5A,2);
+            if(links<0 || links>4 || contacts<0 || contacts>4)return false;
+            unsigned slots=0;
+            for(unsigned j=i+2;j<count && records[j].kind!=2 && records[j].kind!=0 && records[j].kind!=1;++j){
+                const auto& r=records[j];if(r.kind!=25 || r.parent!=i)continue;
+                if(slots>=4 || r.side!=node.side || r.address!=node.address+0x120+slots*0x60 || r.size!=0x58)return false;
+                if(slots<static_cast<unsigned>(contacts)){
+                    const auto target=pointer(r.bytes.data()+0x50);
+                    const auto k=owned_targets.find(target,node.side);
+                    if(k==UINT32_MAX)return false;
+                    {const auto& t=records[k];
+                        if(t.parent>=count || records[t.parent].kind!=0 || records[t.parent].side!=t.side || k+5>=count)return false;
+                        const unsigned kinds[]={27,18,19,20,21},sizes[]={8,64,64,32,16},offsets[]={0x28,0x80,0x40,0x10,0xC0};
+                        for(unsigned d=0;d<5;++d){const auto& x=records[k+1+d];
+                            if(x.parent!=k || x.kind!=kinds[d] || x.side!=t.side || x.size!=sizes[d] || x.address!=target+offsets[d])return false;
+                        }
+                    }
+                }
+                ++slots;
+            }
+            if(slots!=4)return false;
+        }
+        return true;
+    }
+    bool restore_constraint_slots(const TransformSnapshot& next,const TransformSnapshot& current,uintptr_t base,bool validate_only)const noexcept {
+        __try {
+            if(!fixed_constraint_slots || !same_topology(next) || !same_topology(current) ||
+               !constraint_dependencies(base) || !next.constraint_dependencies(base) || !current.constraint_dependencies(base))return false;
+            for(unsigned i=0;i<count;++i){const auto& a=records[i];const auto& b=next.records[i];const auto& c=current.records[i];
+                if(a.kind!=2 && a.kind!=12 && a.kind!=14 && a.kind!=25 && a.kind!=26 && a.kind!=27)continue;
+                if(std::memcmp(c.bytes.data(),reinterpret_cast<void*>(a.address),a.size))return false;
+                if(a.kind==12){
+                    // Sway vectors may already be rewound; only contact count changes here.
+                    if(a.size!=0x60 || std::memcmp(a.bytes.data()+0x58,b.bytes.data()+0x58,2) ||
+                       std::memcmp(b.bytes.data()+0x58,c.bytes.data()+0x58,4))return false;
+                }else{
+                    if(std::memcmp(b.bytes.data(),c.bytes.data(),a.size))return false;
+                    if(a.kind==14){
+                        // 33A1E0 writes the distance at +8; 338870 consumes it.
+                        // The target pointer is topology, never a restorable scalar.
+                        if(a.size!=12 || a.parent>=count)return false;
+                        const auto& node=records[a.parent];
+                        const auto vt=pointer(node.bytes.data());
+                        if(node.kind!=2 || node.side!=a.side ||
+                           (vt!=base+0x3E88DB8 && vt!=base+0x3E88DF8) ||
+                           a.address<node.address+0xE0 || (a.address-node.address-0xE0)%0x10 ||
+                           (a.address-node.address-0xE0)/0x10>=4 ||
+                           std::memcmp(a.bytes.data(),b.bytes.data(),8))return false;
+                    }else if(a.kind!=25 && std::memcmp(a.bytes.data(),b.bytes.data(),a.size))return false;
+                }
+            }
+            if(validate_only)return true;
+            // Restore audited link distances without rewriting their stable target pointers.
+            for(unsigned i=0;i<count;++i){const auto& a=records[i];if(a.kind==14)std::memcpy(reinterpret_cast<void*>(a.address+8),a.bytes.data()+8,4);}
+            // Publish pointers/vectors first and the saved active count last.
+            for(unsigned i=0;i<count;++i){const auto& a=records[i];if(a.kind==25)std::memcpy(reinterpret_cast<void*>(a.address),a.bytes.data(),a.size);}
+            for(unsigned i=0;i<count;++i){const auto& a=records[i];if(a.kind==12)std::memcpy(reinterpret_cast<void*>(a.address+0x5A),a.bytes.data()+0x5A,2);}
+            for(unsigned i=0;i<count;++i){const auto& a=records[i];
+                if((a.kind==25 || a.kind==14) && std::memcmp(reinterpret_cast<void*>(a.address),a.bytes.data(),a.size))return false;
+                if(a.kind==12 && std::memcmp(reinterpret_cast<void*>(a.address+0x5A),a.bytes.data()+0x5A,2))return false;
+            }
+            return true;
+        }__except(EXCEPTION_EXECUTE_HANDLER){return false;}
+    }
     bool restore_constraints(const TransformSnapshot& next,const TransformSnapshot& current,uintptr_t module_base,bool validate_only=false)const noexcept {
+        if(fixed_constraint_slots)return restore_constraint_slots(next,current,module_base,validate_only);
         __try {
             if(!same_topology(next) || !same_topology(current))return false;
             for(unsigned i=0;i<count;++i){auto& a=records[i];auto& b=next.records[i];auto& c=current.records[i];
@@ -344,7 +506,7 @@ struct TransformSnapshot {
                     if(a.kind==12){
                         if(a.address!=parent.address+0x80 || a.size!=0x60)return false;
                         for(unsigned j=0x40;j<a.size;++j)
-                            if((j<0x4C || j>=0x50) && a.bytes[j]!=b.bytes[j])return false;
+                            if((j<0x4C || j>=0x50) && !(fixed_constraint_slots && (j==0x5A || j==0x5B)) && a.bytes[j]!=b.bytes[j])return false;
                     }else if(vt!=module_base+0x3E88DF8 || a.address!=parent.address+0x2F0 || a.size!=12)return false;
                 }
                 if(a.kind!=12 && std::memcmp(a.bytes.data(),b.bytes.data(),a.size))return false;
@@ -355,7 +517,13 @@ struct TransformSnapshot {
                 std::memcpy(reinterpret_cast<void*>(a.address+0x4C),a.bytes.data()+0x4C,4);
             }
             for(unsigned i=0;i<count;++i){auto& a=records[i];
-                if(a.kind==12 && std::memcmp(reinterpret_cast<void*>(a.address),a.bytes.data(),a.size))return false;
+                if(a.kind==12){
+                    const auto* live=reinterpret_cast<const std::byte*>(a.address);
+                    for(unsigned j=0;j<a.size;++j){
+                        const auto expected=fixed_constraint_slots && (j==0x5A || j==0x5B)?next.records[i].bytes[j]:a.bytes[j];
+                        if(live[j]!=expected)return false;
+                    }
+                }
             }
             return true;
         }__except(EXCEPTION_EXECUTE_HANDLER){return false;}

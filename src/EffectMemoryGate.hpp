@@ -16,6 +16,19 @@ public:
         if(outcome)*outcome=AccessOutcome::entered;
         access();return true;
     }
+    // Retry only lock contention, outside the lock. Never retry an entered read,
+    // a stopped lifetime, or a validation failure inside the access callback.
+    template<class Access,class Retry> bool try_access_bounded(const std::atomic<bool>& stopped,
+        Access&& access,Retry&& retry,unsigned limit,unsigned& attempts,AccessOutcome& outcome) {
+        attempts=0;outcome=AccessOutcome::not_attempted;
+        while(attempts<limit){
+            ++attempts;
+            if(try_access(stopped,access,&outcome))return true;
+            if(outcome!=AccessOutcome::contended || stopped.load(std::memory_order_acquire) ||
+               attempts==limit || !retry())return false;
+        }
+        return false;
+    }
     template<class Decision> bool release_decision(Decision&& decision) {
         std::lock_guard guard(mutex_);
         return decision();

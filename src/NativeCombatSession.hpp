@@ -1,5 +1,6 @@
 #pragma once
 #include "NativeSchedulerStorage.hpp"
+#include "NativeStartupTiming.hpp"
 #include "BoundedRollbackSession.hpp"
 #include "CombatClockBridge.hpp"
 #include "ReservedBattleDriver.hpp"
@@ -32,6 +33,7 @@ public:
         unsigned clock_identity{},clock_frame{};
         CombatStartAgreement::Offer offer;
         bool image_verified{},bilateral_private{},boundaries_owned{},verified_void_entry{},approved_profile{},general_restore{};
+        bool prediction_enabled{true};
     };
     // Pure validation: reject inconsistent startup data before publishing a hold.
     static bool valid_config(const Config& c){
@@ -75,6 +77,7 @@ private:
     // The report worker reads only atomics, never live clock/game memory.
     std::array<std::atomic<uint64_t>,44> backend_diagnostics_{};
     std::atomic<bool> backend_diagnostic_ready_{};
+    std::array<std::atomic<uint64_t>,10> capture_diagnostics_{};
     unsigned backend_site_{};
     void backend_diagnostics(){
         if(backend_diagnostic_ready_.load())return;
@@ -94,6 +97,8 @@ private:
             adapter_.expected_frame(),state.slots,state.local_mask,state.remote_mask,state.all_mask,state.mode,config_.clock_frame,config_.identity.frame};
         static_assert(std::size(values)==44);
         for(unsigned i=0;i<backend_diagnostics_.size();++i)backend_diagnostics_[i]=values[i];
+        if constexpr(requires {history_.capture_diagnostic;})
+            for(unsigned i=0;i<capture_diagnostics_.size();++i)capture_diagnostics_[i]=history_.capture_diagnostic[i];
         backend_diagnostic_ready_.store(true,std::memory_order_release);
     }
     NativeBattleBoundaryReader<> reader_;
@@ -133,24 +138,38 @@ private:
             NativeFilterFramePreparation<NativeFilterAccess>::Config c{outer,config_.clock_object,config_.base,k.thread,
                 config_.clock_identity,config_.clock_frame,k.frame,k.round,k.event,k.generation};
             std::array<uint32_t,2> seed{};
-            if(!NativeFilterAccess::seed(c,seed) || !raw_coordinator_.seed(k.thread,seed) || !filters_.bind(c,k.slot))return false;
+            if(!NativeFilterAccess::seed(c,seed) || !raw_coordinator_.seed(k.thread,seed) || !filters_.bind(c,k.slot,config_.prediction_enabled))return false;
             filters_bound_=true;
         }
         return filters_.filter(outer,slot,reverse,edges,held,restrict_buttons,raw)==decltype(filters_)::Result::prepared;
     }
+    std::array<std::atomic<uint64_t>,10> prediction_gate_rejections_{};
+    std::array<std::atomic<uint64_t>,12> prediction_gate_last_{};
     bool prediction_gate(const NativeClockAccess<>::State& wait,bool native_wait){
         const auto& k=config_.identity;
-        if(!published_ || !ready() || pending_token_ || GetCurrentThreadId()!=k.thread)return false;
+        auto reject=[&](unsigned reason){++prediction_gate_rejections_[reason];prediction_gate_last_[0]=reason;return false;};
+        prediction_gate_last_[1]=wait.identity;prediction_gate_last_[2]=wait.frame;
+        prediction_gate_last_[3]=wait.wait_reason;prediction_gate_last_[4]=native_wait;
+        prediction_gate_last_[5]=adapter_.expected_frame();
+        if(!published_)return reject(1);
+        if(!ready())return reject(2);
+        if(pending_token_)return reject(3);
+        if(GetCurrentThreadId()!=k.thread)return reject(4);
         NativePredictionFrontier::Sample sample;
-        if(!NativePredictionFrontier::read(config_.base,config_.clock_object,sample) ||
-           sample.identity!=wait.identity || sample.frame!=wait.frame || sample.battle!=adapter_.expected_frame())return false;
+        if(!NativePredictionFrontier::read(config_.base,config_.clock_object,sample))return reject(5);
+        prediction_gate_last_[6]=sample.identity;prediction_gate_last_[7]=sample.frame;prediction_gate_last_[8]=sample.battle;
+        if(sample.identity!=wait.identity || sample.frame!=wait.frame)return reject(6);
+        if(sample.battle!=adapter_.expected_frame())return reject(7);
         const auto fight=RoundFightReadiness::read(config_.base,k.round,k.generation,sample.battle);
-        if(!fight.permits(k.round,k.generation,sample.battle,k.thread))return false;
+        prediction_gate_last_[9]=fight.status;prediction_gate_last_[10]=fight.vtable;prediction_gate_last_[11]=fight.handler;
+        if(!fight.permits(k.round,k.generation,sample.battle,k.thread))return reject(8);
         // 3FDFA0 reason 2 is missing confirmed horizon; reason 3 is pacing.
         // Preserve transition/timeout waits, including the prior stateful wait.
-        const bool eligible=NativePredictionFrontier::eligible(sample,wait.wait_reason,native_wait,true);
+        const bool eligible=config_.prediction_enabled?NativePredictionFrontier::eligible(sample,wait.wait_reason,native_wait,true):
+            (!native_wait && NativePredictionFrontier::classify(sample)==NativePredictionFrontier::confirmed);
         if(eligible && native_wait)++prediction_admissions_;else if(!eligible)++prediction_waits_;
-        return eligible;
+        if(!eligible)return reject(9);
+        prediction_gate_last_[0]=0;return true;
     }
     static bool outer_clock(uintptr_t outer,uintptr_t clock)noexcept{
         __try {return outer && *reinterpret_cast<uintptr_t*>(outer+0x478)==clock;}
@@ -194,7 +213,13 @@ public:
              if(!ok){self.backend_site_=1;self.terminate(CombatRuntimeStatus::backend_failure);}return ok;
          },[](void* p,uint32_t frame,const std::array<uint32_t,10>& native){
              auto& self=*static_cast<NativeCombatSession*>(p);
-             return self.filters_.complete(frame,native) && self.raw_coordinator_.before_step(self.config_.identity.thread);
+             const bool ok=self.filters_.complete(frame,native) && self.raw_coordinator_.before_step(self.config_.identity.thread);
+             if(ok && frame>=self.config_.identity.frame){
+                 const auto index=frame-self.config_.identity.frame;
+                 if(const auto* input=self.raw_.delivery().frame(index))
+                     self.clock_.dispatch().access().input_consumed(self.config_.clock_frame+index,input->raw[self.config_.identity.slot-1]);
+             }
+             return ok;
          }},recorder_route_{config.clock_object,this,[](void* p,uintptr_t){
              auto& self=*static_cast<NativeCombatSession*>(p);
              const bool ok=self.publish_raw();if(!ok){self.backend_site_=2;self.terminate(CombatRuntimeStatus::backend_failure);}return ok;
@@ -225,7 +250,7 @@ public:
             !c.boundaries_owned || !c.verified_void_entry || !source_.available() || !source_.effects)return false;
         if(!session_.attach_journal(journal_) || !reader_.bind(c.base,c.caller,k,c.image_verified) ||
             !(previous_?publication_.bind_after(previous_->publication_,shared,k.session,k.round,k.event,k.frame):
-                publication_.bind(shared,k.session,k.round,k.event,k.frame)) ||
+                publication_.bind(shared,k.session,k.round,k.event,k.frame,true)) ||
             !raw_.bind(k.session,k.peer,k.round,k.event,k.frame,k.slot,k.thread,{},previous_?&previous_->raw_:nullptr) ||
             !raw_view_.bind(raw_.delivery(),k.session,k.round,k.event,k.frame,k.thread) ||
             !adapter_.attach_raw_history(raw_view_,k.session,k.round,k.event) ||
@@ -366,6 +391,8 @@ public:
             hold && !hold->ready(config_.clock_object,GetTickCount64()))return false;
         if(!reader_.frontier(key.frame) ||
             !clock_.dispatch().at_boundary(config_.clock_identity,config_.clock_frame))return false;
+        const auto fight=RoundFightReadiness::read(config_.base,key.round,key.generation,key.frame);
+        if(!fight.permits(key.round,key.generation,key.frame,key.thread))return false;
         if(!agreement.activation_ready() || !agreement.consume(offer))return false;
         published_=publish_combat_routes(routes_,previous_?&previous_->routes_:nullptr);
         if(published_){
@@ -382,6 +409,7 @@ public:
                 terminate(CombatRuntimeStatus::activation_failure);return false;
             }
         }
+        if(published_)status.activated_at=GetTickCount64();
         status.active.store(published_,std::memory_order_release);return published_;
     }
     auto& clock_dispatch(){return clock_.dispatch();}
@@ -389,9 +417,19 @@ public:
     const SchedulerInputSink& input_sink()const{return sink_;}
     // Exactly one logging worker may call this after session publication.
     void report(std::ostream& events,std::ostream& summary){
+        summary<<"continuous_archive_full="<<publication_.archive_full()<<"\ncontinuous_archive_omitted="<<publication_.archive_omitted()<<'\n';
         storage_.timing.write(summary);
+        summary<<"continuous_prediction_gate_schema=1\n";
+        for(unsigned i=1;i<prediction_gate_rejections_.size();++i)summary<<"continuous_prediction_gate_reject_"<<i<<'='<<prediction_gate_rejections_[i].load()<<'\n';
+        for(unsigned i=0;i<prediction_gate_last_.size();++i)summary<<"continuous_prediction_gate_last_"<<i<<'='<<prediction_gate_last_[i].load()<<'\n';
+
+        summary<<"input_latency_prediction_enabled="<<config_.prediction_enabled<<"\ninput_latency_baseline_is_unmodified_game=0\n";
+        clock_.dispatch().access().write_input_latency(summary);
+        native_startup_timing.write(summary);
         summary<<"continuous_workspace_reuse=1\ncontinuous_workspace_timing_is_reset=1\n";
         report_.drain(journal_,events);report_.write(summary);
+        summary<<"continuous_raw_duplicate_coalescing=1\ncontinuous_raw_coalesced="<<raw_.coalesced()
+            <<"\ncontinuous_raw_queue_full="<<raw_.queue_full()<<'\n';
         summary<<"continuous_confirmation_round_retired="<<raw_.retired()
             <<"\ncontinuous_route_round_retired="<<routes_.retired()
             <<"\ncontinuous_retired_input_packets="<<confirmations_.retired_packets()<<'\n';
@@ -402,6 +440,10 @@ public:
             "recorder_appended","recorder_already_published","recorder_flushes","drained","duplicates","late_confirmations","applied",
             "pending_clock_services","pending_clock_elapsed_ms","pending_clock_max_ms"};
         for(unsigned i=0;i<raw_diagnostics_.size();++i)summary<<"continuous_raw_"<<names[i]<<'='<<raw_diagnostics_[i].load()<<'\n';
+        summary<<"continuous_capture_schema=1\n";
+        constexpr const char* capture_names[]={"stage","frame","oldest","count","native_stage","exception","fault","valid","observed_frame","saved"};
+        if(backend_diagnostic_ready_.load(std::memory_order_acquire))
+            for(unsigned i=0;i<capture_diagnostics_.size();++i)summary<<"continuous_capture_"<<capture_names[i]<<'='<<capture_diagnostics_[i].load()<<'\n';
         summary<<"continuous_backend_diagnostic_schema=1\ncontinuous_backend_diagnostic_ready="<<backend_diagnostic_ready_.load(std::memory_order_acquire)<<'\n';
         constexpr const char* backend_names[]={"site","prepared","published","transport_ready","driver_stopped","storage_failed","driver_failure",
             "bridge_failure","dispatch_failure","clock_failure","clock_exception","clock_stage",
@@ -426,6 +468,7 @@ public:
         status.adapter_failure=adapter_.failure;status.adapter_exception=adapter_.exception;
         status.updates=adapter_.calls;
         if(storage_.restore_diagnostic.values[NativeRestoreDiagnostic::invoked])status.restored=true;
+        for(unsigned i=0;i<status.topology_details.size();++i)status.topology_details[i]=storage_.restore_diagnostic.topology[i];
         static_assert(NativeRestoreDiagnostic::count==49);
         for(unsigned i=0;i<NativeRestoreDiagnostic::count;++i)status.restore_details[i]=storage_.restore_diagnostic.values[i];
         for(unsigned record=0;record<16;++record)for(unsigned field=0;field<9;++field)

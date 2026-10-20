@@ -43,6 +43,7 @@ public:
     }
     template<class Session> bool reserve_from(const Session& controller,uint64_t session,uint64_t round,
         unsigned thread,unsigned identity,unsigned clock){
+        if constexpr(requires {controller.trace_admission(session,round);})controller.trace_admission(session,round);
         const auto admission=controller.admission(session,round);
         if(admission==Session::Admission::restart_required)return fail();
         return reserve(session,round,thread,identity,clock,admission==Session::Admission::ready);

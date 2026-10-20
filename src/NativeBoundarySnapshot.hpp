@@ -125,19 +125,22 @@ struct NativeBoundarySnapshot {
     }
     // Pure structural assessment is available for combat captures too. Passing
     // it does not authorize loading or relax move/input-specific readiness.
-    Rejection structural_readiness(const NativeBoundarySnapshot& current)const{
+    Rejection structural_readiness(const NativeBoundarySnapshot& current,TransformSnapshot::TopologyDiagnostic* topology=nullptr)const{
+        if(topology)*topology={};
         if(!valid || fault || !current.valid || current.fault)return Rejection::invalid_capture;
         if(module!=current.module)return Rejection::module;
         if(thread!=current.thread || thread!=GetCurrentThreadId())return Rejection::thread;
         const auto& a=*data;const auto& b=*current.data;
-        if(a.external_wind_lifecycle!=b.external_wind_lifecycle)return Rejection::transforms;
+        if(a.external_wind_lifecycle!=b.external_wind_lifecycle){
+            if(topology){(*topology)[0]=5;(*topology)[3]=a.external_wind_lifecycle;(*topology)[4]=b.external_wind_lifecycle;}
+            return Rejection::transforms;}
         if(a.before_keys[0]==UINT32_MAX || b.before_keys[0]!=a.before_keys[0]+1u)return Rejection::frame;
         if(std::memcmp(a.before_players,b.before_players,sizeof(a.before_players)))return Rejection::players;
         if(!IdleTrajectoryAudit::same_shape(a.saved,b.saved))return Rejection::shape;
         if(!b.rings[0].rotated_from(a.rings[0]))return Rejection::rings;
         if(!a.measurements[0].rng || a.measurements[0].rng>=2147483647 ||
            !b.measurements[0].rng || b.measurements[0].rng>=2147483647)return Rejection::rng;
-        if(!a.transforms[0].same_topology(b.transforms[0]))return Rejection::transforms;
+        if(!a.transforms[0].same_topology(b.transforms[0],topology))return Rejection::transforms;
         if(!IdleTrajectoryAudit::camera_identity(a.cameras[0],b.cameras[0]))return Rejection::camera;
         return Rejection::none;
     }

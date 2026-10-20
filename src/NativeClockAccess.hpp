@@ -2,6 +2,7 @@
 #include <Windows.h>
 #include <cstdint>
 #include <limits>
+#include "NativeInputLatency.hpp"
 
 namespace sc6::research {
 struct NativeClockCalls {
@@ -33,6 +34,15 @@ public:
     enum class Result {unbound,ready,native_wait,withheld,advanced,restart_required};
     enum class Failure {none,identity,layout,phase,order,exception,service_advanced,advance_count};
 private:
+    mutable NativeInputLatency latency_;
+    static bool local_entry(uintptr_t object,const State& state,uint32_t frame,bool& present,uint32_t& raw)noexcept{
+        __try {
+            const auto entry=object+0x3C0+(state.local_mask==1?0:0x2000)+(frame&511u)*16;
+            present=*reinterpret_cast<const uint32_t*>(entry)==state.identity &&
+                *reinterpret_cast<const uint32_t*>(entry+4)==frame && *reinterpret_cast<const uint8_t*>(entry+12)==1;
+            raw=present?*reinterpret_cast<const uint32_t*>(entry+8):0;return true;
+        }__except(EXCEPTION_EXECUTE_HANDLER){return false;}
+    }
     uintptr_t base_{},object_{};
     DWORD owner_{};
     uint32_t identity_{};
@@ -126,9 +136,21 @@ public:
         if(serviced_){fail(Failure::order);return Result::restart_required;}
         State before{},after{};
         stage_=1;if(!validate(before))return Result::restart_required;
+        // 3F2B60 publishes local_cursor into the tagged 512-entry input ring.
+        // Only newly valid entries are bracketed; pre-existing entries remain missing.
+        std::array<bool,4> existed{},readable{};uint32_t ignored{};
+        for(unsigned i=0;i<4&&before.local_cursor<=INT32_MAX-i;++i)
+            readable[i]=local_entry(object_,before,before.local_cursor+i,existed[i],ignored);
+        const auto started=NativeInputLatency::now();
         stage_=2;if(!invoke_service())return Result::restart_required;
+        const auto ended=NativeInputLatency::now();latency_.service(started,ended);
         stage_=3;if(!validate(after))return Result::restart_required;
         if(after.frame!=before.frame){fail(Failure::service_advanced);return Result::restart_required;}
+        for(unsigned i=0;i<4&&before.local_cursor<=INT32_MAX-i;++i){
+            bool present{};uint32_t raw{};
+            if(readable[i]&&!existed[i]&&local_entry(object_,after,before.local_cursor+i,present,raw)&&present)
+                latency_.publication(before.local_cursor+i,raw,started,ended);
+        }
         serviced_state_=after;serviced_=true;
         return native_wait_?Result::native_wait:Result::ready;
     }
@@ -142,14 +164,17 @@ public:
         stage_=4;if(!validate(before))return Result::restart_required;
         serviced_=false;
         if(before.frame!=serviced_state_.frame){fail(Failure::advance_count);return Result::restart_required;}
-        if(native_wait_ && !prediction_authorized)return Result::native_wait;
-        if(!scheduler_admits)return Result::withheld;
+        if(native_wait_ && !prediction_authorized){latency_.decision(true,false,wait_state_.wait_reason,NativeInputLatency::now());return Result::native_wait;}
+        if(!scheduler_admits){latency_.decision(native_wait_,false,wait_state_.wait_reason,NativeInputLatency::now());return Result::withheld;}
         if(before.frame==static_cast<uint32_t>(INT32_MAX)){fail(Failure::advance_count);return Result::restart_required;}
         stage_=5;if(!invoke_advance())return Result::restart_required;
         stage_=6;if(!validate(after))return Result::restart_required;
         if(after.frame!=before.frame+1){fail(Failure::advance_count);return Result::restart_required;}
+        latency_.decision(native_wait_,true,wait_state_.wait_reason,NativeInputLatency::now());
         return Result::advanced;
     }
+    void input_consumed(uint32_t frame,uint32_t raw)const{latency_.consumed(frame,raw,NativeInputLatency::now());}
+    void write_input_latency(std::ostream& out)const{latency_.write(out);}
     const State& last_serviced_state()const{return serviced_state_;}
     const State& last_wait_state()const{return wait_state_;}
     const State& last_observed_state()const{return observed_state_;}

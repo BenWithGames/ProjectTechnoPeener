@@ -22,10 +22,19 @@ public:
         bool accepted=false;
         return gate_.try_access(notices_.stopped,[&]{accepted=edit(births);}) && accepted;
     }
+    EffectBirthJournal::Compaction compact_births(unsigned first){
+        if(!owner() || !active_)return EffectBirthJournal::Compaction::rejected;
+        return births.try_discard_prefix(gate_,notices_.stopped,first);
+    }
     // Lifetime evidence only. Atomics allow report reads without traversing live objects.
     std::atomic<uint64_t> native_deferred{},snapshot_protected{},allocator_releases{},revivals{};
     template<class Stream> void retention_report(Stream& out)const{
         births.report(out);
+        out<<"suite_wind_restore_schema=1\nsuite_wind_restore_check="<<restore_check.load()
+           <<"\nsuite_wind_restore_object="<<restore_object.load()<<"\nsuite_wind_restore_gate="<<restore_gate_outcome.load()
+           <<"\nsuite_wind_restore_attempts="<<restore_attempts.load()<<"\nsuite_wind_restore_image_check="<<restore_image_check.load()
+           <<"\nsuite_wind_restore_image_exception="<<restore_image_exception.load()<<"\nsuite_wind_restore_mutation_started="<<restore_mutated.load()
+           <<"\nsuite_wind_restore_retry_acquired="<<restore_retry_acquired.load()<<"\nsuite_wind_restore_retry_exhausted="<<restore_retry_exhausted.load()<<'\n';
         out<<"suite_wind_capture_runtime_check="<<capture_check.load()<<"\nsuite_wind_capture_object="<<capture_object.load()
            <<"\nsuite_wind_capture_address="<<capture_address.load()<<"\nsuite_wind_capture_vtable="<<capture_vtable.load()
            <<"\nsuite_wind_capture_image_check="<<image_check.load()<<"\nsuite_wind_capture_image_exception="<<image_exception.load()
@@ -34,12 +43,18 @@ public:
            <<"\nsuite_wind_gate_thread="<<capture_gate_thread.load()<<"\nsuite_wind_gate_owner="<<capture_gate_owner.load()
            <<"\nsuite_wind_gate_frame="<<capture_gate_frame.load()<<"\nsuite_wind_gate_attempts="<<capture_gate_attempts.load()
            <<"\nsuite_wind_gate_contentions="<<capture_gate_contentions.load()<<"\nsuite_wind_gate_stops="<<capture_gate_stops.load()
+           <<"\nsuite_wind_gate_retry_recovered="<<capture_gate_retry_recovered.load()
+           <<"\nsuite_wind_gate_retry_exhausted="<<capture_gate_retry_exhausted.load()
+           <<"\nsuite_wind_gate_last_attempts="<<capture_gate_last_attempts.load()
            <<"\nsuite_wind_gate_last_rejection="<<capture_gate_last_rejection.load()<<'\n';
         out<<"suite_retention_schema=1\nsuite_retention_native_deferred="<<native_deferred.load()
            <<"\nsuite_retention_snapshot_protected="<<snapshot_protected.load()
            <<"\nsuite_retention_allocator_releases="<<allocator_releases.load()
            <<"\nsuite_retention_revivals="<<revivals.load()<<'\n';
     }
+    std::atomic<unsigned> restore_check{},restore_object{},restore_gate_outcome{},restore_attempts{},restore_image_check{},restore_image_exception{},restore_mutated{};
+    std::atomic<uint64_t> restore_retry_acquired{},restore_retry_exhausted{};
+    std::atomic<uint64_t> capture_gate_retry_recovered{},capture_gate_retry_exhausted{},capture_gate_last_attempts{};
     std::atomic<unsigned> capture_gate_outcome{},capture_gate_thread{},capture_gate_owner{},capture_gate_last_rejection{};
     std::atomic<uint64_t> capture_gate_frame{},capture_gate_attempts{},capture_gate_contentions{},capture_gate_stops{};
     std::atomic<unsigned> capture_check{},capture_object{},image_check{},image_exception{},capture_stopped{},capture_window_failed{};
@@ -179,8 +194,9 @@ public:
         capture_stopped=notices_.stopped.load();capture_window_failed=window_.failed();
         if(!owner() || !active_)return result;
         capture_check=2;
-        ++capture_gate_attempts;EffectMemoryGate::AccessOutcome gate_outcome{};
-        gate_.try_access(notices_.stopped,[&]{
+        EffectMemoryGate::AccessOutcome gate_outcome{};unsigned attempts{};
+        LARGE_INTEGER retry_start{},retry_frequency{};
+        gate_.try_access_bounded(notices_.stopped,[&]{
             EffectEnvironment before,after;
             capture_check=3;if(!environment_reader_(module_,before))return;
             typename NativeEffectImage<Capacity>::CaptureDiagnostic diagnostic;
@@ -201,9 +217,20 @@ public:
             image.valid=result.generation!=0;
             if(image.valid){image.snapshot_serial=result.generation;image.snapshot_slot=result.slot;
                 image.session=result.session;image.round=result.round;image.frame=result.frame;capture_check=0;}
-        },&gate_outcome);
+        },[&]{
+            // Native allocators/releases are outside this gate. Yield only after
+            // contention; cap retries at 64 attempts and a 1 ms QPC budget.
+            LARGE_INTEGER now{};if(!QueryPerformanceCounter(&now))return false;
+            if(!retry_start.QuadPart){retry_start=now;if(!QueryPerformanceFrequency(&retry_frequency) || retry_frequency.QuadPart<=0)return false;}
+            if(now.QuadPart-retry_start.QuadPart>=retry_frequency.QuadPart/1000)return false;
+            SwitchToThread();return true;
+        },64,attempts,gate_outcome);
+        capture_gate_attempts+=attempts;capture_gate_last_attempts=attempts;
         capture_gate_outcome=static_cast<unsigned>(gate_outcome);
-        if(gate_outcome==EffectMemoryGate::AccessOutcome::contended){++capture_gate_contentions;capture_gate_last_rejection=2;}
+        const auto contentions=attempts-(gate_outcome==EffectMemoryGate::AccessOutcome::contended?0u:1u);
+        if(contentions){capture_gate_contentions+=contentions;capture_gate_last_rejection=2;}
+        if(gate_outcome==EffectMemoryGate::AccessOutcome::entered && attempts>1)++capture_gate_retry_recovered;
+        if(gate_outcome==EffectMemoryGate::AccessOutcome::contended)++capture_gate_retry_exhausted;
         if(gate_outcome==EffectMemoryGate::AccessOutcome::stopped){++capture_gate_stops;capture_gate_last_rejection=3;}
         capture_stopped=notices_.stopped.load();capture_window_failed=window_.failed();
         if(!result.generation)image.valid=false;
@@ -233,35 +260,59 @@ public:
     // valid. There is no production implementation of that verifier yet.
     template<class References> bool apply_effect_image(Snapshot snapshot,const NativeEffectImage<Capacity>& saved,
         NativeEffectImage<Capacity>& current,References&& references){
+        restore_check=1;restore_object=UINT32_MAX;restore_gate_outcome=0;restore_attempts=0;
+        restore_image_check=0;restore_image_exception=0;restore_mutated=0;
         if(!owner() || !active_ || restart_required_ || saved.snapshot_serial!=snapshot.generation ||
            saved.snapshot_slot!=snapshot.slot || saved.session!=snapshot.session || saved.round!=snapshot.round || saved.frame!=snapshot.frame)return false;
-        bool applied=false;
-        gate_.try_access(notices_.stopped,[&]{
+        bool applied=false;restore_check=2;
+        EffectMemoryGate::AccessOutcome outcome{};unsigned attempts{};
+        LARGE_INTEGER retry_start{},frequency{};
+        gate_.try_access_bounded(notices_.stopped,[&]{
             EffectEnvironment environment;
-            if(!window_.snapshot_valid(snapshot) || !environment_reader_(module_,environment) ||
-               !saved.environment.same(environment) || !current.capture(saved.manager,module_))return;
+            restore_check=3;if(!window_.snapshot_valid(snapshot))return;
+            restore_check=4;if(!environment_reader_(module_,environment))return;
+            restore_check=5;if(!saved.environment.same(environment))return;
+            typename NativeEffectImage<Capacity>::CaptureDiagnostic diagnostic;
+            restore_check=6;const bool captured=current.capture(saved.manager,module_,&diagnostic);
+            restore_image_check=diagnostic.check;restore_image_exception=diagnostic.exception;restore_object=diagnostic.index;
+            if(!captured)return;
             for(unsigned i=0;i<current.count;++i){auto& object=current.objects[i];
+                restore_check=7;restore_object=i;
                 auto token=registry_.constructed(object.address,object.vtable,true,window_);
                 if(!token.generation)return;object.generation=token.generation;
             }
             EffectRestorePlan<Capacity> plan;
-            if(!plan.prepare(saved,current,module_,[&](uintptr_t address,uint64_t generation){return window_.retained(snapshot,Token{address,generation});}) ||
-               !references(saved,current))return;
-            // The verifier may observe a transition. Reject before the first write.
-            // This recheck is not a substitute for stage-worker synchronization.
+            restore_check=8;
+            if(!plan.prepare(saved,current,module_,[&](uintptr_t address,uint64_t generation){return window_.retained(snapshot,Token{address,generation});}))return;
+            restore_check=9;if(!references(saved,current))return;
             EffectEnvironment before_write;
-            if(!environment_reader_(module_,before_write) || !saved.environment.same(before_write))return;
+            restore_check=10;if(!environment_reader_(module_,before_write))return;
+            restore_check=11;if(!saved.environment.same(before_write))return;
+            restore_check=12;restore_mutated=1;
             if(!EffectImageWriter<Capacity>::write(saved,write_exception_)){restart_required_=true;notices_.stopped=true;return;}
             for(unsigned i=0;i<saved.count;++i){const auto& object=saved.objects[i];
+                restore_check=13;restore_object=i;
                 const Token token{object.address,object.generation};const bool was_retired=!window_.live(token);
                 if(!window_.restored(snapshot,token)){restart_required_=true;notices_.stopped=true;return;}
                 if(was_retired)++revivals;
             }
             for(unsigned i=0;i<plan.remove_count;++i){const auto& object=current.objects[plan.remove[i]];
+                restore_check=14;restore_object=plan.remove[i];
                 if(!window_.retire({object.address,object.generation})){restart_required_=true;notices_.stopped=true;return;}
             }
-            applied=true;
-        });return applied;
+            applied=true;restore_check=0;
+        },[&]{
+            // Only lock contention is retried. An entered transaction, including
+            // validation rejection or partial writes, is never executed twice.
+            LARGE_INTEGER now{};if(!QueryPerformanceCounter(&now))return false;
+            if(!retry_start.QuadPart){retry_start=now;if(!QueryPerformanceFrequency(&frequency) || frequency.QuadPart<=0)return false;}
+            if(now.QuadPart-retry_start.QuadPart>=frequency.QuadPart/1000)return false;
+            SwitchToThread();return true;
+        },64,attempts,outcome);
+        restore_attempts=attempts;restore_gate_outcome=static_cast<unsigned>(outcome);
+        if(outcome==EffectMemoryGate::AccessOutcome::entered && attempts>1)++restore_retry_acquired;
+        if(outcome==EffectMemoryGate::AccessOutcome::contended)++restore_retry_exhausted;
+        return applied;
     }
     bool restart_required()const noexcept{return restart_required_;}
     unsigned write_exception()const noexcept{return write_exception_;}

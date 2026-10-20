@@ -5,6 +5,8 @@ namespace sc6::research {
 // peer identity and nonce checks MUST precede decode at the transport boundary.
 struct RawPredictionPacket {
     static constexpr unsigned kind=11,version=1;
+    static constexpr int fast_channel=27863;
+
     template<class Packet> static bool encode(const RawInputConfirmation& input,Packet& packet){
         if(!input.sender || !input.recipient || input.sender==input.recipient || !input.round || !input.event ||
            input.round>UINT32_MAX || input.event>UINT32_MAX || input.frame>UINT32_MAX || input.slot<1 || input.slot>2)return false;

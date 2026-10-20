@@ -103,11 +103,13 @@ static void contain_outer_failure()noexcept{
 }
 extern "C" void SC6NativeOuterEnter(uintptr_t outer)noexcept{
     const auto error=GetLastError();
+    sc6::research::native_outer_timing.enter(outer,sc6::research::NativeOuterTiming::now(),sc6::research::NativeOuterTiming::observe(outer));
     if(!sc6::research::native_outer_completion.enter(GetCurrentThreadId(),outer))contain_outer_failure();
     SetLastError(error);
 }
 extern "C" void SC6NativeOuterReturned(uintptr_t outer)noexcept{
     const auto error=GetLastError();
+    sc6::research::native_outer_timing.returned(outer,sc6::research::NativeOuterTiming::now(),sc6::research::NativeOuterTiming::observe(outer));
     if(!sc6::research::native_outer_completion.returned(GetCurrentThreadId(),outer))contain_outer_failure();
     SetLastError(error);
 }
@@ -1256,7 +1258,7 @@ bool queue_continuous_start_impl(const ContinuousStartRequest& request){
          native_confirmed_recorder_hook_base.store(r.base,std::memory_order_release);
      }
      if(native_confirmed_recorder_hook_base.load()!=r.base)return false;
-     NativeCombatSession::Config config;config.general_restore=true;
+     NativeCombatSession::Config config;config.general_restore=true;config.prediction_enabled=request.prediction_enabled;
      config.base=r.base;config.caller=r.base+0x3FE816;config.clock_object=clock.object;
      config.original=reinterpret_cast<SingleUpdateCall::Routine>(SC6Original);
      config.identity.session=request.local_nonce;config.identity.peer=request.remote_nonce;

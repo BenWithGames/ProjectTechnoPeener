@@ -19,6 +19,7 @@ inline bool installed{};
 inline uintptr_t installed_base{};
 inline NativeClockDiscovery discovery;
 inline void bridge(uintptr_t object) {
+    ++NativeOuterTiming::clock_counts.calls;
     const auto now=GetTickCount64();
     // Owner-thread consumers use this entry's inspection, even when a reader
     // prevents publication to the optional cross-thread discovery cache.

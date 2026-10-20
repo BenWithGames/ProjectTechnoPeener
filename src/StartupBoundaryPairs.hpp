@@ -33,4 +33,20 @@ public:
         rows[n]=pending_;count.store(n+1,std::memory_order_release);
     }
 };
+// Record only completed fight-ready pairs. Intro/loading remains native-owned.
+class FightStartupPairs {
+    StartupBoundaryPairs::Row pending_{};bool pending_valid_{};
+public:
+    StartupBoundaryPairs pairs;
+    std::atomic<unsigned> waiting{},last_status{},last_vtable{},last_handler{};
+    void clock(uint32_t identity,uint32_t frame){pending_={identity,frame,0};pending_valid_=true;}
+    void battle(uint32_t frame,bool permitted,unsigned status,unsigned vtable,unsigned handler){
+        last_status=status;last_vtable=vtable;last_handler=handler;
+        if(pairs.count.load(std::memory_order_acquire)>=2){pending_valid_=false;return;}
+        if(!permitted){++waiting;pending_valid_=false;return;}
+        if(!pending_valid_)return;
+        pairs.clock(pending_.identity,pending_.clock);pairs.battle(frame);pending_valid_=false;
+    }
+};
+
 }

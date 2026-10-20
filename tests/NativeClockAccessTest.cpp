@@ -18,11 +18,20 @@ struct NativeClockDiscoveryTestAccess {
 #include <cassert>
 #include <cstring>
 #include <iostream>
+#include <sstream>
 static unsigned services{},waits{},advances{},order{};
+static bool publish_input{};
 static bool waiting{},bad_service{},bad_advance{},stateful_wait{};
 struct Calls {
     static void service(uintptr_t,uintptr_t object){
         assert(order==0);order=1;++services;
+        if(publish_input){
+            const auto frame=*reinterpret_cast<const uint32_t*>(object+0x4410);
+            const auto entry=object+0x3C0+(frame&511u)*16;
+            *reinterpret_cast<uint32_t*>(entry)=*reinterpret_cast<const uint32_t*>(object+0x3A0);
+            *reinterpret_cast<uint32_t*>(entry+4)=frame;*reinterpret_cast<uint32_t*>(entry+8)=5;
+            *reinterpret_cast<uint8_t*>(entry+12)=1;
+        }
         if(bad_service)++*reinterpret_cast<uint32_t*>(object+0x3A4);
     }
     static bool waiting(uintptr_t,uintptr_t object){
@@ -65,6 +74,17 @@ struct Fixture {
     bool bind(Clock& clock){return clock.bind(base,reinterpret_cast<uintptr_t>(object.data()),GetCurrentThreadId(),true,true,true);}
 };
 int main(){
+    {
+        Fixture f;f.put(0x4410,100);Clock clock;assert(f.bind(clock));
+        publish_input=true;assert(clock.service()==R::ready);assert(clock.finish(true)==R::advanced);
+        clock.input_consumed(100,5);publish_input=false;
+        std::ostringstream out;clock.write_input_latency(out);
+        assert(out.str().find("input_latency_matched=1\n")!=std::string::npos);
+        assert(out.str().find("input_latency_invalid=0\n")!=std::string::npos);
+        clock.input_consumed(101,5);out.str("");clock.write_input_latency(out);
+        assert(out.str().find("input_latency_missing=1\n")!=std::string::npos);
+    }
+
     {
         Fixture f;const auto object=reinterpret_cast<uintptr_t>(f.object.data());
         Clock::State state{};Clock::Failure failure{};unsigned exception{};

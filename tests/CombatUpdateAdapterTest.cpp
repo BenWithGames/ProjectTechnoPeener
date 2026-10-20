@@ -1,6 +1,8 @@
 #include "../src/CombatUpdateAdapter.hpp"
 #include "../src/BoundedRollbackSession.hpp"
 #include <cassert>
+#include "../src/NativeStartupTiming.hpp"
+#include "../src/NativeInputLatency.hpp"
 #include "../src/CombatBoundaryReservation.hpp"
 #include "../src/SimulationBoundaryDriver.hpp"
 #include "../src/ReservedBattleDriver.hpp"
@@ -89,6 +91,44 @@ static void shared_raw_history_test(){
 }
 int main(){
     {
+        NativeInputLatency timing;
+        timing.publication(10,5,100,110);timing.consumed(10,5,130);
+        timing.consumed(10,5,140); // replay/duplicate must not add latency samples
+        timing.consumed(11,0,150); // pre-existing or unobserved input is missing
+        timing.publication(12,1,200,210);timing.consumed(12,2,220); // changed word rejected
+        timing.publication(13,0,300,310);timing.publication(525,0,320,330); // bounded ring alias
+        timing.decision(true,false,2,100);timing.decision(true,false,2,110);
+        timing.decision(true,true,2,130); // one 30-tick episode, not two intervals
+        timing.decision(true,false,3,150); // unfinished episode censored
+        std::ostringstream out;timing.write(out);const auto text=out.str();
+        assert(text.find("input_latency_matched=1\n")!=std::string::npos);
+        assert(text.find("input_latency_duplicate=1\n")!=std::string::npos);
+        assert(text.find("input_latency_missing=1\n")!=std::string::npos);
+        assert(text.find("input_latency_invalid=1\n")!=std::string::npos);
+        assert(text.find("input_latency_overwritten=1\n")!=std::string::npos);
+        assert(text.find("input_latency_native_wait_episode_count=1\n")!=std::string::npos);
+        assert(text.find("input_latency_native_wait_bypassed_calls=1\n")!=std::string::npos);
+        assert(text.find("input_latency_native_wait_open_censored=1\n")!=std::string::npos);
+    }
+
+    {
+        NativeStartupTiming t;t.frequency=1000000;
+        t.add(NativeStartupTiming::session_first,1,100,2100,7);
+        t.add(NativeStartupTiming::session_first,2,3000,4000,8);
+        t.add(NativeStartupTiming::session_rearm,2,4000,7000,8);
+        assert(t.buckets[NativeStartupTiming::session_first].calls==2);
+        assert(t.buckets[NativeStartupTiming::session_first].maximum==2000);
+        assert(t.buckets[NativeStartupTiming::session_first].max_round==1);
+        assert(t.buckets[NativeStartupTiming::session_first].max_thread==7);
+        t.add(NativeStartupTiming::activation,0,0,1,1);assert(t.invalid==1);
+        std::ostringstream report;t.write(report);
+        assert(report.str().find("startup_timing_session_first_mean_us=1500")!=std::string::npos);
+        assert(report.str().find("startup_timing_session_rearm_max_round=2")!=std::string::npos);
+        auto& b=native_startup_timing.buckets[NativeStartupTiming::activation];auto n=b.calls.load();
+        try{NativeStartupScope scope(NativeStartupTiming::activation,3);throw 1;}catch(int){}
+        assert(b.calls==n+1);
+    }
+    {
         NativeRollbackTiming timing;timing.frequency=1000000;
         timing.add(NativeRollbackTiming::capture,77,100,20100);
         timing.add(NativeRollbackTiming::capture,78,100,60100);
@@ -126,6 +166,21 @@ int main(){
         assert(!NativeRollbackTiming::active);
     }
     shared_raw_history_test();
+    { // A full diagnostic archive must not stop live publication or later round handoff.
+        auto shared=std::make_unique<sc6::observation::Shared>();
+        shared->signature=sc6::observation::magic;shared->schema=sc6::observation::version;
+        shared->nonce=1;shared->frequency=10000000;shared->status=1;shared->reserved=sc6::observation::owned_mode;
+        OwnedInputPublication pub,next;assert(pub.bind(*shared,1,1,1,0,true));
+        for(unsigned i=0;i<7200;++i)assert(pub.publish(1,1,i,{}));
+        const auto archived_last=shared->records[7199];
+        for(unsigned i=7200;i<7300;++i)assert(pub.publish(1,1,i,{}));
+        assert(shared->count==7200 && shared->status==1 && !pub.complete() && pub.archive_omitted()==100);
+        assert(!std::memcmp(&archived_last,&shared->records[7199],sizeof(archived_last)));
+        assert(pub.retire() && next.bind_after(pub,*shared,1,2,2,8000));
+        assert(next.publish(1,2,8000,{}) && next.archive_omitted()==1 && shared->status==1);
+        assert(!next.publish(1,2,8002,{}) && shared->status==3); // gaps still fail after saturation
+    }
+
     {
         auto shared=std::make_unique<sc6::observation::Shared>();
         shared->signature=sc6::observation::magic;shared->schema=sc6::observation::version;

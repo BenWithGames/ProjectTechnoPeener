@@ -1,5 +1,6 @@
 #pragma once
 #include "NativeClockAccess.hpp"
+#include "NativeOuterTiming.hpp"
 namespace sc6::research {
 // Routes a whole native dispatcher call. The admission callback must reserve
 // one matching battle-boundary update before returning true; it must NOT run
@@ -59,6 +60,9 @@ public:
             bool eligible=available && result==R::ready;
             if(available && !failed_ && prediction_)eligible=prediction_(context_,clock_.last_wait_state(),result==R::native_wait);
             const bool admit=!failed_ && eligible && admit_(context_,clock_.last_serviced_state());
+            if(!available)++NativeOuterTiming::clock_counts.unavailable;
+            else if(!eligible)++NativeOuterTiming::clock_counts.ineligible;
+            else if(!admit)++NativeOuterTiming::clock_counts.unadmitted;
             if(!failed_){
                 if constexpr(requires {clock_.finish(admit,false);})result=clock_.finish(admit,admit && prediction_ && eligible);
                 else result=clock_.finish(admit);
@@ -67,6 +71,7 @@ public:
         if(failed_ || result==R::restart_required || result==R::unbound){
             fail(Failure::native_clock);result=R::restart_required;
         }
+        if(result==R::advanced)++NativeOuterTiming::clock_counts.advanced;
         notify_(context_,result);
         entered_=false;
         // Never call original here, including after partial servicing/failure.

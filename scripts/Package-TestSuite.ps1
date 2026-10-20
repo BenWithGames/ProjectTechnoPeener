@@ -238,6 +238,15 @@ if($BuildLabel -eq 'LivePrediction'){
     Copy-Item (Join-Path $project 'docs/LIVE_PREDICTION.txt') (Join-Path $destination 'README.txt') -Force
     [IO.File]::WriteAllText($installer,[IO.File]::ReadAllText($installer).Replace('Installed and verified PredictionCorrection suite.','Installed and verified LivePrediction suite.').Replace('Follow README.txt: warm up, return to the private lobby, then run Steam-TestSuite.cmd.','No warmup: join the first private lobby and run Steam-TestSuite.cmd.'))
 }
+if($BuildLabel -eq 'LivePrediction'){
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'Compare-InputLatency.ps1') -Destination $destination
+    Copy-Item -LiteralPath (Join-Path $project 'docs\INPUT_LATENCY_COMPARISON.md') -Destination $destination
+    $baseline=Get-Content -LiteralPath (Join-Path $destination 'TestSuite.json') -Raw | ConvertFrom-Json
+    $baseline | Add-Member -NotePropertyName predictionEnabled -NotePropertyValue $false -Force
+    $baseline | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $destination 'TestSuite-PredictionDisabled.json') -Encoding ascii
+    @('@echo off','powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0Steam-TestSuite.ps1" -Config "%~dp0TestSuite-PredictionDisabled.json"','pause') | Set-Content -LiteralPath (Join-Path $destination 'Steam-TestSuite-PredictionDisabled.cmd') -Encoding ascii
+    Add-Content -LiteralPath (Join-Path $destination 'README.txt') -Value "`r`nINPUT LATENCY COMPARISON: Steam-TestSuite.cmd enables prediction. Steam-TestSuite-PredictionDisabled.cmd preserves native waits with confirmed native inputs. Both PCs must choose the same mode. Restart between modes. Both retain instrumentation and snapshot overhead. See INPUT_LATENCY_COMPARISON.md."
+}
 $zip=Join-Path $OutputDirectory ((Split-Path $destination -Leaf)+'.zip')
 Compress-Archive -Path (Join-Path $destination '*') -DestinationPath $zip
 $dllHash=(Get-FileHash -LiteralPath (Join-Path $payload 'main.dll')).Hash

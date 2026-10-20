@@ -1,0 +1,13 @@
+# Effect restoration gate — 2026-10-19
+
+Report 5132 stopped in NativeHistoryRestore::load, hop 0 of a three-frame rewind (battle source 8149, expected head 8152). NativeEffectSession failure 3 identifies effect restoration, not an exact failed subcheck. External-reference and emitter failures were not reported. The prior capture gate counters do not describe restoration. Do not claim the historical failure is proved to be contention.
+
+Fresh Ghidra output: work/ghidra-sc6-focus/effect-restore-5132-audit. At 333FD0 the native manager saves the next list link, changes the expired object's vtable, unlinks its neighbors/head, and invokes release with argument 0x70. Our EffectReleaseBridge releases the bookkeeping mutex before forwarding to the native allocator. This supports bounded retry outside the lock, not ignoring lifetime changes or taking a mutex around native simulation.
+
+Concrete weakness repaired: apply_effect_image previously made one try-lock attempt and returned the same false value for contention and validation rejection. It now retries only contention, at most 64 attempts and a 1ms QPC retry budget. Once entered, the entire transaction executes once. Stopped lifetimes, invalid snapshots, reference/environment failures, and write failures never retry. Partial writes remain terminal. Successful first attempts incur no retry QPC calls.
+
+Diagnostics: suite_wind_restore_session_phase 1 binding validation, 2 emitter preflight, 3 runtime apply, 4 emitter restore, 0 success. Runtime restore_check: 1 caller/key; 2 lock; 3 retained snapshot; 4 environment read; 5 environment identity; 6 live image capture; 7 object registry; 8 restore plan; 9 external references; 10 second environment read; 11 second environment identity; 12 memory write; 13 revival bookkeeping; 14 retirement bookkeeping; 0 success. The gate outcome, attempts, mutation flag, object index and image read check/exception accompany it. These are last-attempt diagnostics; acquired-after-retry counts do not by themselves imply successful restoration.
+
+Regression coverage: deterministic runtime contention exhaustion without writes/reference callback; subsequent ordinary validation and restoration; reference rejection, environment mismatch and transition, successful revival/removal, stale snapshot rejection, and terminal write exception. Existing gate tests cover deterministic retry acquisition, stopped lifetime, and never repeating an entered callback. All round, exact verification and retention safeguards remain.
+
+Live validation remains necessary: this repairs a real failure mode but cannot prove it was the reason for report 5132. No scheduler or slow-motion changes included.

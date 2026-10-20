@@ -34,6 +34,9 @@ public:
         const auto first=last>3?last-3:0;
         for(auto n=first;n<=last && n<submitted_.size();++n){uint32_t raw{};
             if(submitted_[n] || !route_.truth(owner,n,raw))continue;
+            if constexpr(requires {session_.trace_confirmation(n,uint64_t{},uint64_t{});}){
+                uint64_t enqueued{},drained{};if(route_.arrival_times(owner,n,enqueued,drained))session_.trace_confirmation(n,enqueued,drained);
+            }
             const auto result=session_.receive(local_,round_,n,marker(raw));
             if(result!=Session::Arrival::accepted && result!=Session::Arrival::duplicate)return fail();
             submitted_[n]=true;

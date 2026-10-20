@@ -4,6 +4,16 @@
 #include "RoundFightReadiness.hpp"
 namespace sc6::research {
 struct NativeFilterAccess {
+    template<class C> static bool confirmed_remote(const C& c,unsigned local,uint32_t frame,uint32_t& raw)noexcept{
+        __try{
+            if(local<1||local>2||GetCurrentThreadId()!=c.owner ||
+               *reinterpret_cast<const uint32_t*>(c.clock+0x3A0)!=c.identity)return false;
+            const auto p=c.clock+0x3C0+(2-local)*0x2000+(frame&511u)*16;
+            if(*reinterpret_cast<const uint32_t*>(p)!=c.identity || *reinterpret_cast<const uint32_t*>(p+4)!=frame ||
+               *reinterpret_cast<const uint8_t*>(p+12)!=1)return false;
+            raw=*reinterpret_cast<const uint32_t*>(p+8);return true;
+        }__except(EXCEPTION_EXECUTE_HANDLER){return false;}
+    }
     template<class C> static bool seed(const C& c,std::array<uint32_t,2>& raw)noexcept{
         __try{
             if(GetCurrentThreadId()!=c.owner || *reinterpret_cast<const uintptr_t*>(c.outer+0x478)!=c.clock)return false;

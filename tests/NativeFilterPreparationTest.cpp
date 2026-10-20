@@ -7,7 +7,8 @@ using namespace sc6::research;
 struct Access {
     static inline uint32_t frame=100,local=1;
     static inline std::array<uint32_t,2> previous_words{};
-    static inline bool valid=true;
+    static inline bool valid=true,remote_available=true;
+    template<class C> static bool confirmed_remote(const C&,unsigned,uint32_t,uint32_t& raw){raw=2;return remote_available;}
     template<class C,class S> static bool sample(const C&,unsigned,unsigned slot,uint32_t,S& out,uint32_t& number){
         out.local_raw=local;out.disabled=0;out.previous=previous_words[slot];number=frame;return valid;
     }
@@ -64,5 +65,15 @@ int main(){
     Access::frame=100;Access::valid=false;
     assert(guard.filter(0x1000,0,0,false,false,false,raw)==R::failed);
     assert(guarded.delivery().head()==0);
+    Access::valid=true;Access::local=1;Access::frame=100;
+    RawPredictionRoute<> baseline;assert(baseline.bind(1,2,3,4,500,1,thread,{0,0}));
+    NativeFilterFramePreparation<Access> bp(baseline);assert(bp.bind({0x1000,0x2000,0,thread,7,100,500},1,false));
+    assert(bp.filter(0x1000,0,0,false,false,false,raw)==R::prepared);
+    assert(bp.filter(0x1000,1,0,false,false,false,raw)==R::prepared && raw==2);
+    assert(baseline.delivery().frame(0)->confirmed);
+    envelope={1,1,2,2,0,0,0,0,0,0};assert(bp.complete(500,envelope));
+    Access::frame=101;Access::remote_available=false;
+    assert(bp.filter(0x1000,0,0,false,false,false,raw)==R::failed);
+    assert(baseline.delivery().head()==1);
     std::cout<<"Native filter preparation tests passed\n";
 }
