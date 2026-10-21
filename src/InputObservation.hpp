@@ -30,6 +30,7 @@ inline bool prepare_owned(Shared& shared,uint64_t nonce){
     MemoryBarrier();InterlockedExchange(&shared.status,1);return true;
 }
 inline std::wstring mapping_name(unsigned pid){return L"Local\\SC6InputObservation-"+std::to_wstring(pid);}
+inline std::wstring automatic_mapping_name(unsigned pid,uint64_t nonce){return mapping_name(pid)+L"-"+std::to_wstring(nonce);}
 template<size_t N> inline unsigned checksum(const std::array<Record,N>& records){
     unsigned h=2166136261u;
     for(const auto& r:records)for(auto word:r.data)for(unsigned shift=0;shift<32;shift+=8)h=(h^((word>>shift)&255u))*16777619u;

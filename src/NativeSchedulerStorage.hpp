@@ -48,6 +48,14 @@ public:
             return std::move(restore_);
         }else return {};
     }
+    bool discard_retired_workspace(){
+        if(failed_ || identity_.thread!=GetCurrentThreadId())return false;
+        if(!restore_)return true;
+        if constexpr(requires {restore_->prepare_for_reuse();}){
+            if(!restore_->prepare_for_reuse())return false;
+            restore_.reset();return true;
+        }else return false;
+    }
     bool begin_boundary(unsigned frame,const NetworkInputComposer::Envelope& local){
         if(!restore_ || failed_ || !base_ || !identity_.same_round(identity_) || identity_.thread!=GetCurrentThreadId())return fail();
         std::memcpy(endpoint_.data(),local.data(),40);

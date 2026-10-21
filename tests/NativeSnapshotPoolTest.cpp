@@ -320,5 +320,15 @@ int main(){
             for(const auto& h:handles)assert(reusable.retire(h));
         }
     }
-    std::cout<<"PASS: native snapshot in-place reuse, stale handle/identity/thread rejection, retention and poisoned slots\n";
+    {
+        sc6::research::NativeSnapshotPool<1> completed;
+        auto h=completed.acquire(9,1,1);assert(h);
+        assert(!completed.discard_drained_storage()); // a live handle cannot be discarded
+        assert(completed.release_dependencies(*h));
+        assert(completed.discard_drained_storage());
+        assert(completed.discard_drained_storage()); // terminal cleanup is idempotent
+        assert(!completed.visit(*h,[](auto&){return true;}));
+        assert(!completed.acquire(10,1,1)); // a new match must use a new pool
+    }
+    std::cout<<"PASS: native snapshot in-place reuse, stale handle/identity/thread rejection, retention, poisoned slots and terminal storage release\n";
 }

@@ -2,6 +2,8 @@
 #include "SteamObserver.hpp"
 #include "SteamHandshakeProtocol.hpp"
 #include "SteamPing.hpp"
+#include "OverlayPingTransport.hpp"
+#include "AutomaticPlayControl.hpp"
 #include "StatusOverlay.hpp"
 #include <bcrypt.h>
 #include <chrono>
@@ -37,14 +39,14 @@ inline void reset(uint64_t candidate,uint64_t now){
 inline void report(uint64_t now){
     if(now<next_report)return;next_report=now+3000;
     wchar_t name[32768]{};if(!GetModuleFileNameW(nullptr,name,32768))return;
-    const auto dir=std::filesystem::path(name).parent_path()/L"Mods/SC6Rollback/captures";
+    const auto dir=std::filesystem::path(name).parent_path()/(automatic_play::enabled?L"Mods/SC6Rollback/logs":L"Mods/SC6Rollback/captures");
     std::filesystem::create_directories(dir);
     std::ofstream out(dir/("steam-auto-"+std::to_string(GetCurrentProcessId())+".txt"));
     out<<"schema=1\nscope=automatic_compatibility_only\nrollback_active=0\ninjection=0\nrestore=0\ndefault_game_networking=1\n"
        <<"status="<<status<<"\npeer="<<peer<<"\nchannel="<<channel<<"\nmutual_confirmation="<<unsigned(compatible(now))
        <<"\nsent="<<sent<<"\nreceived="<<received<<"\nrejected="<<rejected<<"\nping_refresh_seconds=3\nping_rtt_ms=";
     const auto value=compatible(now)?ping.value(micros()):std::nullopt;if(value)out<<*value;else out<<"unavailable";
-    out<<"\n";
+    out<<"\n";overlay_ping.report(out);
 }
 inline void poll(){
     const auto now=GetTickCount64();

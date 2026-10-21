@@ -1179,8 +1179,20 @@ bool prepare_owned_replay_impl(){
 bool prepare_combat_recording_impl(std::uint64_t nonce,bool first_match){
  if(sc6::research::match_dataset::recording.load())return false;
  auto& r=state();AcquireSRWLockExclusive(&r.lock);
+ if(automatic_play::enabled && r.observation_used && r.observation &&
+    automatic_play::released.load()==r.observation->nonce && !research::combat_resource_preparation.load())r.observation_used=false;
  const bool eligible=r.verified && r.hooked && !r.active.load() && !r.observation_used && !r.network_reuse &&
      !r.observing && !r.restore_failed && r.observation && !sc6::research::combat_resource_preparation.load();
+ if(eligible && automatic_play::enabled){
+     const auto mapping=CreateFileMappingW(INVALID_HANDLE_VALUE,nullptr,PAGE_READWRITE,0,sizeof(observation::Shared),observation::automatic_mapping_name(GetCurrentProcessId(),nonce).c_str());
+     if(!mapping || GetLastError()==ERROR_ALREADY_EXISTS){if(mapping)CloseHandle(mapping);ReleaseSRWLockExclusive(&r.lock);return false;}
+     auto* view=static_cast<observation::Shared*>(MapViewOfFile(mapping,FILE_MAP_WRITE,0,0,sizeof(observation::Shared)));
+     if(!view){CloseHandle(mapping);ReleaseSRWLockExclusive(&r.lock);return false;}
+     // Prior published mappings remain valid for retired route readers.
+     *view={};view->schema=observation::version;view->pid=GetCurrentProcessId();
+     LARGE_INTEGER frequency{};QueryPerformanceFrequency(&frequency);view->frequency=frequency.QuadPart;
+     view->signature=observation::magic;r.observation=view;r.observation_mapping=mapping;
+ }
  const bool prepared=eligible && sc6::observation::prepare_owned(*r.observation,nonce);
  if(prepared){
      r.observation_used=true;
@@ -1201,6 +1213,10 @@ bool queue_continuous_start_impl(const ContinuousStartRequest& request){
  auto& r=state();AcquireSRWLockExclusive(&r.lock);bool result=false;
  try {result=[&]{
      using namespace sc6::research;
+     if(automatic_play::enabled && continuous_request && automatic_play::released.load()==continuous_request_nonce){
+         // Published callback storage remains valid for process lifetime.
+         (void)continuous_request.release();continuous_request_nonce=0;
+     }
      if(continuous_request || !request.private_match_confirmed || !request.build || !request.ticket ||
         !r.verified || !r.hooked || !SC6Original || !r.observation || r.observation->nonce!=request.local_nonce ||
         r.observation->reserved!=sc6::observation::owned_mode || r.observation->count || r.observation->status!=1)return false;

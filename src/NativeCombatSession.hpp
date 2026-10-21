@@ -21,6 +21,7 @@
 #include "RawPredictionTransport.hpp"
 #include "NativeConfirmedInputRecorder.hpp"
 #include "NativePredictionFrontier.hpp"
+#include "AutomaticPlayControl.hpp"
 namespace sc6::research {
 // Heap-allocate and retain for the entire lifetime of any published routes.
 // Preparation is deliberately separate from publishing the two native hooks.
@@ -388,6 +389,25 @@ public:
         status.native_outer_committed=true;status.active=false;routes_.retired_.store(true,std::memory_order_release);return true;
     }
     bool owns_current_routes()const{return combat_routes.load(std::memory_order_acquire)==&routes_;}
+    // Only a clean terminal match, after its report was saved, may unpublish.
+    // Objects remain alive: readers that already acquired an old route stay valid.
+    bool detach_completed_match(){
+        if(GetCurrentThreadId()!=config_.identity.thread || !automatic_play::may_release(config_.identity.session,
+           automatic_play::report_saved.load(),status.match_completed.load(),status.active.load(),status.restart_required.load(),
+           status.history_retired.load(),status.native_outer_committed.load(),retired()) || !input_routes_retired_ ||
+           !raw_.retired() || !clock_.reservation().quiescent() ||
+           combat_routes.load()!=&routes_ || raw_prediction_transport.load()!=&raw_ ||
+           post_battle_hook_gate.load()!=&post_gate_ || native_filter_preparation_route.load() ||
+           native_confirmed_recorder_route.load())return false;
+        raw_prediction_transport.store(nullptr,std::memory_order_release);
+        post_battle_hook_gate.store(nullptr,std::memory_order_release);
+        combat_routes.store(nullptr,std::memory_order_release);
+        for(auto* old=this;old;old=old->previous_){
+            if(!old->retired() || !old->status.history_retired.load() || old->status.restart_required.load() ||
+               !old->history_.discard_released_storage() || !old->storage_.discard_retired_workspace())return false;
+        }
+        return true;
+    }
     // Call at a quiescent owner-thread boundary BEFORE the first reserved clock
     // call, with both peers agreeing to this exact test. Caller retains *this.
     bool activate(CombatStartAgreement& agreement){

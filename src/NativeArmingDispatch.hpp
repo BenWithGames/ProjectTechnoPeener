@@ -108,6 +108,23 @@ private:
         __except(EXCEPTION_EXECUTE_HANDLER){return false;}
     }
     void poll(uintptr_t object)noexcept{
+        if(automatic_play::enabled && state_.load()==State::prepared &&
+           automatic_play::report_saved.load()==config_.identity.session &&
+           !combat_routes.load() && !native_clock_hook::startup_poll.load() && !native_clock_hook::start_hold.load()){
+            auto* runtime=combat_runtime_status.load();
+            if(runtime && runtime->session==config_.identity.session && runtime->match_completed.load() &&
+               !runtime->restart_required.load() && rearm_resources_ && rearm_resources_->match_end_clean.load() &&
+               rearm_resources_->retired.load() && !rearm_resources_->failed.load() && GetCurrentThreadId()==config_.identity.thread){
+                if(!rearm_resources_->snapshots.discard_released_storage()){automatic_play::cleanup_failed=true;return;}
+                const native_clock_hook::StartupPoll* expected=&callback_;
+                if(native_clock_hook::preparation_poll.compare_exchange_strong(expected,nullptr)){
+                    combat_resource_preparation.store(nullptr,std::memory_order_release);
+                    combat_runtime_status.store(nullptr,std::memory_order_release);
+                    automatic_play::released.store(config_.identity.session,std::memory_order_release);
+                }
+            }
+            return;
+        }
         if(object!=config_.clock_object)return;
         if(cancelled_.load(std::memory_order_acquire)){
             if(auto* status=combat_runtime_status.load(std::memory_order_acquire);status && status->session==config_.identity.session)status->request_stop();

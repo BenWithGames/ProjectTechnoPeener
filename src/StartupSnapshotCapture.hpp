@@ -8,6 +8,11 @@ template<class History=NativeRollingHistory<4>> class StartupSnapshotCapture {
 public:
     std::atomic<unsigned> captured{};
     std::atomic<bool> failed{},retired{};
+    bool discard_released_storage(){
+        if(!retired.load() || failed.load())return false;
+        if constexpr(requires {history_.discard_released_storage();})return history_.discard_released_storage();
+        else return true;
+    }
     bool release(){
         if(retired.load())return true;
         const bool ok=history_.release();if(!ok)failed=true;

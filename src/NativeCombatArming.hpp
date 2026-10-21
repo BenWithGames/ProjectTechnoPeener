@@ -38,10 +38,25 @@ private:
     void* rearm_context_{};RearmProvider rearm_provider_{};
     native_clock_hook::StartupPoll poll_route_{this,[](void* context,uintptr_t object)noexcept{
         auto& self=*static_cast<NativeCombatArming*>(context);
-        if(GetCurrentThreadId()!=self.owner_ || object!=self.config_.clock_object)return;
+        if(GetCurrentThreadId()!=self.owner_)return;
+        const bool completed_ack=automatic_play::enabled && self.session_ && self.session_->status.match_completed.load() &&
+            automatic_play::report_saved.load()==self.config_.identity.session;
+        if(object!=self.config_.clock_object && !completed_ack)return;
         if(self.session_ && self.session_->retired()){
             self.phase_=Phase::retired;
             if(!self.hold_.retire()){self.stop();return;}
+            if(automatic_play::enabled && self.session_->status.match_completed.load() &&
+               automatic_play::report_saved.load()==self.config_.identity.session){
+                if(native_clock_hook::start_hold.load()!=&self.hold_ ||
+                   native_clock_hook::startup_poll.load()!=&self.poll_route_ ||
+                   combat_start_exchange.load()!=&self.exchange_ || !self.session_->detach_completed_match()){
+                    self.stop();return;
+                }
+                native_clock_hook::start_hold.store(nullptr,std::memory_order_release);
+                combat_start_exchange.store(nullptr,std::memory_order_release);
+                native_clock_hook::startup_poll.store(nullptr,std::memory_order_release);
+                return;
+            }
             try {self.rearm(object);}catch(...){self.stop();}
             return;
         }

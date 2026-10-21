@@ -6,6 +6,7 @@
 #include "SteamHandshakeProtocol.hpp"
 #include "SteamInputExchange.hpp"
 #include "SteamPing.hpp"
+#include "OverlayPingTransport.hpp"
 #include "RoundEventObserver.hpp"
 #include "NetworkGameHandoff.hpp"
 #include "SchedulerInputSink.hpp"
@@ -19,6 +20,7 @@
 #include "ContinuousStopPacket.hpp"
 #include "CombatPeerContext.hpp"
 #include "NativeClockHook.hpp"
+#include "NativeBattleBoundaryReader.hpp"
 #include "CombatResourcePreparation.hpp"
 #include "StartupBoundaryAgreement.hpp"
 #include "StartupSuite.hpp"
@@ -27,6 +29,8 @@
 #include "StatusOverlay.hpp"
 #include "FrameRecorder.hpp"
 #include <chrono>
+#include <sstream>
+#include <new>
 
 namespace sc6::steam_handshake {
 using Send=bool(*)(void*,uint64_t,const void*,uint32_t,int,int);
@@ -67,7 +71,24 @@ inline void poll() {
     static std::array<bool,steam_inputs::limit> handed_off{};
     static std::array<bool,steam_inputs::limit> scheduler_handed_off{};
     static ULONGLONG last_peer=0,last_announcement=0;
+    static ULONGLONG continuous_flushed=0;
+    static std::ofstream continuous_events,outer_events;
+    static sc6::research::NativeOuterTiming::Worker outer_worker;
+    static uint64_t retired_peer_nonce{};
+    static unsigned pending_automatic_slot{};
     const auto now=GetTickCount64();
+    if(automatic_play::enabled && data_done && protocol.local_nonce && automatic_play::released.load()==protocol.local_nonce){
+        sc6::research::fresh_raw_sender.stop();
+        continuous_events.close();outer_events.close();outer_worker.header_written=false;
+        capture.~Capture();new(&capture) steam_inputs::Capture;
+        retired_peer_nonce=protocol.remote_nonce;protocol={};ping={};boundary_agreement={};
+        running=stopped=peer_live=data_done=continuous_queued=false;
+        input_mode=prepare_mode=continuous_mode=false;
+        sent=received=rejected=send_failed=0;last_peer=last_announcement=last_report=next=completed=0;
+        early_start_packets=stop_packets_received=stop_packets_sent=stop_started=last_stop_sent=0;
+        boundary_rejection_mask=boundary_rejection_live_identity=boundary_rejection_startup_identity=boundary_rejection_hold=0;
+        boundary_sent=boundary_agreed_at=continuous_flushed=0;pending_automatic_slot=0;report_path.clear();
+    }
     auto notify_stop=[&]{
         if(!continuous_mode || !stopped || !protocol.mutual || !net || !send)return;
         if(!stop_started)stop_started=now;
@@ -87,9 +108,6 @@ inline void poll() {
     if(auto* runtime=sc6::research::combat_runtime_status.load(std::memory_order_acquire);
        runtime && runtime->session==protocol.local_nonce){
         if((stopped || !running || data_done) && !runtime->match_completed.load())runtime->request_stop();
-        static ULONGLONG continuous_flushed=0;
-        static std::ofstream continuous_events,outer_events;
-        static sc6::research::NativeOuterTiming::Worker outer_worker;
         if(now-continuous_flushed>=250 && !report_path.empty()){
             continuous_flushed=now;
             if(!continuous_events.is_open()){
@@ -116,12 +134,14 @@ inline void poll() {
     ping.update(clock_us());
     const auto pump_start=steam_inputs::Capture::timestamp();
     auto report=[&](const char* status){
+        if(automatic_play::enabled && stopped)automatic_play::failed=true;
         if(stopped || !running || data_done)sc6::research::fresh_raw_sender.stop();
         if(continuous_mode && stopped){
             notify_stop();
             if(capture.owned_nonce && abort_combat_recording)abort_combat_recording(capture.owned_nonce);
         }
         std::ofstream out(report_path);
+        if(automatic_play::enabled)out<<"automatic_play=1\nautomatic_side_source=native_clock_local_mask\n";
         const auto* runtime=sc6::research::combat_runtime_status.load(std::memory_order_acquire);
         const bool live_runtime=continuous_mode && runtime && runtime->session==protocol.local_nonce;
         if(continuous_mode)out<<"continuous_restore_supported="<<sc6::research::NativeBoundarySnapshot::general_restore_implemented
@@ -296,6 +316,7 @@ inline void poll() {
         out<<"ping_method=minimum_of_5_minus_measured_reply_handling\nping_network_only=0\nping_burst_samples="<<ping.latest_samples
            <<"\nping_selected_raw_us="<<ping.latest_raw_us<<"\nping_selected_reply_handling_us="<<ping.latest_handling_us<<'\n';
         auto measured=ping.value(clock_us());out<<"ping_refresh_seconds=3\nping_rtt_ms="<<(measured?std::to_string(*measured):"unavailable")<<'\n';
+        overlay_ping.report(out);
         if(input_mode)out<<"target_records="<<steam_inputs::limit<<"\nslot_mapping_assumed=1\nlocal_records="<<capture.exchange.published<<"\nremote_records="<<capture.exchange.received
             <<"\npeer_checksum_match="<<capture.exchange.peer_match<<"\nlocal_checksum="<<observation::checksum(capture.exchange.local)
             <<"\nremote_checksum="<<observation::checksum(capture.exchange.remote)<<"\nqpc_frequency="<<(capture.shared?capture.shared->frequency:0)<<'\n';
@@ -449,13 +470,28 @@ inline void poll() {
             <<"\nshadow_errors="<<s.wrong<<"\nshadow_over_limit="<<s.over_limit<<"\nshadow_max_depth="<<s.max_depth
             <<"\nshadow_unseeded="<<s.unseeded<<"\nshadow_censored="<<s.censored<<"\nshadow_truth_mismatches="<<s.truth_mismatches
             <<"\nshadow_invalid="<<s.invalid<<"\nshadow_no_overlap="<<s.no_overlap<<"\nshadow_tail_excluded=4\nshadow_within_observed_bounds="<<s.within_observed_bounds()<<'\n';}
+        out.flush();return out.good();
     };
+    if(automatic_play::enabled && data_done){
+        const auto* runtime=sc6::research::combat_runtime_status.load();
+        if(automatic_play::cleanup_failed.load() || (runtime && runtime->restart_required.load())){
+            running=false;stopped=true;report("automatic_cleanup_failed_restart_required");return;
+        }
+    }
     if(running && continuous_mode && !data_done){
         auto* runtime=sc6::research::combat_runtime_status.load(std::memory_order_acquire);
         if(runtime && runtime->session==protocol.local_nonce && runtime->match_completed.load(std::memory_order_acquire) &&
            !runtime->restart_required.load()){
             capture.export_csv(report_path.parent_path()/report_path.stem());
-            data_done=true;report("continuous_match_complete");return;
+            data_done=true;const bool saved=report("continuous_match_complete");
+            if(automatic_play::enabled){
+                std::ofstream summary(report_path.parent_path()/(report_path.stem().string()+"-continuous.txt"));
+                if(continuous_events && summary){runtime->write_history(continuous_events,summary);outer_worker.write(sc6::research::native_outer_timing,summary);summary.flush();}
+                if(continuous_events.is_open())continuous_events.flush();if(outer_events.is_open())outer_events.flush();
+                if(saved && continuous_events.good() && summary.good())automatic_play::report_saved.store(protocol.local_nonce,std::memory_order_release);
+                else automatic_play::failed=true;
+            }
+            return;
         }
         if(runtime && runtime->session==protocol.local_nonce && runtime->first_update_expired(GetTickCount64())){
             unsigned empty=sc6::research::CombatRuntimeStatus::none;
@@ -469,16 +505,23 @@ inline void poll() {
     }
     if(!running) {
         wchar_t exe[32768]{};if(!GetModuleFileNameW(nullptr,exe,32768))return;
-        auto dir=std::filesystem::path(exe).parent_path()/L"Mods/SC6Rollback/captures";
+        auto dir=std::filesystem::path(exe).parent_path()/(automatic_play::enabled?L"Mods/SC6Rollback/logs":L"Mods/SC6Rollback/captures");
+        if(automatic_play::enabled && (!automatic_play::requested_peer || automatic_play::failed))return;
+        if(automatic_play::enabled){dir/=L"match-"+std::to_wstring(GetCurrentProcessId())+L"-"+std::to_wstring(now);std::filesystem::create_directories(dir);}
         input_mode=std::filesystem::exists(dir/L"steam-inputs.arm");
         auto arm=dir/(input_mode?L"steam-inputs.arm":L"steam-handshake.arm");
-        if(!std::filesystem::exists(arm))return;
+        if(!automatic_play::enabled && !std::filesystem::exists(arm))return;
+        if(automatic_play::enabled)input_mode=true;
         report_path=dir/((input_mode?"steam-inputs-":"steam-handshake-")+std::to_string(GetCurrentProcessId())+".txt");
         stopped=true;
-        std::ifstream config(arm);std::string mode,extra;uint64_t pid=0,peer=0;
+        std::ifstream file;std::stringstream automatic_config;
+        if(automatic_play::enabled)automatic_config<<"PRIVATE_STEAM_CONTINUOUS "<<GetCurrentProcessId()<<' '<<automatic_play::requested_peer<<" 0";
+        else file.open(arm);
+        std::istream& config=automatic_play::enabled?static_cast<std::istream&>(automatic_config):static_cast<std::istream&>(file);
+        std::string mode,extra;uint64_t pid=0,peer=0;
         unsigned local_slot=0;
         bool valid=bool(config>>mode>>pid>>peer);
-        if(input_mode)valid=valid && bool(config>>local_slot) && (local_slot==1||local_slot==2);
+        if(input_mode)valid=valid && bool(config>>local_slot) && (local_slot==1||local_slot==2||(automatic_play::enabled&&local_slot==0));
         suite_mode=input_mode && mode=="PRIVATE_STEAM_SUITE";
         prediction_disabled=input_mode && mode=="PRIVATE_STEAM_CONTINUOUS_BASELINE";
         continuous_mode=input_mode && (mode=="PRIVATE_STEAM_CONTINUOUS" || prediction_disabled);
@@ -487,12 +530,13 @@ inline void poll() {
         reuse_mode=input_mode && mode=="PRIVATE_STEAM_REUSE";late_mode=input_mode && mode=="PRIVATE_STEAM_LATE";
         replay_mode=input_mode && mode=="PRIVATE_STEAM_REPLAY";
         checkpoint_mode=input_mode && (mode=="PRIVATE_STEAM_CHECKPOINTS" || replay_mode || reuse_mode);
-        bool trailing=bool(config>>extra);config.close();std::filesystem::remove(arm);
+        bool trailing=bool(config>>extra);if(file.is_open())file.close();if(!automatic_play::enabled)std::filesystem::remove(arm);
         if(!valid||trailing||mode!=(continuous_mode?(prediction_disabled?"PRIVATE_STEAM_CONTINUOUS_BASELINE":"PRIVATE_STEAM_CONTINUOUS"):suite_mode?"PRIVATE_STEAM_SUITE":prepare_mode?"PRIVATE_STEAM_PREPARE":input_mode?(reuse_mode?"PRIVATE_STEAM_REUSE":late_mode?"PRIVATE_STEAM_LATE":replay_mode?"PRIVATE_STEAM_REPLAY":checkpoint_mode?"PRIVATE_STEAM_CHECKPOINTS":"PRIVATE_STEAM_INPUTS"):"PRIVATE_STEAM_HANDSHAKE")||pid!=GetCurrentProcessId()||peer<=76561197960265728ULL||peer>76561202255233023ULL){report("invalid_arm");return;}
-        if(input_mode){initial_round_generation=round_event::snapshot().generation;protocol.expected_signature=reuse_mode?0x002853433648534bULL:late_mode?0x001F53433648534bULL:replay_mode?0x001E53433648534bULL:checkpoint_mode?0x000C53433648534bULL:0x000B53433648534bULL;capture.shadow.remote_slot=3-local_slot;capture.composition.configure(local_slot,continuous_mode?LiveInputComposition::Purpose::authoritative_peer:LiveInputComposition::Purpose::comparison);}
+        if(input_mode){initial_round_generation=round_event::snapshot().generation;protocol.expected_signature=reuse_mode?0x002853433648534bULL:late_mode?0x001F53433648534bULL:replay_mode?0x001E53433648534bULL:checkpoint_mode?0x000C53433648534bULL:0x000B53433648534bULL;capture.shadow.remote_slot=3-local_slot;if(local_slot)capture.composition.configure(local_slot,continuous_mode?LiveInputComposition::Purpose::authoritative_peer:LiveInputComposition::Purpose::comparison);}
         protocol.expected_peer=peer;
         if(prepare_mode)protocol.expected_signature=0x003053433648534bULL;
         if(continuous_mode)protocol.expected_signature=prediction_disabled?0x005053433648534bULL:0x005153433648534bULL; // latency A/B modes must match on both PCs
+        if(automatic_play::enabled){protocol.expected_signature=0x005253433648534bULL;}
         if(suite_mode)protocol.expected_signature=0x004253433648534bULL^(uint64_t(suite.profile)<<40)^(uint64_t(suite.seconds)<<48);
         if(suite_mode && (suite.profile>=12 && suite.profile<=16))protocol.expected_signature^=0x0000000800000000ULL; // reusable retirement between retained replay cycles
         if(suite_mode && suite.first_match_start())protocol.expected_signature^=0x0000180000000000ULL; // first-match ownership plus emitter restoration; reject older replay peers
@@ -604,6 +648,11 @@ inline void poll() {
                 bool valid=packet.index==1 && packet.own_hash==0 && packet.received_hash==0;
                 for(unsigned w=1;w<observation::words;++w)valid=valid && packet.record.data[w]==0;
                 if(!valid){++rejected;continue;}
+                if(automatic_play::enabled && !capture.composition.local_slot){
+                    const auto slot=packet.record.data[0];
+                    if(slot<1||slot>2||(pending_automatic_slot&&pending_automatic_slot!=slot)){++rejected;continue;}
+                    pending_automatic_slot=slot;last_peer=now;++received;continue;
+                }
                 if(!capture.composition.announce(packet.record.data[0])){capture.export_csv(report_path.parent_path()/report_path.stem());
                 running=false;stopped=true;report(capture.composition.failure);return;}
                 last_peer=now;++received;continue;
@@ -626,6 +675,7 @@ inline void poll() {
         if(bytes!=sizeof(Packet)){running=false;stopped=true;report("unexpected_channel_packet_size");return;}
         Packet packet{};uint64_t sender=0;uint32_t size=0;
         if(!read(net,&packet,sizeof(packet),&size,&sender,channel))break;
+        if(automatic_play::enabled && packet.nonce==retired_peer_nonce){++rejected;continue;}
         if(protocol.receive(sender,packet,size)){++received;if(packet.echo==protocol.local_nonce)last_peer=now;}else ++rejected;
     }
     if(continuous_mode && continuous_queued && protocol.mutual && last_peer && now-last_peer>9000){
@@ -673,7 +723,7 @@ inline void poll() {
             running=false;stopped=true;report("continuous_unavailable_default_networking");return;
         }
         try {
-            if(now-last_announcement>=1000){
+            if(capture.composition.local_slot && now-last_announcement>=1000){
             last_announcement=now;steam_inputs::Packet announcement;announcement.nonce=protocol.local_nonce;announcement.echo=protocol.remote_nonce;
             announcement.kind=5;announcement.index=1;announcement.record.data[0]=capture.composition.local_slot;
             if(send(net,protocol.expected_peer,&announcement,sizeof(announcement),1,channel))++sent;else ++send_failed;
@@ -816,6 +866,19 @@ inline void poll() {
                     if(prepared!=steam_inputs::Capture::OwnedStart::attached){running=false;stopped=true;report("combat_buffer_start_failed");return;}
                 }
                 sc6::research::NativeClockDiscovery::Observation clock;
+                if(automatic_play::enabled && !capture.composition.local_slot && sc6::research::native_clock_hook::discovery.read(now,clock)){
+                    const auto round=round_event::snapshot();unsigned frame{};
+                    if(sc6::research::NativeBattleBoundaryAccess::counter(clock.base,frame)){
+                        const auto fight=RoundFightReadiness::read(clock.base,round.round,round.generation,frame);
+                        if(fight.permits(round.round,round.generation,frame,clock.thread)){
+                            capture.composition.configure(clock.clock.local_mask,LiveInputComposition::Purpose::authoritative_peer);
+                            capture.shadow.remote_slot=3-clock.clock.local_mask;last_announcement=0;
+                            if(pending_automatic_slot && !capture.composition.announce(pending_automatic_slot)){
+                                running=false;stopped=true;report("automatic_side_disagreement");return;
+                            }
+                        }
+                    }
+                }
                 if(!capture.composition.peer_slot || !sc6::research::native_clock_hook::discovery.read(now,clock)){
                     if(now-last_report>=1000){last_report=now;report("waiting_for_combat_clock");}return;
                 }

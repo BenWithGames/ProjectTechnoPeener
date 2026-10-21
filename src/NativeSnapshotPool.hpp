@@ -25,9 +25,9 @@ private:
         std::array<uintptr_t,8> dependency_controls{};
     };
     std::array<std::unique_ptr<Slot>,Capacity> slots_;
-    DWORD owner_=GetCurrentThreadId();uint64_t serial_{};
+    DWORD owner_=GetCurrentThreadId();uint64_t serial_{};bool discarded_{};
     Slot* find(const Handle& h){
-        if(GetCurrentThreadId()!=owner_ || h.index>=Capacity)return nullptr;
+        if(discarded_ || GetCurrentThreadId()!=owner_ || h.index>=Capacity)return nullptr;
         auto& s=*slots_[h.index];const auto& k=s.key;
         return s.occupied && k.serial==h.serial && k.session==h.session && k.round==h.round && k.frame==h.frame?&s:nullptr;
     }
@@ -43,6 +43,15 @@ private:
     }
 public:
     NativeSnapshotPool(){(void)FullStateProbe::reset_defaults();for(auto& s:slots_)s=std::make_unique<Slot>();}
+    bool discard_drained_storage(){
+        if(GetCurrentThreadId()!=owner_)return false;
+        if(discarded_)return true;
+        for(const auto& s:slots_){
+            if(s->borrowed || (s->occupied && !s->poisoned) || (s->snapshot.effects && s->snapshot.effects->snapshot.generation))return false;
+            for(const auto& dependency:s->dependencies)if(dependency.active())return false;
+        }
+        discarded_=true;for(auto& s:slots_)s->snapshot.data.reset();return true;
+    }
     ~NativeSnapshotPool(){
         // Native disposal must never migrate to an arbitrary destructor thread.
         // Production users must drain on the simulation thread before teardown.
@@ -78,7 +87,7 @@ public:
     bool bind_current_thread(){if(!serial_)owner_=GetCurrentThreadId();return owner_==GetCurrentThreadId();}
     std::optional<Handle> acquire(uint64_t session,uint64_t round,uint64_t frame,
         NativeBoundarySnapshot::Mode mode=NativeBoundarySnapshot::Mode::idle,unsigned side=1){
-        if(GetCurrentThreadId()!=owner_ || !session || !round || side<1 || side>2 || serial_==UINT64_MAX)return {};
+        if(discarded_ || GetCurrentThreadId()!=owner_ || !session || !round || side<1 || side>2 || serial_==UINT64_MAX)return {};
         for(const auto& s:slots_)if(s->occupied && s->key.session==session && s->key.round==round && s->key.frame==frame)return {};
         for(unsigned i=0;i<Capacity;++i){auto& s=*slots_[i];
             if(s.occupied || s.poisoned)continue;

@@ -52,6 +52,7 @@ public:
     CameraSlotEvidence capture_slot_evidence;
     unsigned count()const{return count_;}
     bool failed()const{return failed_;}
+    bool discard_released_storage(){return failed_ && pool_.discard_drained_storage();}
     bool capture_owned(const RollbackBoundaryKey& key,unsigned oldest_required,uintptr_t base,uintptr_t argument,ReplayDependencySource& source,bool approved_profile=false,bool general_restore=false){
         capture_diagnostic={1,key.frame,oldest_required,count_,0,0,0,0,0,0};
         if(failed_ || !key.same_round(key) || key.thread!=GetCurrentThreadId() || !base || !source.available())return false;

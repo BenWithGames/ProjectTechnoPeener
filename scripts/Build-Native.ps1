@@ -54,6 +54,8 @@ if (!$vs) { throw 'MSVC x64 tools not found.' }
 & (Join-Path $PSScriptRoot 'Test-SteamHandshake.ps1')
 & (Join-Path $PSScriptRoot 'Test-SteamInputExchange.ps1')
 & (Join-Path $PSScriptRoot 'Test-SteamPing.ps1')
+& (Join-Path $PSScriptRoot 'Test-OverlayPing.ps1')
+& (Join-Path $PSScriptRoot 'Test-AutomaticPlay.ps1')
 & (Join-Path $PSScriptRoot 'Test-SingleUpdateCall.ps1')
 & (Join-Path $PSScriptRoot 'Test-RngCallerBridge.ps1')
 & (Join-Path $PSScriptRoot 'Test-CameraCalc.ps1')

@@ -1,5 +1,6 @@
 #pragma once
 #include "InputObservation.hpp"
+#include "AutomaticPlayControl.hpp"
 #include "OwnedTransportAttachment.hpp"
 #include "FrameRecorder.hpp"
 #include "LiveShadowPrediction.hpp"
@@ -79,7 +80,8 @@ struct Capture {
     // Unlike arm(), this never creates network-observe.arm or starts a writer.
     bool attach_owned(uint64_t nonce){
         if(armed || mapping || shared || !nonce)return false;
-        const auto handle=OpenFileMappingW(FILE_MAP_READ,FALSE,observation::mapping_name(GetCurrentProcessId()).c_str());
+        const auto name=automatic_play::enabled?observation::automatic_mapping_name(GetCurrentProcessId(),nonce):observation::mapping_name(GetCurrentProcessId());
+        const auto handle=OpenFileMappingW(FILE_MAP_READ,FALSE,name.c_str());
         if(!handle)return false;
         const auto view=static_cast<const observation::Shared*>(MapViewOfFile(handle,FILE_MAP_READ,0,0,sizeof(observation::Shared)));
         const bool valid=view && view->signature==observation::magic && view->schema==observation::version &&
