@@ -22,7 +22,15 @@ struct CombatBlend {
         return true;
     }
     struct Diagnostic {unsigned reason{},offset{UINT32_MAX},saved{},next{};};
-    static bool adjacent(const Bytes& a,const Bytes& b,bool throw_p1=false,Diagnostic* diagnostic=nullptr,bool general=false) noexcept {
+    // A null inactive link and the owning wrapper's table are native states
+    // (303230 / 2F8FA0). Never authorize a different allocation or active slot.
+    static bool inactive_table_pair(unsigned block,const std::byte* a,const std::byte* b,uintptr_t table) noexcept {
+        return block==5 && table>=0x10000 &&
+            (wide(a+8)==0 || wide(a+8)==table) && (wide(b+8)==0 || wide(b+8)==table) &&
+            !word(a+16) && !word(b+16) && !word(a+20) && !word(b+20) &&
+            !wide(a+24) && !wide(b+24);
+    }
+    static bool adjacent(const Bytes& a,const Bytes& b,bool throw_p1=false,Diagnostic* diagnostic=nullptr,bool general=false,uintptr_t verified_table=0) noexcept {
         if(diagnostic)*diagnostic={};
         const auto reject=[&](unsigned reason,unsigned offset,unsigned saved,unsigned next){if(diagnostic)*diagnostic={reason,offset,saved,next};return false;};
         for(unsigned i=0;i<35;++i){
@@ -32,10 +40,11 @@ struct CombatBlend {
         }
         for(unsigned j=0;j<7;++j){auto x=a.data()+140+j*176;auto y=b.data()+140+j*176;
             bool quartet=throw_p1 && j==0 && quartet_transition(x,y);
+            const bool table_pair=general && inactive_table_pair(j,x,y,verified_table);
             // Keep every other weight and all pointers stable.
             for(unsigned k=0;k<176;++k)
                 if(!(k>=16 && k<20) && !(k>=24 && k<32) &&
-                   !(quartet && quartet_byte(k)) && !(general && k>=32 && k<172) && x[k]!=y[k])return reject(6,140+j*176+k,std::to_integer<unsigned>(x[k]),std::to_integer<unsigned>(y[k]));
+                   !(quartet && quartet_byte(k)) && !(table_pair && k>=8 && k<16) && !(general && k>=32 && k<172) && x[k]!=y[k])return reject(6,140+j*176+k,std::to_integer<unsigned>(x[k]),std::to_integer<unsigned>(y[k]));
             if(general)for(unsigned k=32;k<172;k+=4)
                 if((word(x+k)&0x7F800000u)==0x7F800000u || (word(y+k)&0x7F800000u)==0x7F800000u)return reject(9,140+j*176+k,word(x+k),word(y+k));
             if((wide(x+24)>>35) || (wide(y+24)>>35))return reject(7,140+j*176+28,word(x+28),word(y+28));
@@ -88,8 +97,8 @@ struct CombatBlend {
     // Only the observed P2 block5 null/inactive reset is reversible here.
     static bool rebuilt_inactive(unsigned side,unsigned block,const std::byte* a,const std::byte* b,
                                  const std::byte* c,const uintptr_t* verified_tables) noexcept {
-        return side==1 && block==5 && verified_tables && verified_tables[side]>=0x10000 &&
-            !wide(a+8) && !wide(b+8) && wide(c+8)==verified_tables[side] &&
+        return side==1 && verified_tables && inactive_table_pair(block,a,b,verified_tables[side]) &&
+            wide(c+8)==verified_tables[side] &&
             !word(a+16) && !word(b+16) && !word(c+16) &&
             !word(a+20) && !word(b+20) && !word(c+20) &&
             !wide(a+24) && !wide(b+24) && !wide(c+24);
@@ -100,7 +109,7 @@ struct CombatBlend {
         __try {
             for(unsigned side=0;side<2;++side){
                 auto owner=owners[side];
-                if(owner<0x10000 || owner>UINTPTR_MAX-0x22B0 || !adjacent(a[side],b[side],throw_p1 && side==0,nullptr,general))return fail_loaded(diagnostic,1,side,0,0,owner);
+                if(owner<0x10000 || owner>UINTPTR_MAX-0x22B0 || !adjacent(a[side],b[side],throw_p1 && side==0,nullptr,general,side==1 && verified_tables?verified_tables[side]:0))return fail_loaded(diagnostic,1,side,0,0,owner);
                 if(side && owner<owners[0]+0x22B0 && owners[0]<owner+0x22B0)return fail_loaded(diagnostic,2,side,0,0);
                 auto c=loaded[side].data();
                 for(unsigned k=0;k<1380;++k){

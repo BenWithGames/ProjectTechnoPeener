@@ -38,6 +38,7 @@ private:
     std::thread worker_;
     bool attempted_{};
     std::atomic<uint64_t> received_{},rejected_{},full_{},receive_faults_{};
+    std::atomic<uint64_t> publication_wakes_{},timer_wakes_{};
     std::atomic<uint64_t> sent_{},failed_{},ticks_{},faults_{},first_{},age_total_{},age_max_{};
 public:
     ~FreshRawSender(){stop();}
@@ -53,6 +54,16 @@ public:
             try {for(;;){
                 if(WaitForSingleObject(stop_event_,0)!=WAIT_TIMEOUT)break;
                 ++ticks_;
+                cursor.pump(raw_prediction_transport.load(std::memory_order_acquire),local_nonce,remote_nonce,[&](const auto& raw){
+                    steam_inputs::Packet packet;
+                    if(!RawPredictionPacket::encode(raw,packet))return false;
+                    if(send(net,peer,&packet,sizeof(packet),1,receive_enabled?RawPredictionPacket::fast_channel:channel)){
+                        ++sent_;uint64_t age{};
+                        if(cursor.route->mark_first_send(cursor.next,age)){++first_;age_total_+=age;if(age>age_max_)age_max_=age;}
+                        return true;
+                    }
+                    ++failed_;return false;
+                });
                 // Dedicated channel: never steal handshake/stop/ping/control packets.
                 for(unsigned budget=0;receive_enabled && budget<32;++budget){
                     uint32_t bytes{};if(!available(net,&bytes,RawPredictionPacket::fast_channel))break;
@@ -67,22 +78,15 @@ public:
                     if(result==R::accepted || result==R::retired)++received_;
                     else if(result==R::full)++full_;else ++rejected_;
                 }
-                cursor.pump(raw_prediction_transport.load(std::memory_order_acquire),local_nonce,remote_nonce,[&](const auto& raw){
-                    steam_inputs::Packet packet;
-                    if(!RawPredictionPacket::encode(raw,packet))return false;
-                    if(send(net,peer,&packet,sizeof(packet),1,receive_enabled?RawPredictionPacket::fast_channel:channel)){
-                        ++sent_;uint64_t age{};
-                        if(cursor.route->mark_first_send(cursor.next,age)){++first_;age_total_+=age;if(age>age_max_)age_max_=age;}
-                        return true;
-                    }
-                    ++failed_;return false;
-                });
                 LARGE_INTEGER due{};due.QuadPart=-10000; // one millisecond, no busy spin or game-thread wait
                 if(!SetWaitableTimer(timer_,&due,0,nullptr,nullptr,FALSE)){++faults_;break;}
-                HANDLE waits[]={stop_event_,timer_};
-                const auto result=WaitForMultipleObjects(2,waits,FALSE,INFINITE);
+                HANDLE waits[]={stop_event_,timer_,raw_publication_signal.event};
+                const DWORD count=raw_publication_signal.event?3u:2u;
+                const auto result=WaitForMultipleObjects(count,waits,FALSE,INFINITE);
                 if(result==WAIT_OBJECT_0)break;
-                if(result!=WAIT_OBJECT_0+1){++faults_;break;}
+                if(result==WAIT_OBJECT_0+1)++timer_wakes_;
+                else if(count==3 && result==WAIT_OBJECT_0+2)++publication_wakes_;
+                else {++faults_;break;}
             }}catch(...){++faults_;}
         });}catch(...){stop();++faults_;return false;}
         return true;
@@ -98,7 +102,10 @@ public:
         out<<"fresh_raw_receiver_schema=1\nfresh_raw_receiver_received="<<received_.load()
            <<"\nfresh_raw_receiver_rejected="<<rejected_.load()<<"\nfresh_raw_receiver_full="<<full_.load()
            <<"\nfresh_raw_receiver_faults="<<receive_faults_.load()<<'\n';
-        out<<"fresh_raw_sender_schema=1\nfresh_raw_sender_sent="<<sent_.load()
+        out<<"fresh_raw_sender_schema=2\nfresh_raw_sender_sent="<<sent_.load()
+           <<"\nfresh_raw_sender_publication_wake_enabled="<<bool(raw_publication_signal.event)
+           <<"\nfresh_raw_sender_publication_wakes="<<publication_wakes_.load()
+           <<"\nfresh_raw_sender_timer_wakes="<<timer_wakes_.load()
            <<"\nfresh_raw_sender_failed="<<failed_.load()<<"\nfresh_raw_sender_ticks="<<ticks_.load()
            <<"\nfresh_raw_sender_faults="<<faults_.load()
            <<"\nfresh_raw_sender_first_sends="<<first_.load()<<"\nfresh_raw_sender_publication_age_total_ticks="<<age_total_.load()

@@ -116,12 +116,35 @@ struct IdleTrajectoryAudit {
         return a.valid && b.valid && a.rng==b.rng && a.fields==b.fields &&
             a.players[0]==b.players[0] && a.players[1]==b.players[1];
     }
-    static bool same_shape(const FullRestoreStream& a,const FullRestoreStream& b){
-        if(!a.sealed || !b.sealed || a.writes!=b.writes || a.writes>FullRestoreStream::transfer_limit ||
-           a.stream.failures || b.stream.failures || a.stream.write_position>a.stream.payload.size() ||
-           b.stream.write_position>b.stream.payload.size())return false;
-        for(unsigned i=0;i<a.writes;++i)
-            if(a.lengths[i]!=b.lengths[i] || a.traces[i].writer!=b.traces[i].writer)return false;
+    struct ShapeDiagnostic {
+        // A failed shape check is pre-load evidence, not permission to remap records.
+        enum Field {reason,record,saved_count,next_count,saved_length,next_length,
+            saved_writer,next_writer,saved_source,next_source,saved_sealed,next_sealed,
+            saved_failures,next_failures,saved_bytes,next_bytes,count};
+        std::array<uint64_t,count> values{};
+    };
+    static bool same_shape(const FullRestoreStream& a,const FullRestoreStream& b,ShapeDiagnostic* diagnostic=nullptr){
+        auto fail=[&](unsigned reason,unsigned record=UINT32_MAX){
+            if(diagnostic){auto& d=diagnostic->values;d={};d[0]=reason;d[1]=record;
+                d[2]=a.writes;d[3]=b.writes;d[10]=a.sealed;d[11]=b.sealed;
+                d[12]=a.stream.failures;d[13]=b.stream.failures;
+                d[14]=a.stream.write_position;d[15]=b.stream.write_position;
+                if(record<a.writes && record<FullRestoreStream::transfer_limit){d[4]=a.lengths[record];d[6]=a.traces[record].writer;d[8]=a.traces[record].source;}
+                if(record<b.writes && record<FullRestoreStream::transfer_limit){d[5]=b.lengths[record];d[7]=b.traces[record].writer;d[9]=b.traces[record].source;}
+            }return false;
+        };
+        if(diagnostic)*diagnostic={};
+        if(!a.sealed || !b.sealed)return fail(1);
+        if(a.writes>FullRestoreStream::transfer_limit || b.writes>FullRestoreStream::transfer_limit)return fail(2);
+        if(a.stream.failures || b.stream.failures)return fail(3);
+        if(a.stream.write_position>a.stream.payload.size() || b.stream.write_position>b.stream.payload.size())return fail(4);
+        // Scan the common prefix even when counts differ: the first differing
+        // writer/length identifies an insertion earlier than the trailing record.
+        for(unsigned i=0;i<(std::min)(a.writes,b.writes);++i){
+            if(a.lengths[i]!=b.lengths[i])return fail(6,i);
+            if(a.traces[i].writer!=b.traces[i].writer)return fail(7,i);
+        }
+        if(a.writes!=b.writes)return fail(5,(std::min)(a.writes,b.writes));
         return true;
     }
     static bool adjacent_identity(const Frame& a,const Frame& b){

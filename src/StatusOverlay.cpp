@@ -58,17 +58,12 @@ void paint(HWND w,View& v){
     if(!stats.connected || stale){stats.ping_ms.reset();stats.delay_frames.reset();stats.rollback_frames.reset();}
     int pad=MulDiv(16,v.dpi,96),top=MulDiv(10,v.dpi,96);
     RECT label{pad,top,r.right-pad,top+MulDiv(22,v.dpi,96)};
-    draw(L"SC6Rollback  ENABLED",label,true,RGB(109,231,176));
-    RECT subtitle{pad,top+MulDiv(24,v.dpi,96),r.right-pad,r.bottom};
-    draw(stale?L"Network: telemetry stale":stats.connected?L"Network: peer connected":L"Network: inactive",subtitle,false,RGB(156,166,182));
-    int start=MulDiv(255,v.dpi,96),column=(r.right-pad-start)/3;
-    const std::wstring texts[]={L"PING ~",L"DELAY",L"ROLLBACK"};
-    const std::wstring values[]={value(stats.ping_ms,L" ms"),value(stats.delay_frames,L" f"),value(stats.rollback_frames,L" f")};
-    for(int i=0;i<3;++i){RECT cell{start+i*column,top,start+(i+1)*column,top+MulDiv(20,v.dpi,96)};
-        draw(texts[i].c_str(),cell,false,RGB(156,166,182),true);
-        cell.top+=MulDiv(23,v.dpi,96);cell.bottom=r.bottom;
-        draw(values[i].c_str(),cell,true,RGB(237,241,248),true);
-    }
+    draw(stats.connected?L"SC6Rollback  ENABLED":L"SC6Rollback  DISABLED",label,true,
+         stats.connected?RGB(109,231,176):RGB(255,100,100));
+    RECT cell{MulDiv(255,v.dpi,96),top,r.right-pad,top+MulDiv(20,v.dpi,96)};
+    draw(L"PING ~",cell,false,RGB(156,166,182),true);
+    cell.top+=MulDiv(23,v.dpi,96);cell.bottom=r.bottom;
+    draw(value(stats.ping_ms,L" ms").c_str(),cell,true,RGB(237,241,248),true);
     } // Finish GDI+ rendering before presenting the premultiplied pixels.
     POINT source{};SIZE size{r.right,r.bottom};
     BLENDFUNCTION blend{AC_SRC_OVER,0,255,AC_SRC_ALPHA};
@@ -83,14 +78,14 @@ void position(HWND w,View& v){
     }
     RECT client{};GetClientRect(v.game,&client);POINT origin{};ClientToScreen(v.game,&origin);
     unsigned dpi=GetDpiForWindow(v.game);if(!dpi)dpi=96;
-    // Fit the complete four-column layout even in a smaller game window.
-    dpi=std::min(dpi,static_cast<unsigned>(std::max(64L,client.right*96/660)));
+    // Fit the status and ping layout even in a smaller game window.
+    dpi=std::min(dpi,static_cast<unsigned>(std::max(64L,client.right*96/400)));
     if(v.dpi!=dpi){
         if(v.font)DeleteObject(v.font);if(v.secondary_font)DeleteObject(v.secondary_font);v.dpi=dpi;
         v.font=CreateFontW(-MulDiv(16,dpi,96),0,0,0,FW_SEMIBOLD,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,ANTIALIASED_QUALITY,DEFAULT_PITCH,L"Segoe UI");
         v.secondary_font=CreateFontW(-MulDiv(12,dpi,96),0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,ANTIALIASED_QUALITY,DEFAULT_PITCH,L"Segoe UI");
     }
-    v.width=MulDiv(640,dpi,96);v.height=MulDiv(66,dpi,96);
+    v.width=MulDiv(380,dpi,96);v.height=MulDiv(66,dpi,96);
     SetWindowPos(w,HWND_TOPMOST,origin.x+(client.right-v.width)/2,origin.y+client.bottom-v.height-MulDiv(16,dpi,96),v.width,v.height,SWP_NOACTIVATE|SWP_SHOWWINDOW);
     InvalidateRect(w,nullptr,FALSE);
 }

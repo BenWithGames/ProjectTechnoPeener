@@ -107,6 +107,10 @@ try {
             Start-Sleep -Seconds 2
             & (Join-Path $PSScriptRoot 'Collect-RollbackReport.ps1') -ReportPath $report
             if($finalText -match '(?m)^status=continuous_unavailable_default_networking\r?$'){Write-Host 'Continuous rollback unavailable: general combat restoration is not implemented. Default gameplay remains active; no restart is required by this check.';exit 0}
+            if($finalText -match '(?m)^status=continuous_match_complete\r?$'){
+                Write-Host 'Match completed locally with clean retirement. Share BOTH report ZIPs for bilateral verification. Restart both games before another test.'
+                exit 0
+            }
             Write-Host 'Experiment stopped. Close BOTH games and send both report ZIPs. No PASS is inferred from transport or update counts.'
             if($finalText -match '(?m)^status=continuous_capture_ended_restart_required\r?$'){exit 0}
             exit 1

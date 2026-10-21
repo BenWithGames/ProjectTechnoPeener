@@ -22,17 +22,29 @@ int main(){
         }
         source->fault=true;source->saved.writes=17;
         assert(target->copy_recorded_from(*source));
-        auto* a=reinterpret_cast<const std::byte*>(target.get());
-        auto* b=reinterpret_cast<const std::byte*>(source.get());size_t cursor=0;
+        // Published prefixes are exact; unused capacity must not be copied.
+        assert(target->fault && target->saved.writes==17);
         for(unsigned i=0;i<source->transforms.size();++i){
             const auto& t=source->transforms[i];
-            auto begin=size_t(reinterpret_cast<const std::byte*>(t.records.data())-b);
-            assert(!std::memcmp(a+cursor,b+cursor,begin-cursor));
-            assert(!std::memcmp(a+begin,b+begin,t.count*sizeof(TransformSnapshot::Record)));
+            assert(!std::memcmp(target->transforms[i].records.data(),t.records.data(),t.count*sizeof(TransformSnapshot::Record)));
             assert(target->transforms[i].records.back().bytes.back()==std::byte{0xA5});
-            cursor=begin+sizeof(t.records);
         }
-        assert(!std::memcmp(a+cursor,b+cursor,sizeof(*source)-cursor));
+        source->saved.stream.write_position=3;source->saved.stream.payload[2]=std::byte{0x37};
+        source->selectors[0].entries[0].bytes=5;source->selectors[0].entries[0].table[4]=std::byte{0x52};
+        assert(target->copy_recorded_from(*source));
+        assert(target->saved.stream.payload[2]==std::byte{0x37} && target->saved.stream.payload[3]==std::byte{0xA5});
+        assert(target->selectors[0].entries[0].table[4]==std::byte{0x52} && target->selectors[0].entries[0].table[5]==std::byte{0xA5});
+        source->saved.stream.write_position=SaveStream::limit+1;
+        assert(!target->copy_recorded_from(*source) && target->saved.stream.write_position==3);
+        source->saved.stream.write_position=3;
+        source->selectors[0].entries[0].bytes=SelectorSnapshot::table_limit+1;
+        assert(!target->copy_recorded_from(*source) && target->selectors[0].entries[0].bytes==5);
+        source->selectors[0].entries[0].bytes=5;
+        auto copied_expected=std::make_unique<FullStateProbe>(*source);
+        for(auto& t:copied_expected->transforms)std::memset(t.records.data()+t.count,0xA5,(t.records.size()-t.count)*sizeof(TransformSnapshot::Record));
+        for(auto& selector:copied_expected->selectors)for(auto& e:selector.entries)std::memset(e.table.data()+e.bytes,0xA5,e.table.size()-e.bytes);
+        for(auto* stream:{&copied_expected->saved,&copied_expected->after_save,&copied_expected->replay,&copied_expected->restored})std::memset(stream->stream.payload.data()+stream->stream.write_position,0xA5,SaveStream::limit-stream->stream.write_position);
+        assert(!std::memcmp(target.get(),copied_expected.get(),sizeof(*target)));
         auto& transform=target->transforms[1];
         transform.records.back().bytes.back()=std::byte{0x5A};
         assert(transform.copy_recorded_from(source->transforms[2]));
@@ -59,19 +71,11 @@ int main(){
         auto reused=std::make_unique<FullStateProbe>();
         std::memset(reused.get(),0xA5,sizeof(*reused));
         reused->reset_for_reuse();
-        auto* actual=reinterpret_cast<const std::byte*>(reused.get());
-        auto* expected=reinterpret_cast<const std::byte*>(&defaults);
-        size_t cursor=0;
-        for(unsigned i=0;i<reused->transforms.size();++i){
-            const auto begin=static_cast<size_t>(reinterpret_cast<const std::byte*>(defaults.transforms[i].records.data())-expected);
-            assert(std::memcmp(actual+cursor,expected+cursor,begin-cursor)==0);
-            auto& t=reused->transforms[i];
-            assert(!t.valid && t.count==0 && t.failure==0 && t.trapped_exception==0);
-            // Large unused buffers survive retirement but are never valid data.
-            assert(t.records.back().bytes.back()==std::byte{0xA5});
-            cursor=begin+sizeof(t.records);
-        }
-        assert(std::memcmp(actual+cursor,expected+cursor,sizeof(*reused)-cursor)==0);
+        auto expected=std::make_unique<FullStateProbe>(defaults);
+        for(auto& t:expected->transforms)std::memset(t.records.data(),0xA5,sizeof(t.records));
+        for(auto& selector:expected->selectors)for(auto& e:selector.entries)e.table.fill(std::byte{0xA5});
+        for(auto* stream:{&expected->saved,&expected->after_save,&expected->replay,&expected->restored})stream->stream.payload.fill(std::byte{0xA5});
+        assert(!std::memcmp(reused.get(),expected.get(),sizeof(*reused)));
         std::array<std::byte,24> payload{};payload.fill(std::byte{0x37});
         auto& t=reused->transforms[0];
         assert(t.append(reinterpret_cast<uintptr_t>(payload.data()),1,9,0,0,24));

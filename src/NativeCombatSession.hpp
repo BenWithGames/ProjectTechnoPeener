@@ -72,7 +72,7 @@ private:
     NativeFilterPreparationRoute filter_route_;
     NativeConfirmedRecorderRoute recorder_route_;
     std::atomic<uint64_t> raw_frames_{},raw_confirmed_{},prediction_admissions_{},prediction_waits_{};
-    std::array<std::atomic<uint64_t>,15> raw_diagnostics_{};
+    std::array<std::atomic<uint64_t>,17> raw_diagnostics_{};
     // Written once on the game thread BEFORE stop/cleanup changes the state.
     // The report worker reads only atomics, never live clock/game memory.
     std::array<std::atomic<uint64_t>,44> backend_diagnostics_{};
@@ -119,7 +119,7 @@ private:
         const uint64_t values[]={static_cast<uint64_t>(raw_.failure()),raw_coordinator_.failed(),filters_.failures,
             filters_.sealed,recorder_.failed(),recorder_.appended,recorder_.already_published,recorder_.flushes,
             c.drained,c.duplicates,c.corrections,c.applied,
-            clock_.pending_services(),clock_.pending_elapsed_ms(),clock_.pending_max_ms()};
+            clock_.pending_services(),clock_.pending_elapsed_ms(),clock_.pending_max_ms(),raw_.early_publications,raw_.early_rechecks};
         for(unsigned i=0;i<raw_diagnostics_.size();++i)raw_diagnostics_[i]=values[i];
     }
     bool publish_raw(){
@@ -138,7 +138,7 @@ private:
             NativeFilterFramePreparation<NativeFilterAccess>::Config c{outer,config_.clock_object,config_.base,k.thread,
                 config_.clock_identity,config_.clock_frame,k.frame,k.round,k.event,k.generation};
             std::array<uint32_t,2> seed{};
-            if(!NativeFilterAccess::seed(c,seed) || !raw_coordinator_.seed(k.thread,seed) || !filters_.bind(c,k.slot,config_.prediction_enabled))return false;
+            if(!NativeFilterAccess::seed(c,seed) || !raw_coordinator_.seed(k.thread,seed) || !filters_.bind(c,k.slot,config_.prediction_enabled,config_.prediction_enabled))return false;
             filters_bound_=true;
         }
         return filters_.filter(outer,slot,reverse,edges,held,restrict_buttons,raw)==decltype(filters_)::Result::prepared;
@@ -163,6 +163,15 @@ private:
         const auto fight=RoundFightReadiness::read(config_.base,k.round,k.generation,sample.battle);
         prediction_gate_last_[9]=fight.status;prediction_gate_last_[10]=fight.vtable;prediction_gate_last_[11]=fight.handler;
         if(!fight.permits(k.round,k.generation,sample.battle,k.thread))return reject(8);
+        // Both peers assign freshly sampled local words to the same mod frame.
+        // Freeze the first publication across stalls; filter/replay reuse it.
+        if(config_.prediction_enabled && sample.frame>=config_.clock_frame){
+            const auto index=sample.frame-config_.clock_frame;
+            if(index==raw_.delivery().head() && raw_.outgoing_count()==index){
+                uint32_t fresh{};
+                if(!clock_.dispatch().access().fresh_local(sample.frame,fresh) || !raw_.publish_local(k.thread,index,fresh))return reject(9);
+            }
+        }
         // 3FDFA0 reason 2 is missing confirmed horizon; reason 3 is pacing.
         // Preserve transition/timeout waits, including the prior stateful wait.
         const bool eligible=config_.prediction_enabled?NativePredictionFrontier::eligible(sample,wait.wait_reason,native_wait,true):
@@ -204,7 +213,10 @@ private:
 public:
     CombatRuntimeStatus status;
     NativeCombatSession(const Config& config,ReplayDependencySource source,NativeCombatSession* previous=nullptr)
-        :config_(config),source_(source),storage_(history_,source_,config.base,config.identity,config.approved_profile),
+        :config_(config),source_(source),storage_(history_,source_,config.base,config.identity,config.approved_profile,
+             previous?previous->storage_.take_retired_workspace(previous->retired() && previous->status.history_retired.load() &&
+                 previous->status.native_outer_committed.load() && !previous->status.restart_required.load() &&
+                 previous->config_.identity.session==config.identity.session && previous->config_.identity.thread==config.identity.thread):nullptr),
          adapter_(storage_,config.original,reinterpret_cast<volatile uint32_t*>(config.base+0x470D0C4),config.identity.thread,
             3-config.identity.slot,config.identity.frame),clock_(session_),confirmations_(session_),raw_coordinator_(raw_,session_),filters_(raw_),
          filter_route_{this,[](void* p,uintptr_t outer,unsigned slot,uint32_t reverse,bool edges,bool held,bool restrict_buttons,uint32_t& raw){
@@ -217,7 +229,7 @@ public:
              if(ok && frame>=self.config_.identity.frame){
                  const auto index=frame-self.config_.identity.frame;
                  if(const auto* input=self.raw_.delivery().frame(index))
-                     self.clock_.dispatch().access().input_consumed(self.config_.clock_frame+index,input->raw[self.config_.identity.slot-1]);
+                     self.clock_.dispatch().access().input_consumed(self.config_.clock_frame+index,input->raw[self.config_.identity.slot-1],self.config_.prediction_enabled);
              }
              return ok;
          }},recorder_route_{config.clock_object,this,[](void* p,uintptr_t){
@@ -241,6 +253,7 @@ public:
     NativeCombatSession(const NativeCombatSession&)=delete;
     NativeCombatSession& operator=(const NativeCombatSession&)=delete;
     bool prepare(observation::Shared& shared){
+        NativeStartupScope startup_measure(NativeStartupTiming::session_bind,config_.identity.round);
         if(!config_.general_restore || !NativeBoundarySnapshot::general_restore_implemented)return false;
         if(attempted_)return false;attempted_=true;
         if(previous_ && !previous_->routes_.retired())return false;
@@ -309,6 +322,7 @@ public:
         return result;
     }
     PostBattleSettlement::Result wait_before_post_battle(const CombatFrameInput& endpoint){
+        NativeStartupScope startup_measure(NativeStartupTiming::settlement_wait,config_.identity.round);
         if(GetCurrentThreadId()!=config_.identity.thread)return PostBattleSettlement::Result::restart_required;
         // This method blocks the entire native caller chain, not just one
         // delegate. No engine pump or native update runs inside the wait.
@@ -324,6 +338,7 @@ public:
     // The old session must remain alive after a new route is published: the
     // transport can still hold its sink and its immutable retired-input archive.
     bool retire_confirmations(){
+        NativeStartupScope startup_measure(NativeStartupTiming::route_retire,config_.identity.round);
         if(!published_ || !ready() || GetCurrentThreadId()!=config_.identity.thread ||
             !reader_.frontier(adapter_.expected_frame()) || !clock_.reservation().quiescent() || !session_.handoff_ready())return false;
         if(input_routes_retired_)return true;
@@ -419,15 +434,17 @@ public:
     void report(std::ostream& events,std::ostream& summary){
         summary<<"continuous_archive_full="<<publication_.archive_full()<<"\ncontinuous_archive_omitted="<<publication_.archive_omitted()<<'\n';
         storage_.timing.write(summary);
+        summary<<"continuous_workspace_reused="<<storage_.workspace_reused()<<'\n';
         summary<<"continuous_prediction_gate_schema=1\n";
         for(unsigned i=1;i<prediction_gate_rejections_.size();++i)summary<<"continuous_prediction_gate_reject_"<<i<<'='<<prediction_gate_rejections_[i].load()<<'\n';
         for(unsigned i=0;i<prediction_gate_last_.size();++i)summary<<"continuous_prediction_gate_last_"<<i<<'='<<prediction_gate_last_[i].load()<<'\n';
 
         summary<<"input_latency_prediction_enabled="<<config_.prediction_enabled<<"\ninput_latency_baseline_is_unmodified_game=0\n";
-        clock_.dispatch().access().write_input_latency(summary);
+        clock_.dispatch().access().write_input_latency(summary,config_.prediction_enabled);
         native_startup_timing.write(summary);
         summary<<"continuous_workspace_reuse=1\ncontinuous_workspace_timing_is_reset=1\n";
         report_.drain(journal_,events);report_.write(summary);
+        raw_.confirmation_age.write(summary);
         summary<<"continuous_raw_duplicate_coalescing=1\ncontinuous_raw_coalesced="<<raw_.coalesced()
             <<"\ncontinuous_raw_queue_full="<<raw_.queue_full()<<'\n';
         summary<<"continuous_confirmation_round_retired="<<raw_.retired()
@@ -438,7 +455,7 @@ public:
             <<"\ncontinuous_prediction_waits="<<prediction_waits_.load()<<"\ncontinuous_raw_round_retired="<<raw_.retired()<<'\n';
         constexpr const char* names[]={"route_failure","coordinator_failed","filter_failures","filter_sealed","recorder_failed",
             "recorder_appended","recorder_already_published","recorder_flushes","drained","duplicates","late_confirmations","applied",
-            "pending_clock_services","pending_clock_elapsed_ms","pending_clock_max_ms"};
+            "pending_clock_services","pending_clock_elapsed_ms","pending_clock_max_ms","early_publications","early_rechecks"};
         for(unsigned i=0;i<raw_diagnostics_.size();++i)summary<<"continuous_raw_"<<names[i]<<'='<<raw_diagnostics_[i].load()<<'\n';
         summary<<"continuous_capture_schema=1\n";
         constexpr const char* capture_names[]={"stage","frame","oldest","count","native_stage","exception","fault","valid","observed_frame","saved"};
@@ -469,10 +486,21 @@ public:
         status.updates=adapter_.calls;
         if(storage_.restore_diagnostic.values[NativeRestoreDiagnostic::invoked])status.restored=true;
         for(unsigned i=0;i<status.topology_details.size();++i)status.topology_details[i]=storage_.restore_diagnostic.topology[i];
-        static_assert(NativeRestoreDiagnostic::count==49);
+        static_assert(NativeRestoreDiagnostic::count==std::size(NativeRestoreDiagnostic::names));
         for(unsigned i=0;i<NativeRestoreDiagnostic::count;++i)status.restore_details[i]=storage_.restore_diagnostic.values[i];
         for(unsigned record=0;record<16;++record)for(unsigned field=0;field<9;++field)
             status.restore_payload_details[record][field]=storage_.restore_diagnostic.payload_details[record][field];
+        const CameraSlotEvidence* slot_source=&storage_.restore_diagnostic.camera_slots;
+        if constexpr(requires {history_.capture_slot_evidence;})
+            if(history_.capture_diagnostic[4]==17 && history_.capture_slot_evidence.header[0][0])slot_source=&history_.capture_slot_evidence;
+        const auto& slots=*slot_source;
+        status.camera_slot_selected=slots.selected;
+        for(unsigned sample=0;sample<2;++sample){
+            for(unsigned field=0;field<6;++field)status.camera_slot_header[sample][field]=slots.header[sample][field];
+            for(unsigned slot=0;slot<16;++slot)for(unsigned field=0;field<7;++field)status.camera_slot_meta[sample][slot][field]=slots.slots[sample][slot][field];
+            for(unsigned word=0;word<CameraSlotEvidence::words;++word)status.camera_slot_payload[sample][word]=slots.payload[sample][word];
+            status.camera_slot_retained[sample]=slots.retained[sample];
+        }
         if(storage_.restore_diagnostic.timer_evidence_valid){
             for(unsigned i=0;i<NativeRestoreDiagnostic::timer_word_count;++i)status.restore_timer_words[i]=storage_.restore_diagnostic.timer_words[i];
             status.restore_timer_evidence_valid=true;

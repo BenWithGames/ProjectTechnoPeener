@@ -74,6 +74,18 @@ struct Fixture {
     bool bind(Clock& clock){return clock.bind(base,reinterpret_cast<uintptr_t>(object.data()),GetCurrentThreadId(),true,true,true);}
 };
 int main(){
+    for(unsigned slot=1;slot<=2;++slot){
+        Fixture f;f.put(0x39C,1u<<(slot-1));f.put(0x4400,(1u<<(slot-1))^3u);
+        f.put(0x4410,105);f.put(0x3B8+(slot-1)*4,37);Clock c;assert(f.bind(c));
+        uint32_t raw{};assert(!c.fresh_local(100,raw));assert(c.service()==R::ready);
+        assert(c.fresh_local(100,raw) && raw==37);assert(!c.fresh_local(101,raw));
+        assert(c.finish(true)==R::advanced);assert(!c.fresh_local(100,raw));
+        c.input_consumed(100,37,true);std::ostringstream out;c.write_input_latency(out,true);
+        assert(out.str().find("input_latency_matched=1\n")!=std::string::npos);
+        assert(out.str().find("input_latency_invalid=0\n")!=std::string::npos);
+        assert(*reinterpret_cast<uint32_t*>(f.object.data()+0x4410)==105);
+    }
+
     {
         Fixture f;f.put(0x4410,100);Clock clock;assert(f.bind(clock));
         publish_input=true;assert(clock.service()==R::ready);assert(clock.finish(true)==R::advanced);

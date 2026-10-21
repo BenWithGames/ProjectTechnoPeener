@@ -1,4 +1,8 @@
 #pragma once
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <Windows.h>
 #include "SaveProbe.hpp"
 #include <intrin.h>
 #include <algorithm>

@@ -124,6 +124,10 @@ int main(){
         std::ostringstream report;t.write(report);
         assert(report.str().find("startup_timing_session_first_mean_us=1500")!=std::string::npos);
         assert(report.str().find("startup_timing_session_rearm_max_round=2")!=std::string::npos);
+        assert(report.str().find("startup_trace_0=session_first,1,7,100,2100")!=std::string::npos);
+        for(unsigned i=0;i<300;++i)t.add(NativeStartupTiming::first_capture,3,10,20,9);
+        assert(t.events[255].ready.load());assert(t.event_omitted==47);
+        assert(t.events[0].begin==100); // Full trace never overwrites published entries.
         auto& b=native_startup_timing.buckets[NativeStartupTiming::activation];auto n=b.calls.load();
         try{NativeStartupScope scope(NativeStartupTiming::activation,3);throw 1;}catch(int){}
         assert(b.calls==n+1);

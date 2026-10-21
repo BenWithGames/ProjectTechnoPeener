@@ -1,4 +1,5 @@
 #pragma once
+#include "CameraSlotEvidence.hpp"
 #include "NativeRollbackWindow.hpp"
 namespace sc6::research {
 // Simulation-thread storage for the combat adapter. Capture callbacks must bind
@@ -48,6 +49,7 @@ template<unsigned Capacity=4> class NativeRollingHistory {
 public:
     // Owner-thread evidence, copied to report atomics before teardown.
     std::array<uint64_t,10> capture_diagnostic{};
+    CameraSlotEvidence capture_slot_evidence;
     unsigned count()const{return count_;}
     bool failed()const{return failed_;}
     bool capture_owned(const RollbackBoundaryKey& key,unsigned oldest_required,uintptr_t base,uintptr_t argument,ReplayDependencySource& source,bool approved_profile=false,bool general_restore=false){
@@ -86,7 +88,10 @@ public:
                 capture_diagnostic[7]=snapshot.valid;
                 capture_diagnostic[8]=snapshot.data->before_keys[0];
                 capture_diagnostic[9]=saved;
-                if(!saved)return false;
+                if(!saved){
+                    if(snapshot.data->camera_slots[0].enabled)capture_slot_evidence.capture(snapshot.data->camera_slots[0],snapshot.data->saved,snapshot.data->camera_slots[0],snapshot.data->saved);
+                    return false;
+                }
                 capture_diagnostic[0]=10;
                 return !snapshot.effects || effects_->compare(*snapshot.effects);
             });

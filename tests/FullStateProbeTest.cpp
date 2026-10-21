@@ -888,6 +888,22 @@ int main(){
         std::memcpy(cb->records[0].targets.data()+0x48,&position,4);
         require(ca->adjacent_combat_ready(*cb,base));
         {
+            const auto a=ca->records[0],b=cb->records[0];
+            for(unsigned span:{2u,3u})for(unsigned count:{20u,0x7FFFFFFEu,0x7FFFFFFFu}){
+                unsigned oldIndex=15,expected=count>0x7FFFFFFFu-span?0x7FFFFFFFu:count+span,nextIndex=(oldIndex+span)%16;
+                std::memcpy(ca->records[0].smoothing.data()+72,&count,4);
+                std::memcpy(ca->records[0].smoothing.data()+76,&oldIndex,4);
+                std::memcpy(cb->records[0].smoothing.data()+72,&expected,4);
+                std::memcpy(cb->records[0].smoothing.data()+76,&nextIndex,4);
+                require(ca->adjacent_combat_ready(*cb,base,false,nullptr,false,false,span));
+                require(!ca->adjacent_combat_ready(*cb,base,false,nullptr,false,false,1));
+            }
+            require(!ca->adjacent_combat_ready(*cb,base,false,nullptr,false,false,0));
+            require(!ca->adjacent_combat_ready(*cb,base,false,nullptr,false,false,4));
+            ca->records[0]=a;cb->records[0]=b;
+        }
+
+        {
             const auto originalA=ca->records[0],originalB=cb->records[0];
             for(auto* r:{&ca->records[0],&cb->records[0]}){
                 for(unsigned off:{0x68u,0x6Cu})std::memset(r->targets.data()+off,0,4);
@@ -1218,6 +1234,29 @@ int main(){
     auto ring0=std::make_unique<Ring>(),ring1=std::make_unique<Ring>();
     require(ring0->capture(base) && ring1->capture(base) && ring0->same(*ring1));
     require(ring0->bytes.front()==std::byte{1} && ring0->bytes.back()==std::byte{12});
+    ring1->bytes.fill(std::byte{0xA5});
+    require(ring0->validate_owners(base,*ring1) && !ring1->valid);
+    require(std::all_of(ring1->bytes.begin(),ring1->bytes.end(),[](auto b){return b==std::byte{0xA5};}));
+    require(!ring0->validate_owners(base,*ring0) && ring0->valid);
+    for(unsigned group=0;group<4;++group){
+        const auto& h=ring0->headers[group];
+        auto* index=reinterpret_cast<unsigned*>(h.object+0x20);
+        const auto original=*index;*index=3;
+        require(!ring0->validate_owners(base,*ring1) && !ring1->valid);
+        *index=original;
+    }
+    require(ring0->restore(base,*ring1) && ring0->same(*ring1));
+    // Diagnostic benchmark only: no timing assertion tied to host hardware.
+    LARGE_INTEGER fq{},start{},middle{},end{};QueryPerformanceFrequency(&fq);
+    constexpr unsigned repetitions=1000;
+    QueryPerformanceCounter(&start);
+    for(unsigned i=0;i<repetitions;++i)require(ring1->capture(base) && ring0->same_owners(*ring1));
+    QueryPerformanceCounter(&middle);
+    for(unsigned i=0;i<repetitions;++i)require(ring0->validate_owners(base,*ring1));
+    QueryPerformanceCounter(&end);
+    std::cout<<"Ring ownership benchmark us/check: full="<<double(middle.QuadPart-start.QuadPart)*1e6/double(fq.QuadPart)/repetitions
+             <<" headers="<<double(end.QuadPart-middle.QuadPart)*1e6/double(fq.QuadPart)/repetitions<<"; exact post-restore comparison retained\n";
+
     for(auto& h:ring0->headers){
         *reinterpret_cast<unsigned*>(h.object+0x20)=2;
         *reinterpret_cast<uintptr_t*>(h.object+0x30)=h.current;
@@ -1737,6 +1776,32 @@ int main(){
                     const bool gp=gs->prepare_adjacent(*gn,*general,&general_reason,false,false,true);
                     if(!gp)std::cerr<<"general prepare rejection="<<unsigned(general_reason)<<" mask="<<general->combat_preflight_pass_mask<<"\n";
                     require(gp && loads==0 && general->general_live_endpoint(base));
+                    // Exercise real preparation across bounded distances, not only the routing mock.
+                    {
+                        const auto oldFrame=gn->data->before_keys[0];
+                        const auto oldRings=std::make_unique<sc6::research::RingSnapshot>(gn->data->rings[0]);
+                        const auto oldCamera=std::make_unique<sc6::research::CameraSnapshot>(gn->data->cameras[0]);
+                        for(unsigned span:{2u,3u}){
+                            gn->data->before_keys[0]=gs->data->before_keys[0]+span;
+                            for(unsigned i=0;i<oldRings->headers.size();++i){
+                                const auto& a=gs->data->rings[0].headers[i];auto& b=gn->data->rings[0].headers[i];
+                                b.index=(a.index+2*span)%3;b.current=a.slots[b.index];b.previous=a.slots[(a.index+2*(span-1))%3];
+                            }
+                            for(unsigned i=0;i<gn->data->cameras[0].count;++i){
+                                auto& b=gn->data->cameras[0].records[i];const auto& a=gs->data->cameras[0].records[i];
+                                if(!a.smoothing_valid)continue;
+                                unsigned count{},index{};std::memcpy(&count,a.smoothing.data()+72,4);std::memcpy(&index,a.smoothing.data()+76,4);
+                                count=count>0x7FFFFFFFu-span?0x7FFFFFFFu:count+span;index=(index+span)%16;
+                                std::memcpy(b.smoothing.data()+72,&count,4);std::memcpy(b.smoothing.data()+76,&index,4);
+                            }
+                            auto bounded=std::make_unique<P>();
+                            require(gs->prepare_adjacent(*gn,*bounded,&general_reason,false,false,true,span));
+                            require(bounded->restore_span==span && !bounded->restore_invoked && loads==0);
+                            require(!gs->prepare_adjacent(*gn,*bounded,&general_reason,false,false,true,1));
+                        }
+                        gn->data->before_keys[0]=oldFrame;gn->data->rings[0]=*oldRings;gn->data->cameras[0]=*oldCamera;
+                    }
+
                     general->original_next=general->measurements[2];general->delayed_loaded=true;
                     require(general->general_live_endpoint(base));
                     ++general->original_next.rng;require(!general->general_live_endpoint(base));--general->original_next.rng;
@@ -1767,6 +1832,20 @@ int main(){
                     unsigned bad_nan=0x7FC00000u;std::memcpy(gn->data->delayed_inputs.data()+24,&bad_nan,4);
                     require(!bad_general->preflight_general(*gs,*gn) && bad_general->rejection==Boundary::Rejection::inputs && !bad_general->probe->restore_invoked && loads==0);
                     gn->data->delayed_inputs=saved_general_inputs;
+                    // A rejected archived blend pair must be caught before native load.
+                    for(unsigned side=0;side<2;++side){
+                        auto saved_blend=gn->data->blends[0];
+                        const unsigned offset=140+20;
+                        gn->data->blends[0].bytes[side][offset]^=std::byte{1};
+                        auto early=std::make_unique<sc6::research::NativeAdjacentRestore>();
+                        require(!early->preflight_general(*gs,*gn));
+                        require(early->rejection==Boundary::Rejection::combat && !early->probe->restore_invoked && loads==0);
+                        require(early->probe->blend_pair_diagnostic.reason==6 && early->probe->blend_pair_diagnostic.side==side && early->probe->blend_pair_diagnostic.offset==offset);
+                        gn->data->blends[0]=saved_blend;
+                    }
+                    auto early_ok=std::make_unique<sc6::research::NativeAdjacentRestore>();
+                    require(early_ok->preflight_general(*gs,*gn) && !early_ok->probe->restore_invoked && loads==0);
+
                     auto gr=std::make_unique<sc6::research::NativeAdjacentRestore>();
                     require(gr->prepare_captured(*gs,*gn,false,false,true));
                     sc6::research::RecordedInput general_input;
@@ -2580,6 +2659,16 @@ int main(){
         q->delayed_step(base,argument,delayed_save,delayed_load,check);
         require(q->replay_done && q->replay_keys_equal && q->replay_ring_equal && !q->replay_byte_differences && loads==1);
         require(q->blends[0].valid && q->blends[4].valid && q->blends[2].bytes==q->blends[3].bytes);
+        {
+            auto refreshed=std::make_unique<P>();
+            refreshed->general_combat_requested=true;refreshed->external_wind_lifecycle=true;
+            require(refreshed->capture_blend(base,0) && refreshed->capture_blend(base,2));
+            require(refreshed->capture_blend(base,6,2) && refreshed->intermediate_refreshes==1);
+            require(refreshed->blends[6].bytes==refreshed->blends[2].bytes);
+            refreshed->transforms[6].valid=false;
+            require(refreshed->capture_blend(base,7,6) && refreshed->intermediate_fallbacks==1);
+            require(refreshed->transforms[7].valid && refreshed->transforms[7].same_topology(refreshed->transforms[2]));
+        }
         auto owner=q->blends[0].owners[0];
         *reinterpret_cast<unsigned char*>(owner+0x4BC)=0x5A;
         require(q->capture_blend(base,4) && q->blends[4].bytes[0][0]==std::byte{0x5A});
@@ -2963,6 +3052,49 @@ int main(){
         require(C::restore(a,b,loaded,owners,false,fault!=7,tables,fault==8?nullptr:resources)==(fault==0));
         for(unsigned side=0;side<2;++side)
             require(!std::memcmp(reinterpret_cast<void*>(owners[side]+0x1DD8),(fault?loaded:a)[side].data()+140,1232));
+    }
+    // Inactive block5 may alternate between null and the verified wrapper table.
+    // Validate both directions, reject foreign/active states, and never partially write.
+    for(unsigned direction=0;direction<2;++direction)for(unsigned fault=0;fault<10;++fault){
+        using C=sc6::research::CombatBlend;
+        std::array<C::Bytes,2> a{},b{},loaded{};
+        uintptr_t owners[]={base+0x620000,base+0x630000},tables[]={base+0x640000,base+0x640100};
+        *reinterpret_cast<unsigned*>(tables[1])=20;
+        const unsigned offset=140+5*176;
+        std::memcpy((direction?b:a)[1].data()+offset+8,&tables[1],8);
+        std::memcpy(loaded[1].data()+offset+8,&tables[1],8);
+        unsigned weight=0x3F000000u;std::memcpy(a[0].data()+172,&weight,4);
+        if(fault==1)tables[1]+=8;
+        if(fault==2)a[1][offset+24]=std::byte{1};
+        if(fault==3)b[1][offset+16]=std::byte{1};
+        if(fault==4)loaded[1][offset+20]=std::byte{1};
+        if(fault==5)loaded[1][offset]=std::byte{1};
+        if(fault==6){a[0]=a[1];b[0]=b[1];loaded[0]=loaded[1];a[1]={};b[1]={};loaded[1]={};}
+        if(fault==7){for(auto* state:{&a,&b,&loaded}){std::memcpy((*state)[1].data()+140+4*176,(*state)[1].data()+offset,176);std::memset((*state)[1].data()+offset,0,176);}}
+        for(unsigned side=0;side<2;++side){
+            std::memcpy(reinterpret_cast<void*>(owners[side]+0x4BC),loaded[side].data(),140);
+            std::memcpy(reinterpret_cast<void*>(owners[side]+0x1DD8),loaded[side].data()+140,1232);
+            std::memcpy(reinterpret_cast<void*>(owners[side]+0x22A8),loaded[side].data()+1372,8);
+        }
+        require(!C::adjacent(a[fault==6?0:1],b[fault==6?0:1],false,nullptr,true));
+        require(C::restore(a,b,loaded,owners,false,fault!=8,fault==9?nullptr:tables)==(fault==0));
+        for(unsigned side=0;side<2;++side){
+            require(!std::memcmp(reinterpret_cast<void*>(owners[side]+0x4BC),(fault?loaded:a)[side].data(),140));
+            require(!std::memcmp(reinterpret_cast<void*>(owners[side]+0x1DD8),(fault?loaded:a)[side].data()+140,1232));
+        }
+    }
+    {
+        auto table_probe=std::make_unique<sc6::research::FullStateProbe>();
+        const unsigned offset=140+5*176;
+        table_probe->general_combat_requested=true;
+        for(auto i:{0u,1u}){table_probe->blends[i].valid=true;table_probe->blends[i].owners[1]=base+0x630000;
+            table_probe->blends[i].tables[1]=base+0x640100;table_probe->blends[i].resources[1]=base+0x641100;}
+        std::memcpy(table_probe->blends[0].bytes[1].data()+offset+8,&table_probe->blends[0].tables[1],8);
+        require(table_probe->combat_blend_ready());
+        ++table_probe->blends[1].resources[1];require(!table_probe->combat_blend_ready());
+        require(table_probe->blend_pair_diagnostic.table_saved==base+0x640100 && table_probe->blend_pair_diagnostic.table_next==0);
+        require(table_probe->blend_pair_diagnostic.resource_saved!=table_probe->blend_pair_diagnostic.resource_next);
+        --table_probe->blends[1].resources[1];++table_probe->blends[1].tables[1];require(!table_probe->combat_blend_ready());
     }
     for(unsigned fault=0;fault<12;++fault){
         using C=sc6::research::CombatBlend;

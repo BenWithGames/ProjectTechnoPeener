@@ -69,7 +69,7 @@ private:
         NativeStartupScope measured(NativeStartupTiming::rearm_poll,config_.identity.round);
         if(!session_ || !session_->retired() || !shared_ || session_->status.stop_requested.load())return stop();
         NativeCombatSession::Config config;ReplayDependencySource source;
-        const auto result=rearm_provider_(rearm_context_,object,config,source);
+        const auto result=[&]{NativeStartupScope provider(NativeStartupTiming::rearm_provider,config_.identity.round);return rearm_provider_(rearm_context_,object,config,source);}();
         if(result==RearmResult::waiting)return true;
         if(result==RearmResult::failed)return stop();
         const auto& next=config.identity;

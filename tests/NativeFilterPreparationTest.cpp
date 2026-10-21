@@ -75,5 +75,23 @@ int main(){
     Access::frame=101;Access::remote_available=false;
     assert(bp.filter(0x1000,0,0,false,false,false,raw)==R::failed);
     assert(baseline.delivery().head()==1);
+    Access::frame=100;Access::local=1;Access::remote_available=true;Access::previous_words={};
+    for(unsigned slot=1;slot<=2;++slot){
+        RawPredictionRoute<> fresh;assert(fresh.bind(1,2,3,4,500,slot,thread,{0,0}));
+        NativeFilterFramePreparation<Access> fp(fresh);assert(fp.bind({0x1000,0x2000,0,thread,7,100,500},slot,true,true));
+        assert(fresh.publish_local(thread,0,8));
+        RawInputConfirmation wire;assert(fresh.outgoing(0,wire) && wire.raw==8 && wire.frame==500 && wire.slot==slot);
+        assert(fp.filter(0x1000,slot-1,0,false,false,false,raw)==R::prepared && raw==8);
+        Access::local=16; // Native delayed input must not replace the committed fresh input.
+        assert(fp.filter(0x1000,2-slot,0,false,false,false,raw)==R::prepared);
+        assert(fresh.delivery().frame(0)->raw[slot-1]==8);
+        std::array<uint32_t,10> e{};e[(slot-1)*2]=8;e[(slot-1)*2+1]=8;
+        assert(fp.complete(500,e));RawInputHistoryView v;assert(v.bind(fresh.delivery(),1,3,4,500,thread));
+        uint32_t replay{};assert(v.raw(1,3,4,500,slot-1,replay) && replay==8);
+        assert(!v.raw(1,4,4,500,slot-1,replay));
+    }
+    RawPredictionRoute<> absent;assert(absent.bind(1,2,3,4,500,1,thread,{0,0}));
+    NativeFilterFramePreparation<Access> ap(absent);assert(ap.bind({0x1000,0x2000,0,thread,7,100,500},1,true,true));
+    assert(ap.filter(0x1000,0,0,false,false,false,raw)==R::failed && absent.delivery().head()==0);
     std::cout<<"Native filter preparation tests passed\n";
 }

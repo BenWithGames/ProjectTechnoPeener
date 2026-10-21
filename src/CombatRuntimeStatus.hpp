@@ -33,10 +33,16 @@ struct CombatRuntimeStatus {
     std::atomic<unsigned> rearm_result{},rearm_failure{},rearm_frame{};
     std::atomic<unsigned> rearm_clock_phase{},rearm_clock_identity{},rearm_clock_frame{},rearm_clock_failure{},rearm_clock_exception{},rearm_clock_phase_mask{};
     std::atomic<uint64_t> rearm_clock_waits{};
+    std::atomic<bool> match_completed{};
     std::atomic<bool> restored{},startup_hold_released{};
     std::array<std::atomic<uint64_t>,NativeRestoreDiagnostic::count> restore_details{};
     std::array<std::atomic<uint64_t>,22> topology_details{};
     std::array<std::array<std::atomic<uint64_t>,9>,16> restore_payload_details{};
+    std::atomic<unsigned> camera_slot_selected{UINT32_MAX};
+    std::array<std::array<std::atomic<uint64_t>,6>,2> camera_slot_header{};
+    std::array<std::array<std::array<std::atomic<uint64_t>,7>,16>,2> camera_slot_meta{};
+    std::array<std::array<std::atomic<uint32_t>,CameraSlotEvidence::words>,2> camera_slot_payload{};
+    std::array<std::atomic<unsigned>,2> camera_slot_retained{};
     std::atomic<bool> restore_timer_evidence_valid{};
     std::array<std::atomic<uint32_t>,NativeRestoreDiagnostic::timer_word_count> restore_timer_words{};
     void request_stop(){stop_requested.store(true,std::memory_order_release);}
@@ -63,6 +69,7 @@ struct CombatRuntimeStatus {
     }
     void write(std::ostream& events,std::ostream& summary){
         if(drain)drain(context,events,summary);
+        summary<<"continuous_match_completed="<<match_completed.load()<<'\n';
         summary<<"continuous_runtime_schema=1\ncontinuous_runtime_active="<<active.load()
             <<"\ncontinuous_startup_hold_released="<<startup_hold_released.load()
             <<"\ncontinuous_stop_requested="<<stop_requested.load()
@@ -101,6 +108,18 @@ struct CombatRuntimeStatus {
             constexpr const char* samples[]={"source","next","live"};
             for(unsigned sample=0;sample<3;++sample)for(unsigned side=0;side<2;++side)for(unsigned slot=0;slot<3;++slot)
                 for(unsigned word=0;word<32;++word)summary<<"continuous_restore_timer_"<<samples[sample]<<"_side"<<side<<"_slot"<<slot<<"_offset"<<(word*4)<<'='<<restore_timer_words[((sample*2+side)*3+slot)*32+word].load()<<'\n';
+        }
+        summary<<"continuous_camera_slots_schema=1\ncontinuous_camera_slots_selected="<<camera_slot_selected.load()<<'\n';
+        constexpr const char* slot_header_names[]={"enabled","valid","failure","count","manager","table"};
+        constexpr const char* slot_names[]={"type","first_record","end_record","offset","bytes","pool","active"};
+        for(unsigned sample=0;sample<2;++sample){
+            for(unsigned field=0;field<6;++field)summary<<"continuous_camera_slots_"<<sample<<'_'<<slot_header_names[field]<<'='<<camera_slot_header[sample][field].load()<<'\n';
+            for(unsigned slot=0;slot<16 && slot<camera_slot_header[sample][3].load();++slot)for(unsigned field=0;field<7;++field)
+                summary<<"continuous_camera_slots_"<<sample<<'_'<<slot<<'_'<<slot_names[field]<<'='<<camera_slot_meta[sample][slot][field].load()<<'\n';
+            const auto bytes=camera_slot_retained[sample].load();
+            summary<<"continuous_camera_slots_"<<sample<<"_payload_retained_bytes="<<bytes<<'\n';
+            for(unsigned word=0;word<CameraSlotEvidence::words && word*4<bytes;++word)
+                summary<<"continuous_camera_slots_"<<sample<<"_payload_word_"<<word<<'='<<camera_slot_payload[sample][word].load()<<'\n';
         }
         constexpr const char* payload_fields[]={"record","length","writer","saved_source","loaded_source","first","last","expected","actual"};
         summary<<"continuous_restore_payload_schema=1\n";

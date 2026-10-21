@@ -88,6 +88,29 @@ int main(){
  for(unsigned i=0;i<a->count;++i)if(a->records[i].kind==25){*reinterpret_cast<uintptr_t*>(a->records[i].bytes.data()+0x50)=hit+0x100;break;}
  assert(!a->restore_constraints(*b,*c,base));assert(*reinterpret_cast<short*>(node+0xDA)==2);
  assert(c->records[0].address==saved.address);
+ // Refresh every published value and compare against independently enumerated captures.
+ for(unsigned contacts=0;contacts<=4;++contacts){
+  state(0,0);assert(a->capture(owners,base,true)&&a->separate_effects());
+  state(contacts,contacts+4);*reinterpret_cast<float*>(group)=float(contacts);
+  assert(b->refresh_intermediate(*a,owners,base));
+  assert(c->capture(owners,base,true)&&c->separate_effects()&&b->same_topology(*c));
+  for(unsigned i=0;i<c->count;++i)assert(!std::memcmp(b->records[i].bytes.data(),c->records[i].bytes.data(),c->records[i].size));
+ }
+ // Every traversal input is checked before stale descendants are followed.
+ const uintptr_t topology_addresses[]={owners[0]+8,owners[0]+0x10,group+0x40,group+0x48,node,node+0x28,node+0xD8,hit,hit+0x28,base+0x470E038};
+ for(auto address:topology_addresses){
+  assert(a->capture(owners,base,true)&&a->separate_effects());
+  uint64_t original{};std::memcpy(&original,reinterpret_cast<void*>(address),8);
+  uint64_t changed=1;std::memcpy(reinterpret_cast<void*>(address),&changed,8);
+  assert(!b->refresh_intermediate(*a,owners,base)&&!b->valid);
+  std::memcpy(reinterpret_cast<void*>(address),&original,8);
+ }
+ assert(a->capture(owners,base,true)&&a->separate_effects());
+ *reinterpret_cast<uintptr_t*>(node+0x170)=hit+0x100;
+ assert(!b->refresh_intermediate(*a,owners,base)&&b->failure==17);
+ *reinterpret_cast<uintptr_t*>(node+0x170)=hit;
+ auto wrong=owners[0];owners[0]=owners[1];assert(!b->refresh_intermediate(*a,owners,base));owners[0]=wrong;
+ a->valid=false;assert(!b->refresh_intermediate(*a,owners,base));
  VirtualFree(mem,0,MEM_RELEASE);std::cout<<"Constraint slot transitions (25), dependencies, no-partial-write and bounds passed\n";
 }
 

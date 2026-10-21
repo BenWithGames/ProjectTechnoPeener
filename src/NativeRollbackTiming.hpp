@@ -9,8 +9,8 @@ namespace sc6::research {
 // One simulation-thread writer per session; report worker reads atomics only.
 // Inclusive spans intentionally overlap. No allocation, formatting or I/O here.
 struct NativeRollbackTiming {
-    enum Kind : unsigned {capture,restore,prepare,load_fixups,verification,replay,live_update,cleanup,workspace,count};
-    inline static constexpr const char* names[]={"capture","restore","prepare","load_fixups","verification","replay","live_update","cleanup","workspace"};
+    enum Kind : unsigned {capture,restore,prepare,load_fixups,verification,replay,live_update,cleanup,workspace,restore_ownership,restore_all_hop_checks,restore_snapshot_copy,restore_retained_objects,restore_retained_compare,restore_native_load,restore_native_resave,restore_state_capture,restore_combat_preflight,restore_payload_compare,restore_completion,restore_selector,restore_endpoint_compare,restore_wind,restore_sway,restore_constraints,restore_camera,restore_blend,restore_rings,restore_source_guard,restore_prepare_adjacent,restore_direct,count};
+    inline static constexpr const char* names[]={"capture","restore","prepare","load_fixups","verification","replay","live_update","cleanup","workspace","restore_ownership","restore_all_hop_checks","restore_snapshot_copy","restore_retained_objects","restore_retained_compare","restore_native_load","restore_native_resave","restore_state_capture","restore_combat_preflight","restore_payload_compare","restore_completion","restore_selector","restore_endpoint_compare","restore_wind","restore_sway","restore_constraints","restore_camera","restore_blend","restore_rings","restore_source_guard","restore_prepare_adjacent","restore_direct"};
     struct Bucket {
         std::atomic<uint64_t> calls{},ticks{},maximum{},max_frame{},over_frame{},over_50ms{};
     };
@@ -44,8 +44,11 @@ struct NativeRollbackTiming {
         ~Scope(){if(timing)timing->add(kind,frame,begin,now());}
         Scope(const Scope&)=delete;Scope& operator=(const Scope&)=delete;
     };
+    template<class Call> static decltype(auto) measure(Kind kind,Call&& call){
+        Scope measured(kind);return call();
+    }
     void write(std::ostream& out)const{
-        out<<"continuous_timing_schema=1\ncontinuous_timing_inclusive=1\ncontinuous_timing_frequency="<<frequency
+        out<<"continuous_timing_schema=2\ncontinuous_timing_inclusive=1\ncontinuous_timing_frequency="<<frequency
            <<"\ncontinuous_timing_invalid_clock="<<invalid_clock.load()<<'\n';
         for(unsigned i=0;i<count;++i){const auto& b=buckets[i];const auto n=b.calls.load(std::memory_order_acquire);
             const auto total=b.ticks.load(),maximum=b.maximum.load();

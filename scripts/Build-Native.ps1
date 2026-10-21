@@ -24,6 +24,9 @@ if (!$vs) { throw 'MSVC x64 tools not found.' }
 & (Join-Path $PSScriptRoot 'Test-InputLatency.ps1')
 & (Join-Path $PSScriptRoot 'Test-NativeOuterTiming.ps1')
 & (Join-Path $PSScriptRoot 'Test-ConstraintSlots.ps1')
+& (Join-Path $PSScriptRoot 'Test-StreamShape.ps1')
+& (Join-Path $PSScriptRoot 'Test-CameraSlots.ps1')
+& (Join-Path $PSScriptRoot 'Test-RestoreTimingDetail.ps1')
 & (Join-Path $PSScriptRoot 'Test-NativeClockAccess.ps1')
 & (Join-Path $PSScriptRoot 'Test-NativePredictionFrontier.ps1')
 & (Join-Path $PSScriptRoot 'Test-NativeInputWords.ps1')
@@ -39,6 +42,7 @@ if (!$vs) { throw 'MSVC x64 tools not found.' }
 & (Join-Path $PSScriptRoot 'Test-NativeSnapshotPool.ps1')
 & (Join-Path $PSScriptRoot 'Test-NativeRestoreReuse.ps1')
 & (Join-Path $PSScriptRoot 'Test-NativeRollbackWindow.ps1')
+& (Join-Path $PSScriptRoot 'Test-DirectRestore.ps1')
 & (Join-Path $PSScriptRoot 'Test-NativeSnapshotReader.ps1')
 & (Join-Path $PSScriptRoot 'Test-Recorder.ps1')
 & (Join-Path $PSScriptRoot 'Test-Recorder.ps1') -Optimized

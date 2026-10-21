@@ -103,6 +103,8 @@ struct NativeBoundarySnapshot {
             capture_stage=9;if(!q.rings[1].capture(base)){fault=true;__leave;}
             capture_stage=10;if(!q.rings[0].same(q.rings[1])){fault=true;__leave;}
             capture_stage=11;if(!q.capture_blend(base,0)){fault=true;__leave;}
+            if(mode==Mode::general_combat && writer==reinterpret_cast<FullStateProbe::Routine>(base+0x3841E0)){
+                capture_stage=17;if(!q.camera_slots[0].capture(q.saved,base)){fault=true;__leave;}}
             capture_stage=12;if(!q.cameras[0].capture(q.saved,base)){fault=true;__leave;}
             q.selector_enabled=selector_lifetime::installed && mode==Mode::general_combat;
             if(q.selector_enabled){capture_stage=16;if(!q.selectors[0].capture(q.before_players,q.selector_diagnostic)){fault=true;__leave;}}
@@ -125,7 +127,7 @@ struct NativeBoundarySnapshot {
     }
     // Pure structural assessment is available for combat captures too. Passing
     // it does not authorize loading or relax move/input-specific readiness.
-    Rejection structural_readiness(const NativeBoundarySnapshot& current,TransformSnapshot::TopologyDiagnostic* topology=nullptr)const{
+    Rejection structural_readiness(const NativeBoundarySnapshot& current,TransformSnapshot::TopologyDiagnostic* topology=nullptr,IdleTrajectoryAudit::ShapeDiagnostic* shape=nullptr,unsigned span=1)const{
         if(topology)*topology={};
         if(!valid || fault || !current.valid || current.fault)return Rejection::invalid_capture;
         if(module!=current.module)return Rejection::module;
@@ -134,17 +136,25 @@ struct NativeBoundarySnapshot {
         if(a.external_wind_lifecycle!=b.external_wind_lifecycle){
             if(topology){(*topology)[0]=5;(*topology)[3]=a.external_wind_lifecycle;(*topology)[4]=b.external_wind_lifecycle;}
             return Rejection::transforms;}
-        if(a.before_keys[0]==UINT32_MAX || b.before_keys[0]!=a.before_keys[0]+1u)return Rejection::frame;
+        if(!span || span>3 || a.before_keys[0]>UINT32_MAX-span || b.before_keys[0]!=a.before_keys[0]+span)return Rejection::frame;
         if(std::memcmp(a.before_players,b.before_players,sizeof(a.before_players)))return Rejection::players;
-        if(!IdleTrajectoryAudit::same_shape(a.saved,b.saved))return Rejection::shape;
-        if(!b.rings[0].rotated_from(a.rings[0]))return Rejection::rings;
+        if(a.camera_slots[0].enabled!=b.camera_slots[0].enabled)return Rejection::shape;
+        const bool strict_shape=IdleTrajectoryAudit::same_shape(a.saved,b.saved,shape);
+        if(a.camera_slots[0].enabled){std::array<unsigned,FullRestoreStream::transfer_limit> mapping;
+            if(!a.camera_slots[0].map(a.saved,b.camera_slots[0],b.saved,mapping))return Rejection::shape;
+        }else if(!strict_shape)return Rejection::shape;
+        if(!b.rings[0].rotated_from(a.rings[0],span))return Rejection::rings;
         if(!a.measurements[0].rng || a.measurements[0].rng>=2147483647 ||
            !b.measurements[0].rng || b.measurements[0].rng>=2147483647)return Rejection::rng;
         if(!a.transforms[0].same_topology(b.transforms[0],topology))return Rejection::transforms;
-        if(!IdleTrajectoryAudit::camera_identity(a.cameras[0],b.cameras[0]))return Rejection::camera;
+        CameraSnapshot aligned;
+        const CameraSnapshot* next_camera=&b.cameras[0];
+        if(a.camera_slots[0].enabled){if(!a.cameras[0].align_next(b.cameras[0],a.camera_slots[0],b.camera_slots[0],aligned))return Rejection::camera;next_camera=&aligned;}
+        if(!IdleTrajectoryAudit::camera_identity(a.cameras[0],*next_camera))return Rejection::camera;
         return Rejection::none;
     }
-    bool prepare_adjacent(const NativeBoundarySnapshot& current,FullStateProbe& q,Rejection* reason=nullptr,bool direction_restore=false,bool a_restore=false,bool general_restore=false)const {
+    bool prepare_adjacent(const NativeBoundarySnapshot& current,FullStateProbe& q,Rejection* reason=nullptr,bool direction_restore=false,bool a_restore=false,bool general_restore=false,unsigned span=1)const {
+        NativeRollbackTiming::Scope prepare_timing(NativeRollbackTiming::restore_prepare_adjacent);
         auto reject=[&](Rejection r){if(reason)*reason=r;return false;};
         if(reason)*reason=Rejection::none;
         // Capture support must never implicitly authorize restoration. Reject
@@ -162,7 +172,9 @@ struct NativeBoundarySnapshot {
         if(q.saved.sealed || q.attempted || q.restore_invoked)return reject(Rejection::used_probe);
         const auto& a=*data;const auto& b=*current.data;
         const bool combat=mode!=Mode::idle && !direction_pair;
-        const auto structural=structural_readiness(current);
+        if(span!=1 && (!general_pair || span<2 || span>3))return reject(Rejection::mode);
+        q.restore_span=span;
+        const auto structural=structural_readiness(current,nullptr,nullptr,span);
         if(structural!=Rejection::none)return reject(structural);
         // Idle permits only finite normalized auxiliary variation. Buttons and
         // flags (first24bytes) remain exact, including when both inputs match.
@@ -207,6 +219,9 @@ struct NativeBoundarySnapshot {
         if(!q.transforms[0].copy_recorded_from(a.transforms[0]) ||
            !q.transforms[1].copy_recorded_from(b.transforms[0]))return reject(Rejection::transforms);
         q.cameras[0]=a.cameras[0];q.cameras[1]=b.cameras[0];q.delayed_inputs=a.delayed_inputs;
+        q.camera_slots[0]=a.camera_slots[0];q.camera_slots[1]=b.camera_slots[0];
+        if(q.camera_slots[0].enabled && (!q.camera_slots[0].map(a.saved,q.camera_slots[1],b.saved,q.camera_source_map) ||
+            !a.cameras[0].align_next(b.cameras[0],q.camera_slots[0],q.camera_slots[1],q.cameras[1])))return reject(Rejection::camera);
         if(a.selector_enabled!=b.selector_enabled)return reject(Rejection::sources);
         q.selector_enabled=a.selector_enabled;
         if(q.selector_enabled){

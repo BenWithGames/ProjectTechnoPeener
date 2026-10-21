@@ -76,7 +76,7 @@ struct ImmediateIdleCorrection {
                 if(!add(r.address+offset,r.bytes.data()+offset,length))return reject(__LINE__);
             }
             section=3;
-            if(!a.rings[0].same(c.restored_rings) || !b.rings[0].rotated_from(a.rings[0]))return reject(__LINE__);
+            if(!a.rings[0].same(c.restored_rings) || !b.rings[0].rotated_from(a.rings[0],c.restore_span))return reject(__LINE__);
             section=4;
             for(unsigned side=0;side<2;++side){
                 record=side;
@@ -93,7 +93,7 @@ struct ImmediateIdleCorrection {
                 }
             }
             section=5;
-            const auto& ca=a.cameras[0];const auto& cb=b.cameras[0];const auto& cc=c.cameras[4];
+            const auto& ca=a.cameras[0];const auto& cb=c.camera_slots[0].enabled?c.cameras[1]:b.cameras[0];const auto& cc=c.cameras[4];
             if(!ca.valid || !cb.valid || !cc.valid || ca.count>ca.records.size() || ca.count!=cb.count || ca.count!=cc.count)return reject(__LINE__);
             for(unsigned i=0;i<ca.count;++i){const auto& r=ca.records[i];const auto& next=cb.records[i];const auto& live=cc.records[i];
                 record=i;difference(r.bytes.data(),live.bytes.data(),static_cast<unsigned>(r.bytes.size()));

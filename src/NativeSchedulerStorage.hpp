@@ -12,34 +12,50 @@ template<class History=NativeRollingHistory<4>,class Restore=NativeHistoryRestor
     unsigned live_{};bool boundary_{},failed_{},approved_{};
     std::array<std::byte,40> endpoint_{};
     uint64_t serial_{};
+    unsigned startup_captures_{};
     struct Token {unsigned frame{};uint64_t serial{};};
     std::array<Token,4> tokens_{};
     // Allocate before activation, retain for this round/session only.
-    std::unique_ptr<Restore> restore_=std::make_unique<Restore>();
+    bool workspace_reused_{};
+    std::unique_ptr<Restore> restore_;
     RollbackBoundaryKey key(unsigned frame)const{auto k=identity_;k.frame=frame;return k;}
     bool fail(){failed_=true;return false;}
     bool capture_boundary(const RollbackBoundaryKey& boundary,unsigned oldest,uintptr_t argument){
         NativeRollbackTiming::Binding binding(&timing,boundary.frame);
         NativeRollbackTiming::Scope measured(NativeRollbackTiming::capture);
-        if constexpr(requires {history_.capture_general_owned(boundary,oldest,base_,argument,source_);})
-            return history_.capture_general_owned(boundary,oldest,base_,argument,source_);
-        else return history_.capture_owned(boundary,oldest,base_,argument,source_,approved_);
+        const auto capture_now=[&]{
+            if constexpr(requires {history_.capture_general_owned(boundary,oldest,base_,argument,source_);})
+                return history_.capture_general_owned(boundary,oldest,base_,argument,source_);
+            else return history_.capture_owned(boundary,oldest,base_,argument,source_,approved_);
+        };
+        if(startup_captures_<4){
+            NativeStartupScope startup_measure(startup_captures_++?NativeStartupTiming::initial_ring_capture:NativeStartupTiming::first_capture,identity_.round);
+            return capture_now();
+        }
+        return capture_now();
     }
 public:
     NativeRollbackTiming timing;
     NativeRollbackTiming* timing_sink(){return &timing;}
     NativeRestoreDiagnostic restore_diagnostic;
     struct Snapshot {RollbackBoundaryKey key{};uint64_t serial{};};
-    NativeSchedulerStorage(History& history,ReplayDependencySource& source,uintptr_t base,const RollbackBoundaryKey& identity,bool approved=false)
-        :history_(history),source_(source),base_(base),identity_(identity),approved_(approved){}
+    NativeSchedulerStorage(History& history,ReplayDependencySource& source,uintptr_t base,const RollbackBoundaryKey& identity,bool approved=false,std::unique_ptr<Restore> recycled={})
+        :history_(history),source_(source),base_(base),identity_(identity),approved_(approved),workspace_reused_(bool(recycled)),restore_(recycled?std::move(recycled):std::make_unique<Restore>()){}
+    std::unique_ptr<Restore> take_retired_workspace(bool retired){
+        if(!retired || failed_ || !restore_ || identity_.thread!=GetCurrentThreadId())return {};
+        if constexpr(requires {restore_->prepare_for_reuse();}){
+            if(!restore_->prepare_for_reuse())return {};
+            return std::move(restore_);
+        }else return {};
+    }
     bool begin_boundary(unsigned frame,const NetworkInputComposer::Envelope& local){
-        if(failed_ || !base_ || !identity_.same_round(identity_) || identity_.thread!=GetCurrentThreadId())return fail();
+        if(!restore_ || failed_ || !base_ || !identity_.same_round(identity_) || identity_.thread!=GetCurrentThreadId())return fail();
         std::memcpy(endpoint_.data(),local.data(),40);
         if(!RecordedInput::valid_envelope(endpoint_))return fail();
         live_=frame;boundary_=true;return true;
     }
     bool capture(Snapshot& out,unsigned frame,const std::array<std::byte,40>& bytes){
-        if(failed_ || !boundary_ || frame>live_ || live_-frame>3 || !RecordedInput::valid_envelope(bytes) || serial_==UINT64_MAX)return fail();
+        if(!restore_ || failed_ || !boundary_ || frame>live_ || live_-frame>3 || !RecordedInput::valid_envelope(bytes) || serial_==UINT64_MAX)return fail();
         const auto boundary=key(frame);
         if(!capture_boundary(boundary,frame>3?frame-3:0,input_.assign(bytes)))return fail();
         out={boundary,++serial_};tokens_[frame%4]={frame,serial_};return true;
@@ -48,7 +64,7 @@ public:
         NativeRollbackTiming::Binding binding(&timing,saved.key.frame);
         NativeRollbackTiming::Scope measured(NativeRollbackTiming::restore);
         const auto& token=tokens_[saved.key.frame%4];
-        if(failed_ || !boundary_ || !saved.serial || !saved.key.same_round(identity_) || token.frame!=saved.key.frame ||
+        if(!restore_ || failed_ || !boundary_ || !saved.serial || !saved.key.same_round(identity_) || token.frame!=saved.key.frame ||
             token.serial!=saved.serial || saved.key.frame>=live_ || live_-saved.key.frame>3)return fail();
         // The scheduler stores pre-frame states; add the current endpoint so
         // every adjacent reverse-load hop has its required reference state.
@@ -66,6 +82,7 @@ public:
         return true;
     }
     unsigned frame(const Snapshot& saved)const{return saved.key.frame;}
+    bool workspace_reused()const{return workspace_reused_;}
     bool failed()const{return failed_;}
 };
 }

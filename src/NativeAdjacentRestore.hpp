@@ -4,6 +4,8 @@
 #include "TwoFrameIdleReplay.hpp"
 #include "ImmediateIdleCorrection.hpp"
 #include "RngCallerTrace.hpp"
+#include "DirectLoadCompatibility.hpp"
+#include "CameraSlotEvidence.hpp"
 namespace sc6::research {
 // Experimental adjacent-state restoration. No update invocation or input injection.
 // Failure after restore_invoked requires ending the live experimental session.
@@ -17,6 +19,9 @@ public:
     std::unique_ptr<FullStateProbe> probe=std::make_unique<FullStateProbe>();
     bool attempted{},prepared{},verified{},fault{},restore_input_used{};
     TransformSnapshot::TopologyDiagnostic topology_diagnostic{};
+    IdleTrajectoryAudit::ShapeDiagnostic shape_diagnostic{};
+    CameraSlotEvidence slot_evidence;
+    uint64_t shape_module{},shape_source_frame{},shape_next_frame{};
     RecordedInput restore_input;
     ImmediateIdleCorrection completion;
     bool native_payload_verified{};
@@ -150,7 +155,9 @@ public:
     bool preflight_general(const NativeBoundarySnapshot& a,const NativeBoundarySnapshot& b){
         if(attempted || fault)return false;
         if(a.mode!=NativeBoundarySnapshot::Mode::general_combat || b.mode!=a.mode){rejection=NativeBoundarySnapshot::Rejection::mode;return fail();}
-        rejection=a.structural_readiness(b,&topology_diagnostic);
+        slot_evidence.capture(a.data->camera_slots[0],a.data->saved,b.data->camera_slots[0],b.data->saved);
+        shape_module=a.module;shape_source_frame=a.data->before_keys[0];shape_next_frame=b.data->before_keys[0];
+        rejection=a.structural_readiness(b,&topology_diagnostic,&shape_diagnostic);
         if(rejection!=NativeBoundarySnapshot::Rejection::none)return fail();
         if(a.data->selector_enabled!=b.data->selector_enabled || (a.data->selector_enabled &&
            (!a.data->selectors[0].compatible(b.data->selectors[0],probe->selector_diagnostic) ||
@@ -161,20 +168,42 @@ public:
         probe->blend_timer_source=a.data->blend_timer_count?a.data->blend_timer_history[0]:FullStateProbe::BlendTimerSample{};
         probe->blend_timer_next=b.data->blend_timer_count?b.data->blend_timer_history[0]:FullStateProbe::BlendTimerSample{};
         if(!probe->timer_transition_ready()){rejection=NativeBoundarySnapshot::Rejection::combat;return fail();}
+        // Archived-only blend checks must finish for every hop before any load.
+        // Keep the same predicate used by prepare_adjacent; no live reads here.
+        probe->blends[0]=a.data->blends[0];probe->blends[1]=b.data->blends[0];
+        probe->general_combat_requested=true;
+        probe->charge_requested=false;probe->throw_requested=false;
+        if(!probe->combat_blend_ready()){rejection=NativeBoundarySnapshot::Rejection::combat;return fail();}
         return true;
+    }
+    DirectLoadCompatibility::Diagnostic direct_diagnostic{};
+    bool prepare_direct(const NativeBoundarySnapshot& source,const NativeBoundarySnapshot& next,unsigned span){
+        if(span<2 || span>3 || !source.data || !next.data)return false;
+        shape_module=source.module;shape_source_frame=source.data->before_keys[0];shape_next_frame=next.data->before_keys[0];
+        if(!DirectLoadCompatibility::ready(source.data->saved,next.data->saved,source.module,source.data->before_players,direct_diagnostic))return false;
+        return prepare_captured(source,next,false,false,true,span);
+    }
+    // Only a candidate rejected BEFORE any native mutation can return to the
+    // adjacent path. Clear copied streams/flags but retain allocated storage.
+    bool discard_unloaded_candidate(){
+        if(!probe || !current.data || probe->restore_invoked || diagnostic_stage || current.effects || verified)return false;
+        auto snapshot=std::move(current.data),scratch=std::move(probe);
+        snapshot->reset_for_reuse();scratch->reset_for_reuse();
+        std::destroy_at(this);::new (this) NativeAdjacentRestore(std::move(snapshot),std::move(scratch));return true;
     }
     // Combat routing explicitly distinguishes general states from fixtures.
     // All structural, input, native preflight and post-load checks stay
     // in prepare_adjacent()/finish(); general capture does not authorize load.
-    bool prepare_captured(const NativeBoundarySnapshot& source,const NativeBoundarySnapshot& next,bool direction_restore=false,bool a_restore=false,bool combat_restore=false){
+    bool prepare_captured(const NativeBoundarySnapshot& source,const NativeBoundarySnapshot& next,bool direction_restore=false,bool a_restore=false,bool combat_restore=false,unsigned span=1){
         if(attempted || fault)return false;attempted=true;
+        slot_evidence.capture(source.data->camera_slots[0],source.data->saved,next.data->camera_slots[0],next.data->saved);
         if(!supported_pair(source.mode,next.mode,direction_restore,a_restore,combat_restore)){rejection=NativeBoundarySnapshot::Rejection::mode;return fail();}
         if(source.thread!=GetCurrentThreadId()){rejection=NativeBoundarySnapshot::Rejection::thread;return fail();}
         if(source.module!=next.module){rejection=NativeBoundarySnapshot::Rejection::module;return fail();}
         current.direction_slot=next.direction_slot;current.direction_bits=next.direction_bits;current.mode=next.mode;current.module=next.module;current.thread=next.thread;current.attempted=next.attempted;
         current.valid=next.valid;current.fault=next.fault;
-        if(!current.data->copy_recorded_from(*next.data))return fail();
-        if(!source.prepare_adjacent(current,*probe,&rejection,direction_restore,a_restore,source.mode==NativeBoundarySnapshot::Mode::general_combat && combat_restore))return fail();
+        if(!NativeRollbackTiming::measure(NativeRollbackTiming::restore_snapshot_copy,[&]{return current.data->copy_recorded_from(*next.data);}))return fail();
+        if(!source.prepare_adjacent(current,*probe,&rejection,direction_restore,a_restore,source.mode==NativeBoundarySnapshot::Mode::general_combat && combat_restore,span))return fail();
         prepared=true;return true;
     }
     bool restore_captured(const NativeBoundarySnapshot& source,uintptr_t base,uintptr_t argument,
@@ -215,16 +244,18 @@ private:
         // below may differ in its pinned 16-byte record.
         diagnostic_stage=6;
         NativeRollbackTiming::Scope measured(NativeRollbackTiming::verification);
-        native_payload_verified=native_equal(saved,p,base,&payload_diagnostic);
+        native_payload_verified=NativeRollbackTiming::measure(NativeRollbackTiming::restore_payload_compare,[&]{return native_equal(saved,p,base,&payload_diagnostic);});
         if(!native_payload_verified)return fail();
         diagnostic_stage=7;
-        if(!completion.apply(saved,*current.data,p,base))return fail();
+        if(!NativeRollbackTiming::measure(NativeRollbackTiming::restore_completion,[&]{return completion.apply(saved,*current.data,p,base);}))return fail();
         if(p.selector_enabled){
+            NativeRollbackTiming::Scope selector_timing(NativeRollbackTiming::restore_selector);
             if(!p.selectors[0].restore(p.selector_diagnostic) || !p.selectors[2].capture(p.before_players,p.selector_diagnostic))return fail();
             p.selector_restored=p.selectors[0].same(p.selectors[2],p.selector_diagnostic);
             if(!p.selector_restored)return fail();
         }
         diagnostic_stage=8;
+        NativeRollbackTiming::Scope endpoint_timing(NativeRollbackTiming::restore_endpoint_compare);
         if(!p.capture_blend(base,3) || !p.cameras[4].capture(p.restored,base) ||
            !p.restored_after_rings.capture(base) || !saved.rings[0].same(p.restored_after_rings))return fail();
         diagnostic_stage=9;

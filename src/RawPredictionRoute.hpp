@@ -1,5 +1,7 @@
 #pragma once
 #include "PredictionInputDelivery.hpp"
+#include "ConfirmationAge.hpp"
+#include "RawPublicationSignal.hpp"
 #include <atomic>
 #include <Windows.h>
 #include <memory>
@@ -16,6 +18,7 @@ struct RawInputConfirmation {
 // reused prediction slot. Construction does not publish a native hook.
 template<unsigned Records=7200,unsigned Queue=32> class RawPredictionRoute {
 public:
+    ConfirmationAge confirmation_age;
     using Delivery=PredictionInputDelivery<>;
     using Filter=typename Delivery::Filter;
     enum class Submit {accepted,full,rejected,retired};
@@ -111,18 +114,39 @@ public:
         }
         return true;
     }
+    // Publish only the next immutable local frame, without preparing filters or
+    // advancing simulation. A later filter must consume exactly these words.
+    uint64_t early_publications{},early_rechecks{};
+    bool publish_local(uint64_t thread,uint64_t index,uint32_t raw){
+        if(!owner(thread) || handoff_ || index!=delivery_.head() || index>=Records)return false;
+        const auto count=outgoing_count();
+        if(count==index+1){
+            if(outgoing_[index]!=raw)return fail(Failure::conflict);
+            ++early_rechecks;return true;
+        }
+        if(count!=index)return fail(Failure::overflow);
+        outgoing_[index]=raw;(*published_times_)[index]=timestamp();
+        outgoing_count_.store(static_cast<unsigned>(index+1),std::memory_order_release);
+        raw_publication_signal.notify();++early_publications;return true;
+    }
     bool append(uint64_t thread,uint32_t local_raw,const std::array<Filter,2>& filters,
                 const std::array<uint32_t,10>& auxiliary,bool pending=false,std::optional<uint32_t> native_confirmed=std::nullopt){
         if(!owner(thread) || handoff_ || !drain(thread))return false;
         const auto index=delivery_.head();if(index>=Records)return fail(Failure::overflow);
+        const auto published=outgoing_count();
+        if(published!=index && published!=index+1)return fail(Failure::overflow);
+        if(published==index+1 && outgoing_[index]!=local_raw)return fail(Failure::conflict);
         auto& t=truth_[index];
         if(native_confirmed){
             if(t.seen && t.raw!=*native_confirmed)return fail(Failure::conflict);
             t.raw=*native_confirmed;t.seen=true;
         }
         if(!delivery_.append(local_raw,t.seen?std::optional<uint32_t>(t.raw):std::nullopt,filters,auxiliary,pending))return false;
-        outgoing_[index]=local_raw;(*published_times_)[index]=timestamp();
-        outgoing_count_.store(static_cast<unsigned>(index+1),std::memory_order_release);
+        if(published==index){
+            outgoing_[index]=local_raw;(*published_times_)[index]=timestamp();
+            outgoing_count_.store(static_cast<unsigned>(index+1),std::memory_order_release);
+            raw_publication_signal.notify();
+        }
         ++counters_.appended;return true;
     }
     // Immutable owner-to-transport archive. Retransmission never reads the
@@ -146,6 +170,11 @@ public:
     bool arrival_times(uint64_t thread,uint64_t index,uint64_t& enqueued,uint64_t& drained)const{
         if(thread!=owner_ || index>=Records || !truth_[index].seen)return false;
         enqueued=(*arrival_times_)[index].enqueued;drained=(*arrival_times_)[index].drained;return true;
+    }
+    void measure_confirmation(uint64_t thread,uint64_t index,uint64_t head){
+        if(thread!=owner_ || index>=Records || !truth_[index].seen)return;
+        const auto& times=(*arrival_times_)[index];
+        confirmation_age.observe(index,head,(*published_times_)[index],times.enqueued,times.drained,timestamp());
     }
     bool truth(uint64_t thread,uint64_t index,uint32_t& raw)const{
         if(thread!=owner_ || !bound_ || failed() || index>=Records || !truth_[index].seen)return false;

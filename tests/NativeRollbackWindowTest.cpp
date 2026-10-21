@@ -372,6 +372,14 @@ void reference_padding_tests(){
     std::cout<<"PASS: all audited descriptor padding pairs; all active bytes stay exact; raw payload retained; live mismatch evidence exported\n";
 }
 int main(){
+    {
+        CombatStartSendCadence cadence;CombatStartPacket::Bytes packet{};
+        assert(cadence.due(packet,100,false));assert(!cadence.due(packet,109,false));
+        assert(cadence.due(packet,110,false));packet[0]=1;
+        assert(cadence.due(packet,111,false));assert(!cadence.due(packet,120,true));
+        assert(cadence.due(packet,361,true));
+    }
+
     reference_padding_tests();
     {
         NativeHistoryRestore<> restore;auto& p=*restore.diagnostic().probe;
@@ -390,6 +398,22 @@ int main(){
         assert(report.str().find("continuous_restore_timer_next_side1_slot2_offset68=205")!=std::string::npos);
         assert(report.str().find("continuous_restore_timer_reason=2")!=std::string::npos);
         p.timer_diagnostic={};assert(!restore.details().timer_evidence_valid);
+        p.blend_pair_diagnostic={6,1,160,1,2,3,0x10000,0x20000};
+        p.blend_pair_diagnostic.table_saved=0x123456789ABC0020ull;
+        p.blend_pair_diagnostic.table_next=0;
+        p.blend_pair_diagnostic.wrapper_saved=0x123456789ABC0020ull;
+        p.blend_pair_diagnostic.resource_next=0x30000;
+        const auto blend=restore.details();
+        assert(blend.values[NativeRestoreDiagnostic::blend_reason]==6 && blend.values[NativeRestoreDiagnostic::blend_offset]==160);
+        assert(blend.values[NativeRestoreDiagnostic::blend_saved_owner]==0x10000 && blend.values[NativeRestoreDiagnostic::blend_next]==3);
+        assert(blend.values[NativeRestoreDiagnostic::blend_table_saved]==0x123456789ABC0020ull);
+        assert(blend.values[NativeRestoreDiagnostic::blend_resource_next]==0x30000);
+        for(unsigned i=0;i<NativeRestoreDiagnostic::count;++i)status.restore_details[i]=blend.values[i];
+        std::ostringstream blend_events,blend_report;status.write(blend_events,blend_report);
+        assert(blend_report.str().find("continuous_restore_blend_offset=160")!=std::string::npos);
+        assert(blend_report.str().find("continuous_restore_blend_table_saved="+std::to_string(0x123456789ABC0020ull))!=std::string::npos);
+        assert(blend_report.str().find("continuous_restore_blend_table_next=0")!=std::string::npos);
+
     }
 
     {
@@ -1277,6 +1301,20 @@ int main(){
             }
         }
         MatchEndResourcesFixture::stop_ok=true;
+        for(unsigned variant=0;variant<6;++variant){
+            auto end=std::make_unique<CombatResourcePreparation<MatchEndResourcesFixture>>();
+            assert(end->start(1));MatchEndResourcesFixture::available=true;end->frame(10,true);
+            end->live_prediction_enabled=true;
+            MatchEndResourcesFixture::observation={0x3E87428,0x2D2BC0,GetCurrentThreadId(),0x301590};
+            if(variant==1)MatchEndResourcesFixture::observation={0x3E87530,0x387530,GetCurrentThreadId(),0x301470};
+            if(variant==3)end->failed=true;
+            MatchEndResourcesFixture::stop_ok=variant!=4;
+            const bool requested=end->finish_live_match(variant==5?0:GetCurrentThreadId(),variant!=2);
+            assert(requested==(variant==0 || variant==4));
+            if(requested){end->frame(20,false);assert(end->match_end_clean==(variant==0));assert(end->failed==(variant==4));}
+            else assert(!end->match_end_clean && !end->match_end_requested);
+        }
+        MatchEndResourcesFixture::stop_ok=true;
         CombatResourcePreparation<PreparationResourcesFixture> cancelled;
         assert(cancelled.start(1));PreparationResourcesFixture::cancel=true;
         cancelled.frame(15,true);assert(cancelled.failed.load() && cancelled.retired.load() && !cancelled.ready.load());
@@ -1534,6 +1572,8 @@ int main(){
         assert(!scratch->prepare_for_reuse()); // a failed attempt remains one-shot
         StorageHistory history;ReplayDependencySource source;
         RollbackBoundaryKey identity{1,2,3,4,5,100,1,GetCurrentThreadId()};
+        const auto first_samples=native_startup_timing.buckets[NativeStartupTiming::first_capture].calls.load();
+        const auto ring_samples=native_startup_timing.buckets[NativeStartupTiming::initial_ring_capture].calls.load();
         NativeSchedulerStorage<StorageHistory,StorageRestore> storage(history,source,1,identity);
         decltype(storage)::Snapshot first,current;std::array<std::byte,40> bytes{};
         for(unsigned i=100;i<103;++i){assert(storage.begin_boundary(i,{}));assert(storage.capture(current,i,bytes));if(i==100)first=current;}
@@ -1548,10 +1588,19 @@ int main(){
         assert(StorageRestore::constructions==allocated);
         assert(!storage.restore(first) && storage.failed()); // replaced handle cannot alias recaptured state
         assert(storage.timing.buckets[NativeRollbackTiming::capture].calls==12);
+        assert(native_startup_timing.buckets[NativeStartupTiming::first_capture].calls==first_samples+1);
+        assert(native_startup_timing.buckets[NativeStartupTiming::initial_ring_capture].calls==ring_samples+3);
         assert(storage.timing.buckets[NativeRollbackTiming::restore].calls==3);
         assert(storage.timing.buckets[NativeRollbackTiming::cleanup].calls==2);
         assert(storage.timing.buckets[NativeRollbackTiming::workspace].calls==2);
         assert(!NativeRollbackTiming::active);
+        StorageHistory reuseHistory;auto reusable=std::make_unique<decltype(storage)>(reuseHistory,source,1,identity);
+        assert(!reusable->take_retired_workspace(false));
+        const auto before_rearm=StorageRestore::constructions;
+        auto workspace=reusable->take_retired_workspace(true);assert(workspace);
+        assert(!reusable->begin_boundary(100,{}));
+        auto successor=std::make_unique<decltype(storage)>(reuseHistory,source,1,identity,false,std::move(workspace));
+        assert(StorageRestore::constructions==before_rearm);assert(successor->begin_boundary(100,{}));
         StorageHistory failedHistory;decltype(storage) failedStorage(failedHistory,source,1,identity);
         for(unsigned i=100;i<103;++i){assert(failedStorage.begin_boundary(i,{}));assert(failedStorage.capture(current,i,bytes));if(i==100)first=current;}
         assert(failedStorage.begin_boundary(103,{}));StorageRestore::reject=true;
@@ -1864,6 +1913,7 @@ int main(){
     request.frame=saved.frame=200;NativeWindowReuseProbe::validated(probe.get(),request,saved);assert(probe->confirmed[0]);
     std::cout<<"PASS: native window identity, all-hop preflight, reverse load order, depth limits and failure stop\n";
 }
+
 
 
 

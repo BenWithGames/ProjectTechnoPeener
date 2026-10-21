@@ -43,7 +43,10 @@ struct RingSnapshot {
         }
         d.status=1;return d;
     }
-    bool capture(uintptr_t base) noexcept {
+private:
+    // Native accessors select through +28; ownership is fully described by
+    // the header. Pre-write validation need not copy the soon-overwritten slots.
+    bool capture_impl(uintptr_t base,bool payload) noexcept {
         valid=false;
         __try {
             unsigned out=0;
@@ -68,23 +71,29 @@ struct RingSnapshot {
                 }
                 if(!previous_ok)return false;
                 for(unsigned slot=0;slot<3;++slot){
-                    std::memcpy(bytes.data()+out,reinterpret_cast<void*>(h.slots[slot]),stride);out+=stride;
+                    if(payload)std::memcpy(bytes.data()+out,reinterpret_cast<void*>(h.slots[slot]),stride);out+=stride;
                 }
                 if(h.current!=*reinterpret_cast<uintptr_t*>(h.object+0x28) || h.previous!=*reinterpret_cast<uintptr_t*>(h.object+0x30) || h.index!=*reinterpret_cast<unsigned*>(h.object+0x20))return false;
             }
-            valid=true;return true;
+            valid=payload;return true;
         }__except(EXCEPTION_EXECUTE_HANDLER){return false;}
     }
-    bool same_owners(const RingSnapshot& other)const{
-        if(!valid || !other.valid)return false;
+    bool same_owner_headers(const RingSnapshot& other)const{
         for(unsigned i=0;i<4;++i){auto& a=headers[i];auto& b=other.headers[i];
             if(a.player!=b.player || a.object!=b.object || a.vtable!=b.vtable || std::memcmp(a.slots,b.slots,sizeof(a.slots)))return false;
         }
         return true;
     }
+public:
+    bool capture(uintptr_t base) noexcept {return capture_impl(base,true);}
+    bool same_owners(const RingSnapshot& other)const{return valid && other.valid && same_owner_headers(other);}
+    // Header-only scratch is deliberately NOT a valid payload snapshot.
+    bool validate_owners(uintptr_t base,RingSnapshot& scratch)const noexcept {
+        return this!=&scratch && valid && scratch.capture_impl(base,false) && same_owner_headers(scratch);
+    }
     // Validate every owner before the first write; caller must hold the update boundary.
     bool restore(uintptr_t base,RingSnapshot& scratch)const noexcept {
-        if(!scratch.capture(base) || !same_owners(scratch))return false;
+        if(!validate_owners(base,scratch))return false;
         __try {
             unsigned offset=0;
             for(unsigned i=0;i<4;++i){auto& h=headers[i];unsigned stride=i%2?0x800:0xC000;
@@ -105,10 +114,10 @@ struct RingSnapshot {
         }
         return true;
     }
-    bool rotated_from(const RingSnapshot& prior)const{
-        if(!valid || !prior.valid)return false;
+    bool rotated_from(const RingSnapshot& prior,unsigned span=1)const{
+        if(!valid || !prior.valid || !span || span>3)return false;
         for(unsigned i=0;i<4;++i){auto& a=prior.headers[i];auto& b=headers[i];
-            if(a.player!=b.player || a.object!=b.object || a.vtable!=b.vtable || std::memcmp(a.slots,b.slots,sizeof(a.slots)) || b.index!=(a.index+2)%3 || b.previous!=a.current)return false;
+            if(a.player!=b.player || a.object!=b.object || a.vtable!=b.vtable || std::memcmp(a.slots,b.slots,sizeof(a.slots)) || a.index>=3 || b.index!=(a.index+2*span)%3 || b.previous!=(span==1?a.current:a.slots[(a.index+2*(span-1))%3]))return false;
         }
         return true;
     }

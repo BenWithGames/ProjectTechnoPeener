@@ -2,6 +2,7 @@
 #include <Windows.h>
 #include <cstdint>
 #include <limits>
+#include <memory>
 #include "NativeInputLatency.hpp"
 
 namespace sc6::research {
@@ -35,6 +36,8 @@ public:
     enum class Failure {none,identity,layout,phase,order,exception,service_advanced,advance_count};
 private:
     mutable NativeInputLatency latency_;
+    std::unique_ptr<NativeInputLatency> fresh_latency_=std::make_unique<NativeInputLatency>();
+    uint64_t service_begin_{},service_end_{};
     static bool local_entry(uintptr_t object,const State& state,uint32_t frame,bool& present,uint32_t& raw)noexcept{
         __try {
             const auto entry=object+0x3C0+(state.local_mask==1?0:0x2000)+(frame&511u)*16;
@@ -143,7 +146,8 @@ public:
             readable[i]=local_entry(object_,before,before.local_cursor+i,existed[i],ignored);
         const auto started=NativeInputLatency::now();
         stage_=2;if(!invoke_service())return Result::restart_required;
-        const auto ended=NativeInputLatency::now();latency_.service(started,ended);
+        const auto ended=NativeInputLatency::now();latency_.service(started,ended);fresh_latency_->service(started,ended);
+        service_begin_=started;service_end_=ended;
         stage_=3;if(!validate(after))return Result::restart_required;
         if(after.frame!=before.frame){fail(Failure::service_advanced);return Result::restart_required;}
         for(unsigned i=0;i<4&&before.local_cursor<=INT32_MAX-i;++i){
@@ -164,17 +168,29 @@ public:
         stage_=4;if(!validate(before))return Result::restart_required;
         serviced_=false;
         if(before.frame!=serviced_state_.frame){fail(Failure::advance_count);return Result::restart_required;}
-        if(native_wait_ && !prediction_authorized){latency_.decision(true,false,wait_state_.wait_reason,NativeInputLatency::now());return Result::native_wait;}
-        if(!scheduler_admits){latency_.decision(native_wait_,false,wait_state_.wait_reason,NativeInputLatency::now());return Result::withheld;}
+        if(native_wait_ && !prediction_authorized){latency_.decision(true,false,wait_state_.wait_reason,NativeInputLatency::now());fresh_latency_->decision(true,false,wait_state_.wait_reason,NativeInputLatency::now());return Result::native_wait;}
+        if(!scheduler_admits){latency_.decision(native_wait_,false,wait_state_.wait_reason,NativeInputLatency::now());fresh_latency_->decision(native_wait_,false,wait_state_.wait_reason,NativeInputLatency::now());return Result::withheld;}
         if(before.frame==static_cast<uint32_t>(INT32_MAX)){fail(Failure::advance_count);return Result::restart_required;}
         stage_=5;if(!invoke_advance())return Result::restart_required;
         stage_=6;if(!validate(after))return Result::restart_required;
         if(after.frame!=before.frame+1){fail(Failure::advance_count);return Result::restart_required;}
-        latency_.decision(native_wait_,true,wait_state_.wait_reason,NativeInputLatency::now());
+        latency_.decision(native_wait_,true,wait_state_.wait_reason,NativeInputLatency::now());fresh_latency_->decision(native_wait_,true,wait_state_.wait_reason,NativeInputLatency::now());
         return Result::advanced;
     }
-    void input_consumed(uint32_t frame,uint32_t raw)const{latency_.consumed(frame,raw,NativeInputLatency::now());}
-    void write_input_latency(std::ostream& out)const{latency_.write(out);}
+    // 3FDF30 samples 3B8/3BC during this service, before native future-ring publication.
+    // Read only; never rewrite native cursors, rings, or native confirmations.
+    bool fresh_local(uint32_t frame,uint32_t& raw)const noexcept {
+        if(!bound_ || failed_ || !serviced_ || GetCurrentThreadId()!=owner_ || serviced_state_.frame!=frame || !service_begin_)return false;
+        __try {
+            if(*reinterpret_cast<const uint32_t*>(object_+0x3A0)!=identity_ ||
+               *reinterpret_cast<const uint32_t*>(object_+0x3A4)!=frame ||
+               *reinterpret_cast<const uint8_t*>(object_+0x4424)!=2)return false;
+            raw=*reinterpret_cast<const uint32_t*>(object_+0x3B8+(serviced_state_.local_mask==1?0:4));
+            fresh_latency_->publication(frame,raw,service_begin_,service_end_);return true;
+        }__except(EXCEPTION_EXECUTE_HANDLER){return false;}
+    }
+    void input_consumed(uint32_t frame,uint32_t raw,bool fresh=false)const{(fresh?*fresh_latency_:latency_).consumed(frame,raw,NativeInputLatency::now());}
+    void write_input_latency(std::ostream& out,bool fresh=false)const{out<<"input_latency_fresh_local="<<fresh<<'\n';(fresh?*fresh_latency_:latency_).write(out);}
     const State& last_serviced_state()const{return serviced_state_;}
     const State& last_wait_state()const{return wait_state_;}
     const State& last_observed_state()const{return observed_state_;}

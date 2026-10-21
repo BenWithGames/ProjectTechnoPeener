@@ -1,5 +1,6 @@
 #pragma once
 #include "FullRestoreStream.hpp"
+#include "CameraSlots.hpp"
 namespace sc6::research {
 struct CameraSnapshot {
     struct Record {
@@ -82,8 +83,9 @@ struct CameraSnapshot {
         return player_selection_pair(a,b) && (c==0 || c==a);
     }
     struct ReadinessDiagnostic {unsigned reason{},record{},section{},offset{},side{};uint64_t saved{},next{};};
-    bool adjacent_combat_ready(const CameraSnapshot& next,uintptr_t base,bool charge_rising=false,ReadinessDiagnostic* detail=nullptr,bool idle_camera=false,bool decision_counters=false)const noexcept {
+    bool adjacent_combat_ready(const CameraSnapshot& next,uintptr_t base,bool charge_rising=false,ReadinessDiagnostic* detail=nullptr,bool idle_camera=false,bool decision_counters=false,unsigned span=1)const noexcept {
         if(detail)*detail={};
+        if(!span || span>3)return false;
         unsigned index=0,side=0;
         auto reject=[&](unsigned reason,unsigned section,unsigned offset,uint64_t a,uint64_t b){
             if(detail)*detail={reason,index,section,offset,side,a,b};return false;
@@ -108,8 +110,8 @@ struct CameraSnapshot {
                 if(!charge_rising)for(unsigned j:{0x68u,0x6Cu})if(word(r->targets.data()+j)!=(idle_camera?0u:0x3F800000u))return reject(9,3,j,word(r->targets.data()+j),idle_camera?0u:0x3F800000u);
             }
             side=0;auto old=word(a.smoothing.data()+72);
-            if(word(b.smoothing.data()+72)!=(old==0x7FFFFFFFu?old:old+1))return reject(10,1,72,old,word(b.smoothing.data()+72));
-            if(word(b.smoothing.data()+76)!=(word(a.smoothing.data()+76)+1)%16)return reject(11,1,76,word(a.smoothing.data()+76),word(b.smoothing.data()+76));
+            if(word(b.smoothing.data()+72)!=(old>0x7FFFFFFFu-span?0x7FFFFFFFu:old+span))return reject(10,1,72,old,word(b.smoothing.data()+72));
+            if(word(b.smoothing.data()+76)!=(word(a.smoothing.data()+76)+span)%16)return reject(11,1,76,word(a.smoothing.data()+76),word(b.smoothing.data()+76));
             if(charge_rising && decision_counters && !general_factors(word(a.targets.data()+0x68),word(a.targets.data()+0x6C),
                 word(b.targets.data()+0x68),word(b.targets.data()+0x6C)))
                 return reject(20,3,0x68,word(a.targets.data()+0x68),word(b.targets.data()+0x68));
@@ -130,8 +132,8 @@ struct CameraSnapshot {
     }
     // Reuse the existing strict idle restoration policy only when every
     // target is unchanged and the response/factor values match that policy.
-    bool adjacent_idle_ready(const CameraSnapshot& next,uintptr_t base)const noexcept {
-        if(!adjacent_combat_ready(next,base,false,nullptr,true))return false;
+    bool adjacent_idle_ready(const CameraSnapshot& next,uintptr_t base,unsigned span=1)const noexcept {
+        if(!adjacent_combat_ready(next,base,false,nullptr,true,false,span))return false;
         for(unsigned i=0;i<count;++i){const auto& a=records[i];const auto& b=next.records[i];
             if(!a.smoothing_valid)continue;
             if(a.targets!=b.targets || a.response!=b.response ||
@@ -143,11 +145,12 @@ struct CameraSnapshot {
     static bool restore_reject(RestoreDiagnostic* diagnostic,unsigned line) noexcept {
         if(diagnostic)diagnostic->failure_line=line;return false;
     }
-    bool restore_smoothing(const CameraSnapshot& next,const CameraSnapshot& current,uintptr_t base,bool immediate_throw=false,bool adjacent_throw=false,bool validate_only=false,bool adjacent_charge=false,RestoreDiagnostic* diagnostic=nullptr,bool decision_counters=false)const noexcept {
+    bool restore_smoothing(const CameraSnapshot& next,const CameraSnapshot& current,uintptr_t base,bool immediate_throw=false,bool adjacent_throw=false,bool validate_only=false,bool adjacent_charge=false,RestoreDiagnostic* diagnostic=nullptr,bool decision_counters=false,unsigned span=1)const noexcept {
         if(diagnostic)*diagnostic={};
+        if(!span || span>3)return false;
         __try {
             if(immediate_throw && adjacent_throw)return restore_reject(diagnostic,__LINE__);
-            if(adjacent_charge && (immediate_throw || !adjacent_throw || !adjacent_combat_ready(next,base,true,nullptr,false,decision_counters)))return restore_reject(diagnostic,__LINE__);
+            if(adjacent_charge && (immediate_throw || !adjacent_throw || !adjacent_combat_ready(next,base,true,nullptr,false,decision_counters,span)))return restore_reject(diagnostic,__LINE__);
             if(!valid || !next.valid || !current.valid || !count || count>records.size() || count!=next.count || count!=current.count)return restore_reject(diagnostic,__LINE__);
             unsigned selected=count;
             for(unsigned i=0;i<count;++i){auto& a=records[i];auto& b=next.records[i];auto& c=current.records[i];
@@ -251,7 +254,7 @@ struct CameraSnapshot {
                 auto old_count=word(a.smoothing.data()+72);
                 if(!immediate_throw)for(unsigned j:{72u,76u}){
                     if(diagnostic){diagnostic->section=10;diagnostic->offset=j;diagnostic->a=word(a.smoothing.data()+j);diagnostic->b=word(b.smoothing.data()+j);diagnostic->c=word(c.smoothing.data()+j);}
-                    const auto expected=j==72?(old_count==0x7FFFFFFFu?old_count:old_count+1):(word(a.smoothing.data()+76)+1)%16;
+                    const auto expected=j==72?(old_count>0x7FFFFFFFu-span?0x7FFFFFFFu:old_count+span):(word(a.smoothing.data()+76)+span)%16;
                     if(word(b.smoothing.data()+j)!=expected)return restore_reject(diagnostic,__LINE__);
                 }
             }
@@ -280,6 +283,21 @@ struct CameraSnapshot {
                 !std::memcmp(reinterpret_cast<void*>(a.owner+0x1E0),a.smoothing.data(),8) &&
                 !std::memcmp(reinterpret_cast<void*>(a.owner+0x25C),a.smoothing.data()+8,72);
         }__except(EXCEPTION_EXECUTE_HANDLER){return restore_reject(diagnostic,__LINE__);}
+    }
+    // Align only supplemental camera observations; serialized streams are never
+    // rewritten. Missing/retyped pool cameras use target identity for the existing
+    // non-smoothing post-load guards. Main smoothing camera must remain present.
+    bool align_next(const CameraSnapshot& next,const CameraSlots& a,const CameraSlots& b,CameraSnapshot& out)const {
+        if(!valid || !next.valid || count>records.size() || next.count>next.records.size() || !a.compatible(b))return false;
+        out=*this;
+        for(unsigned i=0;i<count;++i){const auto& r=records[i];bool found=false;
+            for(unsigned j=0;j<next.count;++j){const auto& n=next.records[j];
+                if(r.owner==n.owner && !std::memcmp(r.bytes.data(),n.bytes.data(),8)){out.records[i]=n;found=true;break;}}
+            if(!found && (r.smoothing_valid || !a.pool_owner(r.owner)))return false;
+        }
+        for(unsigned j=0;j<next.count;++j){bool found=false;for(unsigned i=0;i<count;++i)if(next.records[j].owner==records[i].owner)found=true;
+            if(!found && (next.records[j].smoothing_valid || !b.pool_owner(next.records[j].owner)))return false;}
+        return true;
     }
     bool capture(const FullRestoreStream& stream,uintptr_t base) noexcept {
         count=0;failure=0;exception=0;valid=false;

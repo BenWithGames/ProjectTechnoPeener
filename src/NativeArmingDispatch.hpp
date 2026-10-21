@@ -33,6 +33,19 @@ private:
         const auto* routes=combat_routes.load(std::memory_order_acquire);
         if(cancelled_.load() || !routes || !routes->retired() || !rearm_resources_ ||
            GetCurrentThreadId()!=config_.identity.thread || object!=config_.clock_object)return finish(R::failed,1);
+        // Terminal End is distinct from GameSet/round replay. Inspect on the
+        // owner thread only, after native continuation and history retirement.
+        if(runtime && (rearm_resources_->match_end_requested.load() ||
+            rearm_resources_->finish_live_match(config_.identity.thread,
+                runtime->history_retired.load() && runtime->native_outer_committed.load() &&
+                !runtime->active.load() && !runtime->restart_required.load() && runtime->updates.load()>0))){
+            // Cleanup needs an owner-thread tick even when combat no longer
+            // produces frames on the results screen. stop_ prevents capture.
+            rearm_resources_->frame(runtime->settlement_frame.load(),false);
+            if(rearm_resources_->failed.load())return finish(R::failed,10);
+            if(rearm_resources_->match_end_clean.load())runtime->match_completed.store(true,std::memory_order_release);
+            return finish(R::waiting);
+        }
         uint64_t now{};CombatPeerContext::Snapshot peer;
         const auto peer_check=combat_peer_context.inspect_current(peer,now);
         const auto peer_result=peer_admission_.check(peer,peer_check,now,steam_peer_,config_.identity.session,

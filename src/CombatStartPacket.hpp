@@ -88,11 +88,21 @@ public:
         if(!completed_.load(std::memory_order_relaxed))completed_peer_=p->offer;
         publish_ready();return true;
     }
+    bool completed()const{return completed_.load(std::memory_order_acquire);}
     bool consume(){return agreement_.consume(local_);}
     uint64_t retired_packets()const{return retired_packets_.load(std::memory_order_relaxed);}
 };
+// Worker-only cadence. New offer/ack/held transitions send immediately;
+// unchanged incomplete agreements retry at most 100 times/second.
+struct CombatStartSendCadence {
+    CombatStartPacket::Bytes last{};uint64_t sent_at{};bool sent{};
+    bool due(const CombatStartPacket::Bytes& packet,uint64_t now,bool completed){
+        if(sent && packet==last && now>=sent_at && now-sent_at<(completed?250u:10u))return false;
+        last=packet;sent_at=now;sent=true;return true;
+    }
+};
 // Early packets are consumed, authenticated, and deferred without publishing an
-// agreement. The peer retries every 250 ms; no unbounded pre-start queue exists.
+// agreement. The peer retries on a bounded cadence; no unbounded pre-start queue exists.
 struct CombatStartIngress {
     enum class Result {rejected,deferred,delivered};
     static Result receive(CombatStartExchange* exchange,bool continuous,bool mutual,

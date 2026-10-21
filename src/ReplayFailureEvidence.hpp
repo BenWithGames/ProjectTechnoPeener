@@ -77,6 +77,8 @@ struct ReplayFailureEvidence {
             if(!arena)bytes.reserve(limit);
             const uint64_t magic=0x3144564543364353ULL;append(&magic,8);
             section("module",module);
+            const unsigned capacity_policy=1; // Raw unused capacity may retain prior bytes; lengths/counts define evidence.
+            section("snapshot.capacity_policy",capacity_policy);
             auto work=scratch?scratch:std::make_shared<TraceScratch>();
             rng_trace::snapshot(work->rng);section("rng.callers",work->rng);
             shared_rng::snapshot(work->shared_rng);section("rng.shared_callers",work->shared_rng);

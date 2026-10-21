@@ -86,7 +86,7 @@ inline void poll() {
     // cleanup may publish its result on a later clock callback.
     if(auto* runtime=sc6::research::combat_runtime_status.load(std::memory_order_acquire);
        runtime && runtime->session==protocol.local_nonce){
-        if(stopped || !running || data_done)runtime->request_stop();
+        if((stopped || !running || data_done) && !runtime->match_completed.load())runtime->request_stop();
         static ULONGLONG continuous_flushed=0;
         static std::ofstream continuous_events,outer_events;
         static sc6::research::NativeOuterTiming::Worker outer_worker;
@@ -450,8 +450,13 @@ inline void poll() {
             <<"\nshadow_unseeded="<<s.unseeded<<"\nshadow_censored="<<s.censored<<"\nshadow_truth_mismatches="<<s.truth_mismatches
             <<"\nshadow_invalid="<<s.invalid<<"\nshadow_no_overlap="<<s.no_overlap<<"\nshadow_tail_excluded=4\nshadow_within_observed_bounds="<<s.within_observed_bounds()<<'\n';}
     };
-    if(running && continuous_mode){
+    if(running && continuous_mode && !data_done){
         auto* runtime=sc6::research::combat_runtime_status.load(std::memory_order_acquire);
+        if(runtime && runtime->session==protocol.local_nonce && runtime->match_completed.load(std::memory_order_acquire) &&
+           !runtime->restart_required.load()){
+            capture.export_csv(report_path.parent_path()/report_path.stem());
+            data_done=true;report("continuous_match_complete");return;
+        }
         if(runtime && runtime->session==protocol.local_nonce && runtime->first_update_expired(GetTickCount64())){
             unsigned empty=sc6::research::CombatRuntimeStatus::none;
             runtime->reason.compare_exchange_strong(empty,sc6::research::CombatRuntimeStatus::startup_stall);runtime->request_stop();
@@ -487,7 +492,7 @@ inline void poll() {
         if(input_mode){initial_round_generation=round_event::snapshot().generation;protocol.expected_signature=reuse_mode?0x002853433648534bULL:late_mode?0x001F53433648534bULL:replay_mode?0x001E53433648534bULL:checkpoint_mode?0x000C53433648534bULL:0x000B53433648534bULL;capture.shadow.remote_slot=3-local_slot;capture.composition.configure(local_slot,continuous_mode?LiveInputComposition::Purpose::authoritative_peer:LiveInputComposition::Purpose::comparison);}
         protocol.expected_peer=peer;
         if(prepare_mode)protocol.expected_signature=0x003053433648534bULL;
-        if(continuous_mode)protocol.expected_signature=prediction_disabled?0x005053433648534bULL:0x004F53433648534bULL; // latency A/B modes must match on both PCs
+        if(continuous_mode)protocol.expected_signature=prediction_disabled?0x005053433648534bULL:0x005153433648534bULL; // latency A/B modes must match on both PCs
         if(suite_mode)protocol.expected_signature=0x004253433648534bULL^(uint64_t(suite.profile)<<40)^(uint64_t(suite.seconds)<<48);
         if(suite_mode && (suite.profile>=12 && suite.profile<=16))protocol.expected_signature^=0x0000000800000000ULL; // reusable retirement between retained replay cycles
         if(suite_mode && suite.first_match_start())protocol.expected_signature^=0x0000180000000000ULL; // first-match ownership plus emitter restoration; reject older replay peers
@@ -548,6 +553,7 @@ inline void poll() {
             if(packet.kind==sc6::research::ContinuousStopPacket::kind){
                 if(!continuous_mode || !sc6::research::ContinuousStopPacket::valid(packet,protocol.local_nonce,protocol.remote_nonce)){++rejected;continue;}
                 ++received;++stop_packets_received;last_peer=now;
+                if(data_done)continue;
                 running=false;stopped=true;report("continuous_peer_stopped_restart_required");return;
             }
             if(packet.kind==sc6::research::RawPredictionPacket::kind){
@@ -646,9 +652,9 @@ inline void poll() {
         }
     }
     if(auto* start=sc6::research::combat_start_exchange.load(std::memory_order_acquire);start && input_mode && protocol.mutual && !data_done){
-        static uint64_t last_start_send=0;
-        if(now-last_start_send>=250){
-            const auto start_packet=start->outgoing();last_start_send=now;
+        static sc6::research::CombatStartSendCadence cadence;
+        const auto start_packet=start->outgoing();
+        if(cadence.due(start_packet,now,start->completed())){
             if(send(net,protocol.expected_peer,start_packet.data(),static_cast<uint32_t>(start_packet.size()),1,channel))++sent;else ++send_failed;
         }
     }

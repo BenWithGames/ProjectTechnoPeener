@@ -39,6 +39,7 @@ public:
             }
             const auto result=session_.receive(local_,round_,n,marker(raw));
             if(result!=Session::Arrival::accepted && result!=Session::Arrival::duplicate)return fail();
+            route_.measure_confirmation(owner,n,session_.head());
             submitted_[n]=true;
         }
         return true;

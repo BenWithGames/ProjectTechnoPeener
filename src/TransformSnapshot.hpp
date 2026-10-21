@@ -15,6 +15,49 @@ struct TransformSnapshot {
     unsigned count{},failure{},trapped_exception{}; uintptr_t failure_address{};
     bool reject(unsigned reason,uintptr_t address){failure=reason;failure_address=address;return false;}
     bool valid{},fixed_constraint_slots{};
+    // Same owned restoration call only, after separate_effects(). Every payload
+    // is read again; only linked-list discovery/deduplication is reused. Any
+    // changed traversal input falls back to capture(), never trusts new pointers.
+    bool refresh_intermediate(const TransformSnapshot& prior,const uintptr_t* owners,uintptr_t base) noexcept {
+        valid=false;count=0;failure=0;trapped_exception=0;failure_address=0;
+        if(this==&prior || !base || !prior.valid || !prior.fixed_constraint_slots ||
+           !prior.count || prior.count>records.size())return reject(15,0);
+        fixed_constraint_slots=true;unsigned roots=0;
+        __try {
+            for(unsigned i=0;i<prior.count;++i){const auto& old=prior.records[i];
+                failure_address=old.address;
+                if(!old.size || old.size>old.bytes.size() || old.address<0x10000 ||
+                   old.address>UINTPTR_MAX-old.size)return reject(15,old.address);
+                auto& now=records[i];now=old;
+                std::memcpy(now.bytes.data(),reinterpret_cast<const void*>(old.address),old.size);++count;
+                const auto equal=[&](unsigned offset,unsigned size){return offset<=old.size && size<=old.size-offset &&
+                    !std::memcmp(old.bytes.data()+offset,now.bytes.data()+offset,size);};
+                bool topology=false;
+                switch(old.kind){
+                case 0: topology=old.side<2 && old.address==owners[old.side] && old.size==512 &&
+                            !(roots&(1u<<old.side)) && equal(0,40);if(topology)roots|=1u<<old.side;break;
+                case 1: topology=old.size==0x58 && equal(0x40,16);break;
+                case 2: topology=old.size==0x80 && equal(0,8) && equal(0x28,8);break;
+                case 12: topology=old.size==0x60 && equal(0x58,2);break;
+                case 26: case 27: topology=old.size==8 && equal(0,8);break;
+                case 5: topology=old.side==2 && old.size==8 && old.address==base+0x470E038 && equal(0,8);break;
+                case 3: topology=old.side==2 && old.size==8;break; // separated manager scalar, not list head
+                case 6: topology=old.side==2 && old.size==4 && old.address==base+0x4846450;break;
+                case 10: topology=old.side==2 && old.size==104 && old.address==base+0x485EB30;break;
+                case 11: topology=old.side==2 && old.size==24 && old.address==base+0x470E2B0;break;
+                case 13: case 14: case 18: case 19: case 20: case 21: case 25:
+                    topology=old.side<2;break;
+                default: break; // dynamic effects/legacy variable contacts require full enumeration
+                }
+                if(!topology)return reject(16,old.address);
+            }
+            if(roots!=3 || !constraint_dependencies(base))return reject(17,failure_address);
+            // Preserve the full capture's second-read stability check.
+            for(unsigned i=0;i<count;++i){const auto& r=records[i];failure_address=r.address;
+                if(std::memcmp(r.bytes.data(),reinterpret_cast<const void*>(r.address),r.size))return reject(7,r.address);}
+            valid=true;failure_address=0;return true;
+        }__except(EXCEPTION_EXECUTE_HANDLER){trapped_exception=GetExceptionCode();return reject(8,failure_address);}
+    }
     bool copy_recorded_from(const TransformSnapshot& source) noexcept {
         if(source.count>source.records.size())return false;
         if(this==&source)return true;
