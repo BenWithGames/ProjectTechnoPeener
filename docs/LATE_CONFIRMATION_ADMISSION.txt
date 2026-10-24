@@ -1,0 +1,13 @@
+Late confirmation admission
+Existing owner-thread drain follows successful native clock service.
+A second bounded drain runs after prediction eligibility, before reservation.
+It runs only if eligible, and production skips work if no receipts are queued.
+No extra native service, wait, advance, filter, replay, or network call.
+Partial input-consumption, owner, session, round and failure guards remain.
+Queue budget remains 32. This catches arrivals during the eligibility work;
+it cannot eliminate propagation delay or normal inter-frame scheduling.
+Reports include late receipt check and nonempty-queue drain counts.
+Native input sampler/service boundaries remain as previously audited in Ghidra.
+Regression covers a packet arriving during prediction checks, failed drain,
+ineligible update, and no advance after failure.
+Fixed one-frame delay, three-frame prediction and fast sender restart retained.

@@ -1,0 +1,25 @@
+Snapshot retirement / effect journal branch retry
+
+The match-10832-7424828 report completed native loading and restoration verification,
+then failed storage restoration during predicted-history retirement. The old report
+does not identify the exact retirement subcheck. Five native loads but four journal
+branches narrow the investigation; they do not prove lock contention caused the run.
+
+The journal branch previously made only one nonblocking gate attempt. A deterministic
+regression reproduces rejection under brief contention with an otherwise valid journal.
+This build retries only unentered contention, at most 64 attempts and a nominal 1 ms
+QPC budget, yielding outside the gate. Once entered, validation failure is never retried.
+Stopped runtime, ownership counts, journal cursor/mode and poisoned snapshot guards
+remain enforced. Native restoration verification and round safety are unchanged.
+
+Reports now identify storage restore stage, history rewind stage, snapshot retirement
+reason and journal branch check, gate outcome and attempt count. Storage stage 5 means
+history retirement; rewind stage 5 means pool retirement and 6 means journal branch.
+Retirement reasons: 1 invalid handle/thread, 2 borrowed, 3 ownership drain failure,
+4 snapshot fault, 5 snapshot exception, 6 probe fault, 7 loaded probe,
+8 saved-stream failures, 9 verification-stream failures. Zero means success.
+Branch checks: 1 inactive, 2 stopped, 3 ownership count, 4 final journal mode,
+5 gated branch rejection. Zero means success.
+
+Fixed input delay remains two frames, sent immediately; prediction limit remains three.
+Live verification is still required to confirm the reported freeze is resolved.

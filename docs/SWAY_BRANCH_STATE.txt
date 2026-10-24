@@ -1,0 +1,33 @@
+# Sway branch-state restoration and rejection diagnostics
+
+Evidence: the 17584 report rejected preflight for frames 352 -> 353 with mask 157
+and rejection 16. Sway (32) and constraints (64) did not pass. No load occurred.
+The 16584 report stopped on the peer notification. Neither ZIP contains binary
+snapshots, so these reports cannot identify the exact historical byte.
+
+Fresh read-only Ghidra exports in work/ghidra-sc6-focus/sway-state-latest and
+sway-virtual-latest show native writes to supported sway-node +7C and +7D:
+- 33A120 reset writes +7D from the +58 comparison.
+- 33A1E0 finalization writes +7C from that comparison.
+- 334D10 dispatch reads +7C: 1, 2, 3 and the default take different paths.
+- 33B4B0 uses the same base update before applying variant scale.
+The exact vtables are 3E88DB8 and 3E88DF8. These bytes are scalar branch state,
+not pointers. The old full-header equality rejected their changes in both checks.
+
+The supported headers now permit only these two bytes to differ between saved
+and next snapshots. Sway restoration copies their saved bytes and verifies the
+entire header afterward. Constraints tolerate the already-restored bytes without
+rewriting them. All other header bytes, live-versus-captured equality, topology,
+active contact dependencies, contact limits and exact endpoint verification stay
+strict. No unknown type receives this allowance. No network/delay change.
+
+New continuous_restore_sway_check_* and constraint_check_* fields include failing
+source line, record, kind, side, byte offset and compared values, plus exception.
+Structural rejection has no byte offset. Successful comparisons use memcmp;
+byte-level scanning happens only on mismatch. Existing diagnostics remain.
+
+Tests cover both exact types, all 16 branch-state pairs per type, dry-run,
+full sway/constraint exact restoration, unchanged adjacent fields, unknown type
+rejection and live-mutation rejection, alongside existing contact/dependency tests.
+This fixes a binary-proven omission; live confirmation of the reported failure
+is still required. It does not claim all sway/constraint causes are solved.

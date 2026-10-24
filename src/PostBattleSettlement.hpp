@@ -16,6 +16,13 @@ private:
     Result fail(Failure why){failed_=true;failure_=why;return Result::restart_required;}
 public:
     Failure failure()const{return failure_;}
+    template<class Session> bool resume(Session& session,uint64_t id,uint64_t round,unsigned owner,unsigned frame){
+        if(failed_ || entered_ || waiting_ || !bound_ || id!=session_ || round!=round_ ||
+           owner!=owner_ || frame!=frame_ || session.head()!=head_ ||
+           !session.resume_settled_handoff(id,round))return false;
+        bound_=false;return true;
+    }
+
     // Stay on the original native call stack: no fiber/FLS switch and no return
     // to the outer caller while confirmation is merely pending. A failed result
     // is terminal and MUST NOT be interpreted by the native adapter as permission

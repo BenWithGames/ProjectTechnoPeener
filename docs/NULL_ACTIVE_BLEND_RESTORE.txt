@@ -1,0 +1,28 @@
+Null table with active animation mask restoration, 2026-10-21
+Evidence: paired match 70f9c26d98c37475fa81b7ceba410367, failing PID37760.
+Restore 7427 -> 7426: block5 null/null tables; indices/scalars zero;
+both masks 0x7FFFFFFFF. Loaded table equals verified wrapper table,
+loaded index/scalar/mask zero. Peer PID15632 stopped after the failure.
+
+Fresh Ghidra: work/ghidra-sc6-focus/null-active-mask-audit.
+Pinned EXE SHA256 F8904E4B04BCA3B47BC52A683F6190365D2EB89EE8F44F8072759E9C5E04A553.
+RVA37C230 assigns player+2B270 from controller+8, even when null.
+It clears +2B278/+2B27C and calls 2F7570 at block address +2B268
+with constant 1.0 (3E8A31C). Owner=player+29120, so this is block5.
+2F7570 sets all 35 mask bits and weights independently of table pointer.
+37C130 also clears the table/index/scalar without clearing mask.
+2F8FA0 native load-reset installs wrapper table and resets index/scalar/mask.
+Machine instructions corroborate Ghidra; research names are not native symbols.
+
+New rule accepts only block5 null/null saved tables, zero saved/next
+index and scalar, full 35-bit masks on both snapshots, and a loaded
+verified wrapper table with zero index/scalar/mask. This extends neither
+arbitrary active null/table transitions nor foreign table acceptance.
+Wrapper identity, owners, resource validation, finite weights, loaded weights,
+live bytes, no-partial-write readiness, exact final bytes, ownership cleanup
+and round safety remain enforced. Restores saved null pointer, mask and weights.
+Tests cover both sides, exact restore and 16 rejection variants per side.
+Existing inactive/null scalar and selected-resource table tests remain.
+All loaded block diagnostics preserved. Fixed 1-frame delay, max 3 prediction
+frames, fast sender, late receipt handling and optimizations unchanged.
+Local tests do not establish live match success; this needs friend retesting.

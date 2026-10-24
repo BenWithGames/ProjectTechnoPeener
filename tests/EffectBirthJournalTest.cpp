@@ -14,6 +14,36 @@ static void advance(Buffer& b){
     seed+=step;std::memcpy(b.data()+0x138,&seed,4);
 }
 int main(){
+    { // Reproduce old one-shot branch failure; retry only contention, once entered.
+        sc6::research::EffectMemoryGate gate;std::atomic<bool> stopped{};
+        EffectBirthJournal branch;assert(branch.start(1,2,3));branch.seal();
+        std::latch held(1),release(1),done(1);
+        std::thread worker([&]{gate.release_decision([&]{held.count_down();release.wait();return true;});done.count_down();});
+        held.wait();bool entered=false;
+        assert(!gate.try_access(stopped,[&]{entered=true;assert(branch.resume_recording(0));}));
+        assert(!entered && branch.branches==0 && branch.mode==EffectBirthJournal::Mode::sealed);
+        unsigned attempts{},retries{};sc6::research::EffectMemoryGate::AccessOutcome outcome{};
+        assert(branch.resume_bounded(gate,stopped,0,[&]{++retries;release.count_down();done.wait();return true;},4,attempts,outcome));
+        worker.join();assert(attempts==2 && retries==1 && branch.branches==1 && outcome==sc6::research::EffectMemoryGate::AccessOutcome::entered);
+        // An entered validation failure is never retried or silently accepted.
+        assert(!branch.resume_bounded(gate,stopped,0,[&]{++retries;return true;},4,attempts,outcome));
+        assert(attempts==1 && retries==1 && branch.branches==1);
+        branch.seal();stopped=true;
+        assert(!branch.resume_bounded(gate,stopped,0,[&]{++retries;return true;},4,attempts,outcome));
+        assert(outcome==sc6::research::EffectMemoryGate::AccessOutcome::stopped && retries==1);
+    }
+    {
+        sc6::research::EffectMemoryGate gate;std::atomic<bool> stopped{};
+        EffectBirthJournal branch;assert(branch.start(1,2,3));branch.seal();
+        std::latch held(1),release(1);std::thread worker([&]{gate.release_decision([&]{held.count_down();release.wait();return true;});});
+        held.wait();unsigned attempts{},retries{};sc6::research::EffectMemoryGate::AccessOutcome outcome{};
+        assert(!branch.resume_bounded(gate,stopped,0,[&]{++retries;return true;},3,attempts,outcome));
+        assert(attempts==3 && retries==2 && outcome==sc6::research::EffectMemoryGate::AccessOutcome::contended);
+        assert(branch.mode==EffectBirthJournal::Mode::sealed && branch.branches==0);
+        release.count_down();worker.join();
+        assert(branch.resume_bounded(gate,stopped,0,[]{return false;},3,attempts,outcome) && branch.branches==1);
+    }
+
     // All supported constructor paths participate in sequence validation. Only
     // Stage has an audited allocation-entry seed; other payloads stay untouched.
     for(const auto& site:sc6::research::effect_allocation_sites){

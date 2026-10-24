@@ -1,0 +1,28 @@
+Snapshot camera capture lookup optimization - 2026-10-21
+
+Ghidra evidence: fresh read-only targeted decompilation of native camera base
+save RVA 33FBC0 and load RVA 33FF40, exact bounded bodies, both completed.
+work/ghidra-sc6-focus/capture-camera-index-audit contains the output. The six
+save call sites serialize offsets 50/60/70/110/120/130 with lengths
+16/16/4/16/4/16. Native writer/reader code and all memory copies remain intact.
+
+Previously each captured camera validated these six fields with six complete
+scans of the full serializer trace. CameraCaptureIndex now builds six bounded
+record-index chains once per capture and searches only matching writer records.
+It does not cache object addresses across captures, allocate memory, change
+capture order, suppress duplicates, or omit any captured bytes. Unsealed and
+out-of-capacity streams reject before indexing. All native memory stability,
+smoothing, response, target, ownership, exact restoration, and round checks stay.
+
+The optimization is shared by live and correction-replay camera captures.
+Existing timings remain, with capture_camera appended (no old IDs renumbered)
+to measure camera capture separately within capture. This is an inclusive CPU
+time, not FPS or end-to-end input latency.
+
+Validation: 120 deterministic differential record sets against the original
+full-scan predicate, full capacity, arbitrary ordering, duplicates, missing and
+wrong-sized fields, and growing/shrinking reuse. Existing full camera/snapshot
+regressions run in Build-Native. Synthetic 2048-record/16-camera lookup benchmark
+including index rebuild: 51.379 us full scan versus 3.6766 us indexed. This is
+not a whole-correction speedup estimate; live capture_camera and capture timings
+are needed on both PCs.

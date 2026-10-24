@@ -1,9 +1,11 @@
 #pragma once
+#include "LoadingReadinessObserver.hpp"
 #include <Windows.h>
 #include <bcrypt.h>
 #include <filesystem>
 #include <fstream>
 #include "SteamHandshakeProtocol.hpp"
+#include "AutomaticReportArchive.hpp"
 #include "SteamInputExchange.hpp"
 #include "SteamPing.hpp"
 #include "OverlayPingTransport.hpp"
@@ -18,6 +20,7 @@
 #include "RollbackJournal.hpp"
 #include "CombatStartPacket.hpp"
 #include "ContinuousStopPacket.hpp"
+#include "MatchCompletionExchange.hpp"
 #include "CombatPeerContext.hpp"
 #include "NativeClockHook.hpp"
 #include "NativeBattleBoundaryReader.hpp"
@@ -43,7 +46,17 @@ inline bool stopped=false,running=false;
 inline SteamPing ping;
 inline bool peer_live=false;
 inline uint64_t clock_us(){return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());}
-inline OverlayStats overlay_stats(){OverlayStats stats;stats.connected=running&&!stopped&&peer_live;if(stats.connected)stats.ping_ms=ping.value(clock_us());return stats;}
+inline OverlayStats overlay_stats(){
+    OverlayStats stats;stats.connected=running&&!stopped&&peer_live;
+    if(stats.connected){
+        stats.ping_ms=ping.value(clock_us());
+        if(const auto* runtime=research::combat_runtime_status.load(std::memory_order_acquire);
+           runtime && runtime->active.load(std::memory_order_acquire) && !runtime->restart_required.load()){
+            const auto delay=runtime->input_delay_frames.load();if(delay<=2)stats.delay_frames=delay;
+        }
+    }
+    return stats;
+}
 inline void poll() {
     static ULONGLONG next=0,start=0,last_report=0;
     static std::filesystem::path report_path;
@@ -55,8 +68,16 @@ inline void poll() {
     static bool input_mode=false,checkpoint_mode=false,replay_mode=false,late_mode=false,reuse_mode=false;
     static bool prepare_mode=false;
     static bool continuous_mode=false,continuous_queued=false,prediction_disabled=false;
+    static unsigned startup_retries{},startup_last_rejection{},startup_last_observed_frame{};
+    static bool startup_hooks_ready{};
+    static research::loading_sync::Session* loading_session{};
+    static uint64_t loading_cancel_until{};
+    static round_event::Snapshot startup_agreement_round{};
     static uint64_t early_start_packets=0,stop_packets_received=0,stop_packets_sent=0;
     static uint64_t stop_started=0,last_stop_sent=0;
+    static research::MatchCompletionExchange match_completion;
+    static research::RetiredMatchCompletion retired_completion;
+    static uint64_t completion_wire_received{},completion_wire_rejected{},completion_wire_oversize{},completion_send_failed{};
     static bool suite_mode=false,suite_finishing=false;
     static sc6::research::StartupSuite suite;
     static sc6::research::RepeatedCorrectionSession repeated;
@@ -76,20 +97,65 @@ inline void poll() {
     static sc6::research::NativeOuterTiming::Worker outer_worker;
     static uint64_t retired_peer_nonce{};
     static unsigned pending_automatic_slot{};
-    const auto now=GetTickCount64();
+    static sc6::research::NativeClockDiscovery::Observation automatic_side_observation;
+    static bool archive_finalized{};
+    static ULONGLONG archive_failure_since{};
+    static unsigned automatic_side_status{}; // 0 waiting, 1 stale/unavailable, 2 not fight-ready, 3 selected
+
+    auto now=GetTickCount64();
+    // Drain completion before timeout decisions, report I/O and match reset.
+    // It never competes with the bulk input archive on channel 27861.
+    if(net && available && read && send){
+        for(unsigned budget=0;budget<32;++budget){
+            uint32_t bytes{};if(!available(net,&bytes,research::MatchCompletionExchange::channel))break;
+            std::array<unsigned char,1200> buffer{};uint32_t size{};uint64_t sender{};
+            if(bytes>buffer.size()){++completion_wire_oversize;break;}
+            if(!read(net,buffer.data(),static_cast<uint32_t>(buffer.size()),&size,&sender,research::MatchCompletionExchange::channel))break;
+            ++completion_wire_received;
+            if(size!=sizeof(steam_inputs::Packet)){++completion_wire_rejected;continue;}
+            steam_inputs::Packet packet;std::memcpy(&packet,buffer.data(),sizeof(packet));
+            const auto receipt=GetTickCount64();
+            if(continuous_mode && continuous_queued && protocol.mutual && !stopped && !data_done && sender==protocol.expected_peer &&
+               match_completion.receive(packet,protocol.local_nonce,protocol.remote_nonce,receipt)){
+                ++received;last_peer=receipt;continue;
+            }
+            if(retired_completion.receive(sender,packet,receipt,[&](uint64_t target,const auto& ack){
+                return send(net,target,&ack,sizeof(ack),1,research::MatchCompletionExchange::channel);
+            }))continue;
+            ++completion_wire_rejected;
+        }
+    }
+    // Receipts above can be newer than the tick sampled at poll entry.
+    now=GetTickCount64();
     if(automatic_play::enabled && data_done && protocol.local_nonce && automatic_play::released.load()==protocol.local_nonce){
+        if(!network_game_handoff.retire_completed(protocol.local_nonce,automatic_play::released.load(),automatic_play::report_saved.load())){
+            if(network_game_handoff.retirement_check.load()==4)return;
+            automatic_play::cleanup_failed=true;
+        }else{
         sc6::research::fresh_raw_sender.stop();
         continuous_events.close();outer_events.close();outer_worker.header_written=false;
+        if(!archive_finalized && !report_path.empty())archive_finalized=automatic_report::finish(report_path.parent_path(),true);
         capture.~Capture();new(&capture) steam_inputs::Capture;
+        startup_retries=startup_last_rejection=startup_last_observed_frame=0;startup_hooks_ready=false;startup_agreement_round={};
+        research::loading_sync::clear(protocol.local_nonce);loading_session=nullptr;loading_cancel_until=0;
         retired_peer_nonce=protocol.remote_nonce;protocol={};ping={};boundary_agreement={};
+        match_completion={};completion_wire_received=completion_wire_rejected=completion_wire_oversize=completion_send_failed=0;
         running=stopped=peer_live=data_done=continuous_queued=false;
         input_mode=prepare_mode=continuous_mode=false;
         sent=received=rejected=send_failed=0;last_peer=last_announcement=last_report=next=completed=0;
         early_start_packets=stop_packets_received=stop_packets_sent=stop_started=last_stop_sent=0;
         boundary_rejection_mask=boundary_rejection_live_identity=boundary_rejection_startup_identity=boundary_rejection_hold=0;
-        boundary_sent=boundary_agreed_at=continuous_flushed=0;pending_automatic_slot=0;report_path.clear();
+        boundary_sent=boundary_agreed_at=continuous_flushed=0;pending_automatic_slot=0;automatic_side_status=0;automatic_side_observation={};report_path.clear();
+        }
+    }
+    if(loading_session && loading_session->cancelled() && net && send){
+        if(!loading_cancel_until)loading_cancel_until=now+10000;
+        if(now<loading_cancel_until && loading_session->due(now)){
+            const auto wire=loading_session->outgoing();send(net,protocol.expected_peer,wire.data(),static_cast<uint32_t>(wire.size()),1,channel);
+        }
     }
     auto notify_stop=[&]{
+        if(loading_session && loading_session->cancelled() && !continuous_queued)return;
         if(!continuous_mode || !stopped || !protocol.mutual || !net || !send)return;
         if(!stop_started)stop_started=now;
         if(now-stop_started>10000 || (last_stop_sent && now-last_stop_sent<250))return;
@@ -106,7 +172,7 @@ inline void poll() {
     // Continue flushing after a terminal transport report: owner-thread
     // cleanup may publish its result on a later clock callback.
     if(auto* runtime=sc6::research::combat_runtime_status.load(std::memory_order_acquire);
-       runtime && runtime->session==protocol.local_nonce){
+       runtime && runtime->session==protocol.local_nonce && !archive_finalized){
         if((stopped || !running || data_done) && !runtime->match_completed.load())runtime->request_stop();
         if(now-continuous_flushed>=250 && !report_path.empty()){
             continuous_flushed=now;
@@ -129,6 +195,13 @@ inline void poll() {
     }
     if(prepare_mode && stopped && capture.owned_nonce && abort_combat_recording)abort_combat_recording(capture.owned_nonce);
     if(stopped || !running || data_done)sc6::research::owned_transport_attachment.detach(capture.owned_nonce);
+    if(automatic_play::enabled && stopped && !report_path.empty() && !archive_finalized){
+        if(!archive_failure_since)archive_failure_since=now;
+        if(now-archive_failure_since>=2000){
+            continuous_events.close();outer_events.close();
+            archive_finalized=automatic_report::finish(report_path.parent_path(),false);
+        }
+    }
     if(stopped||now<next)return;
     next=now+(running?(input_mode?0:250):1000);
     ping.update(clock_us());
@@ -137,11 +210,24 @@ inline void poll() {
         if(automatic_play::enabled && stopped)automatic_play::failed=true;
         if(stopped || !running || data_done)sc6::research::fresh_raw_sender.stop();
         if(continuous_mode && stopped){
+            if(loading_session && !continuous_queued)loading_session->cancel(research::loading_sync::Session::disconnected);
             notify_stop();
             if(capture.owned_nonce && abort_combat_recording)abort_combat_recording(capture.owned_nonce);
         }
         std::ofstream out(report_path);
-        if(automatic_play::enabled)out<<"automatic_play=1\nautomatic_side_source=native_clock_local_mask\n";
+        out<<"match_id="<<automatic_report::match_id(protocol.local_nonce,protocol.remote_nonce)<<'\n';
+        if(automatic_play::enabled){
+            out<<"automatic_play=1\nautomatic_side_source=owner_thread_clock_and_fight\n"
+               <<"automatic_side_status="<<automatic_side_status<<'\n'
+               <<"automatic_side_poll_thread="<<GetCurrentThreadId()<<'\n'
+               <<"automatic_side_owner_thread="<<automatic_side_observation.thread<<'\n'
+               <<"automatic_side_fight_thread="<<automatic_side_observation.fight.thread<<'\n'
+               <<"automatic_side_fight_status="<<automatic_side_observation.fight.status<<'\n'
+               <<"automatic_side_observed_mask="<<automatic_side_observation.clock.local_mask<<'\n'
+               <<"automatic_side_round="<<automatic_side_observation.fight.round<<'\n'
+               <<"automatic_side_generation="<<automatic_side_observation.fight.generation<<'\n'
+               <<"automatic_side_frame="<<automatic_side_observation.fight.frame<<'\n';
+        }
         const auto* runtime=sc6::research::combat_runtime_status.load(std::memory_order_acquire);
         const bool live_runtime=continuous_mode && runtime && runtime->session==protocol.local_nonce;
         if(continuous_mode)out<<"continuous_restore_supported="<<sc6::research::NativeBoundarySnapshot::general_restore_implemented
@@ -149,14 +235,38 @@ inline void poll() {
             <<"\ncontinuous_native_wait_bypass="<<(live_runtime && runtime->active.load() && !prediction_disabled)<<"\ncontinuous_raw_input_wired=1\ncontinuous_round_rearm_wired=1"
             <<"\ncontinuous_round_rearm="<<(live_runtime && runtime->previous && runtime->active.load())
             <<"\ncontinuous_requested=1\ncontinuous_start_state="<<(continuous_start_state?continuous_start_state():0)
+            <<"\ncontinuous_start_rejection="<<(continuous_start_rejection?continuous_start_rejection():0)
+            <<"\ncontinuous_start_observed_frame="<<(continuous_start_observed_frame?continuous_start_observed_frame():0)
+            <<"\ncontinuous_start_retries="<<startup_retries
+            <<"\ncontinuous_start_last_rejection="<<startup_last_rejection
+            <<"\ncontinuous_start_last_observed_frame="<<startup_last_observed_frame
+            <<"\ncontinuous_start_hooks_ready="<<startup_hooks_ready
+            <<"\ncontinuous_start_target_revision="<<boundary_agreement.revision()
             <<"\ncontinuous_start_stage="<<(continuous_start_stage?continuous_start_stage():0)
             <<"\ncontinuous_early_start_packets="<<early_start_packets
             <<"\ncontinuous_stop_packets_received="<<stop_packets_received
             <<"\ncontinuous_stop_packets_sent="<<stop_packets_sent
+            <<"\ncontinuous_match_completion_schema=2\ncontinuous_match_completion_local="<<match_completion.local_clean
+            <<"\ncontinuous_match_completion_peer="<<match_completion.peer_clean
+            <<"\ncontinuous_match_completion_peer_ack="<<match_completion.peer_ack
+            <<"\ncontinuous_match_completion_sent_ack="<<match_completion.sent_ack
+            <<"\ncontinuous_match_completion_sent="<<match_completion.sent
+            <<"\ncontinuous_match_completion_received="<<match_completion.received
+            <<"\ncontinuous_match_completion_channel="<<research::MatchCompletionExchange::channel
+            <<"\ncontinuous_match_completion_wire_received="<<completion_wire_received
+            <<"\ncontinuous_match_completion_wire_rejected="<<completion_wire_rejected
+            <<"\ncontinuous_match_completion_wire_oversize="<<completion_wire_oversize
+            <<"\ncontinuous_match_completion_send_failed="<<completion_send_failed
+            <<"\ncontinuous_match_completion_retired_accepted="<<retired_completion.accepted
+            <<"\ncontinuous_match_completion_retired_replies="<<retired_completion.replies
+            <<"\ncontinuous_match_completion_retired_send_failed="<<retired_completion.send_failures
+            <<"\ncontinuous_match_completion_retired_capacity_failed="<<retired_completion.capacity_failures
             <<"\ncontinuous_report="<<report_path.stem().string()<<"-continuous.txt\n";
         if(continuous_mode){
-            out<<"continuous_startup_minimum_pairs=2\ncontinuous_startup_target_lead_frames=60\ncontinuous_startup_fixed_wait_ms=0\ncontinuous_startup_target_clock="<<boundary_agreement.target_clock()<<"\ncontinuous_startup_target_battle="<<boundary_agreement.target_battle()<<'\n';
+            out<<"continuous_startup_first_fight="<<boundary_agreement.first_fight()<<"\ncontinuous_startup_minimum_pairs="<<(boundary_agreement.first_fight()?0:2)<<"\ncontinuous_startup_target_lead_frames="<<(boundary_agreement.first_fight()?0:60)<<"\ncontinuous_startup_fixed_wait_ms=0\ncontinuous_startup_target_clock="<<boundary_agreement.target_clock()<<"\ncontinuous_startup_target_battle="<<boundary_agreement.target_battle()<<'\n';
+            if(continuous_start_report)continuous_start_report(out);
             sc6::research::native_startup_timing.write(out);
+            sc6::research::loading_readiness_observer::report(out);
             if(const auto* resources=sc6::research::combat_resource_preparation.load()){
                 const auto& f=resources->fight_pairs;
                 out<<"startup_fight_pairs="<<f.pairs.count.load()<<"\nstartup_fight_waits="<<f.waiting.load()
@@ -166,6 +276,9 @@ inline void poll() {
 
             const auto* start=sc6::research::combat_start_exchange.load(std::memory_order_acquire);
             out<<"continuous_retired_start_packets="<<(start?start->retired_packets():0)<<'\n';
+            if(start)start->report(out);
+            if(const auto* prep=sc6::research::combat_round_preparation.load(std::memory_order_acquire);
+               prep && prep->context(protocol.expected_peer,protocol.local_nonce,protocol.remote_nonce,protocol.expected_signature))prep->report(out);
         }
         const auto* prepared=sc6::research::combat_resource_preparation.load();
         bool correction_restore=prepared && prepared->correction_enabled.load() && prepared->correction->restored.load();
@@ -254,6 +367,12 @@ inline void poll() {
                <<"\nstartup_snapshots_captured="<<resources->snapshots.captured.load()
                <<"\nstartup_snapshots_failed="<<resources->snapshots.failed.load()
                <<"\nstartup_snapshots_retired="<<resources->snapshots.retired.load()
+               <<"\nstartup_cleanup_schema=1\nstartup_cleanup_stage="<<resources->snapshots.cleanup_diagnostic[0].load()
+               <<"\nstartup_cleanup_reason="<<resources->snapshots.cleanup_diagnostic[1].load()
+               <<"\nstartup_cleanup_owner="<<resources->snapshots.cleanup_diagnostic[2].load()
+               <<"\nstartup_cleanup_caller="<<resources->snapshots.cleanup_diagnostic[3].load()
+               <<"\nstartup_cleanup_acquisitions="<<resources->snapshots.cleanup_diagnostic[4].load()
+               <<"\nstartup_cleanup_slot="<<resources->snapshots.cleanup_diagnostic[5].load()
                <<"\nstartup_clock_progress_schema=1"
                <<"\nstartup_clock_samples="<<resources->clock_samples.load()
                <<"\nstartup_clock_changes="<<resources->clock_changes.load()
@@ -357,6 +476,11 @@ inline void poll() {
             for(unsigned i=0;i<6;++i)out<<"handoff_rejected_"<<names[i]<<'='<<network_game_handoff.rejection_reasons[i].load()<<'\n';
             const auto consumed=network_game_handoff.read.load();const auto published=network_game_handoff.write.load();
             out<<"handoff_queue_pending="<<(published-consumed)<<'\n';
+            out<<"handoff_retirement_schema=1\n"
+               <<"handoff_retirement_check="<<network_game_handoff.retirement_check.load()<<'\n'
+               <<"handoff_retirements="<<network_game_handoff.retirements.load()<<'\n'
+               <<"handoff_retirement_waits="<<network_game_handoff.retirement_waits.load()<<'\n'
+               <<"handoff_discarded_requests="<<network_game_handoff.discarded_requests.load()<<'\n';
         }
         if(input_mode)out<<"native_checkpoint_save_enabled="<<checkpoint_mode<<"\nnative_checkpoint_phase="<<network_checkpoint_status.phase.load()
             <<"\nnative_checkpoints_captured="<<network_checkpoint_status.captured.load()<<"\nnative_checkpoints_linked="<<network_checkpoint_status.matched.load()
@@ -482,16 +606,34 @@ inline void poll() {
         auto* runtime=sc6::research::combat_runtime_status.load(std::memory_order_acquire);
         if(runtime && runtime->session==protocol.local_nonce && runtime->match_completed.load(std::memory_order_acquire) &&
            !runtime->restart_required.load()){
+            match_completion.local_complete(now);
+            if(match_completion.due(now)){
+                const auto end=match_completion.outgoing(protocol.local_nonce,protocol.remote_nonce);
+                // Explicit retries/acknowledgments on a dedicated channel avoid
+                // relying on a successful enqueue or reliable queue retirement.
+                const bool ok=send(net,protocol.expected_peer,&end,sizeof(end),1,research::MatchCompletionExchange::channel);
+                match_completion.dispatched(now,ok);if(ok)++sent;else {++send_failed;++completion_send_failed;}
+            }
+            if(match_completion.complete()){
+            if(!retired_completion.retain(protocol.expected_peer,protocol.local_nonce,protocol.remote_nonce,match_completion,now)){
+                running=false;stopped=true;report("continuous_completion_responder_capacity_restart_required");return;
+            }
             capture.export_csv(report_path.parent_path()/report_path.stem());
             data_done=true;const bool saved=report("continuous_match_complete");
             if(automatic_play::enabled){
                 std::ofstream summary(report_path.parent_path()/(report_path.stem().string()+"-continuous.txt"));
-                if(continuous_events && summary){runtime->write_history(continuous_events,summary);outer_worker.write(sc6::research::native_outer_timing,summary);summary.flush();}
+                if(continuous_events && summary){runtime->write_history(continuous_events,summary);
+                    if(outer_events)outer_worker.drain(sc6::research::native_outer_timing,outer_events);
+                    outer_worker.write(sc6::research::native_outer_timing,summary);summary.flush();}
                 if(continuous_events.is_open())continuous_events.flush();if(outer_events.is_open())outer_events.flush();
                 if(saved && continuous_events.good() && summary.good())automatic_play::report_saved.store(protocol.local_nonce,std::memory_order_release);
                 else automatic_play::failed=true;
             }
             return;
+            }
+        }
+        if(match_completion.expired(now)){
+            running=false;stopped=true;report("continuous_match_completion_timeout_restart_required");return;
         }
         if(runtime && runtime->session==protocol.local_nonce && runtime->first_update_expired(GetTickCount64())){
             unsigned empty=sc6::research::CombatRuntimeStatus::none;
@@ -512,6 +654,8 @@ inline void poll() {
         auto arm=dir/(input_mode?L"steam-inputs.arm":L"steam-handshake.arm");
         if(!automatic_play::enabled && !std::filesystem::exists(arm))return;
         if(automatic_play::enabled)input_mode=true;
+        archive_finalized=false;archive_failure_since=0;
+        if(automatic_play::enabled)automatic_report::launch(dir);
         report_path=dir/((input_mode?"steam-inputs-":"steam-handshake-")+std::to_string(GetCurrentProcessId())+".txt");
         stopped=true;
         std::ifstream file;std::stringstream automatic_config;
@@ -535,8 +679,8 @@ inline void poll() {
         if(input_mode){initial_round_generation=round_event::snapshot().generation;protocol.expected_signature=reuse_mode?0x002853433648534bULL:late_mode?0x001F53433648534bULL:replay_mode?0x001E53433648534bULL:checkpoint_mode?0x000C53433648534bULL:0x000B53433648534bULL;capture.shadow.remote_slot=3-local_slot;if(local_slot)capture.composition.configure(local_slot,continuous_mode?LiveInputComposition::Purpose::authoritative_peer:LiveInputComposition::Purpose::comparison);}
         protocol.expected_peer=peer;
         if(prepare_mode)protocol.expected_signature=0x003053433648534bULL;
-        if(continuous_mode)protocol.expected_signature=prediction_disabled?0x005053433648534bULL:0x005153433648534bULL; // latency A/B modes must match on both PCs
-        if(automatic_play::enabled){protocol.expected_signature=0x005253433648534bULL;}
+        if(continuous_mode)protocol.expected_signature=prediction_disabled?0x007353433648534bULL:0x007453433648534bULL; // bilateral clean match completion
+        if(automatic_play::enabled){protocol.expected_signature=0x007253433648534bULL;}
         if(suite_mode)protocol.expected_signature=0x004253433648534bULL^(uint64_t(suite.profile)<<40)^(uint64_t(suite.seconds)<<48);
         if(suite_mode && (suite.profile>=12 && suite.profile<=16))protocol.expected_signature^=0x0000000800000000ULL; // reusable retirement between retained replay cycles
         if(suite_mode && suite.first_match_start())protocol.expected_signature^=0x0000180000000000ULL; // first-match ownership plus emitter restoration; reject older replay peers
@@ -546,6 +690,7 @@ inline void poll() {
         if(suite_mode && (suite.profile==14 || (suite.profile==15 || suite.profile==16)))protocol.expected_signature^=0x0000002000000000ULL; // spaced owned recordings, per-cycle immutable evidence
         if(suite_mode && suite.profile==11)protocol.expected_signature^=0x0000000200000000ULL; // retention coverage revision 2
         if(suite_mode && (suite.profile==9 || suite.profile==10))protocol.expected_signature^=0x0000001600000000ULL; // reference-first methodology; reject older builds
+        if(suite_mode && continuous_mode)protocol.expected_signature^=0x0002000000000000ULL; // future boundary reservation protocol
         HMODULE api=GetModuleHandleW(L"steam_api64.dll");if(!api){report("steam_missing");return;}
         using Handle=int(*)();using Factory=void*(*)(const char*);using Network=void*(*)(void*,int,int,const char*);
         auto user=reinterpret_cast<Handle>(GetProcAddress(api,"SteamAPI_GetHSteamUser"));
@@ -577,6 +722,17 @@ inline void poll() {
     // Bounded work once per host update; no additional 16ms input-mode gate.
     for(unsigned i=0;i<(input_mode?128u:8u);++i){
         uint32_t bytes=0;if(!available(net,&bytes,channel))break;
+        if(automatic_play::enabled && continuous_mode && bytes==research::loading_sync::Session::Bytes{}.size()){
+            research::loading_sync::Session::Bytes wire{};uint64_t sender{};uint32_t size{};
+            if(!read(net,wire.data(),static_cast<uint32_t>(wire.size()),&size,&sender,channel))break;
+            if(!protocol.mutual){++rejected;continue;}
+            // Early authenticated traffic is retried; it cannot publish native permission.
+            research::loading_sync::Session deferred;deferred.local=protocol.local_nonce;deferred.remote=protocol.remote_nonce;
+            deferred.peer=protocol.expected_peer;deferred.build=protocol.expected_signature;
+            auto* target=loading_session?loading_session:&deferred;
+            if(target->receive(sender,wire,size,GetTickCount64())){++received;last_peer=now;}else ++rejected;
+            continue;
+        }
         if(input_mode && bytes==sc6::research::CombatStartPacket::Bytes{}.size()){
             auto* start=sc6::research::combat_start_exchange.load(std::memory_order_acquire);
             sc6::research::CombatStartPacket::Bytes packet{};uint64_t sender=0;uint32_t size=0;
@@ -591,9 +747,14 @@ inline void poll() {
         if(input_mode && bytes==sizeof(steam_inputs::Packet)){
             steam_inputs::Packet packet{};uint64_t sender=0;uint32_t size=0;
             if(!read(net,&packet,sizeof(packet),&size,&sender,channel))break;
+            LARGE_INTEGER raw_received{};QueryPerformanceCounter(&raw_received);
             const auto packet_received_us=clock_us();
             if(!protocol.mutual||sender!=protocol.expected_peer||size!=sizeof(packet)||packet.nonce!=protocol.remote_nonce||packet.echo!=protocol.local_nonce){++rejected;continue;}
             if(packet.magic!=steam_inputs::signature){++rejected;continue;}
+            if(packet.kind==research::MatchCompletionExchange::kind){
+                if(!continuous_mode || !continuous_queued || !match_completion.receive(packet,protocol.local_nonce,protocol.remote_nonce,now)){++rejected;continue;}
+                ++received;last_peer=now;continue;
+            }
             if(packet.kind==sc6::research::ContinuousStopPacket::kind){
                 if(!continuous_mode || !sc6::research::ContinuousStopPacket::valid(packet,protocol.local_nonce,protocol.remote_nonce)){++rejected;continue;}
                 ++received;++stop_packets_received;last_peer=now;
@@ -604,7 +765,7 @@ inline void poll() {
                 sc6::research::RawInputConfirmation raw;
                 auto* route=sc6::research::raw_prediction_transport.load(std::memory_order_acquire);
                 if(!continuous_mode || !route || !sc6::research::RawPredictionPacket::decode(packet,raw)){++rejected;continue;}
-                const auto result=route->submit(raw);
+                const auto result=route->submit(raw,raw_received.QuadPart);
                 using R=sc6::research::RawPredictionRoute<>::Submit;
                 if(result==R::accepted || result==R::retired){++received;last_peer=now;}
                 else if(result==R::rejected)++rejected;
@@ -640,6 +801,14 @@ inline void poll() {
             if(prepare_mode && packet.kind==6){
                 sc6::research::StartupBoundaryAgreement::Words words{};
                 for(unsigned w=0;w<words.size();++w)words[w]=packet.record.data[w];
+                if(continuous_mode && packet.index==1 && !packet.own_hash && !packet.received_hash && boundary_agreement.newer(words)){
+                    const auto retryRound=round_event::snapshot();
+                    if(retryRound.round!=startup_agreement_round.round || retryRound.generation!=startup_agreement_round.generation ||
+                       retryRound.counter!=startup_agreement_round.counter || startup_retries>=16 || !retry_continuous_start || !retry_continuous_start()){
+                        running=false;stopped=true;report("startup_retarget_after_preparation_rejected");return;
+                    }
+                    ++startup_retries;continuous_queued=false;boundary_agreed_at=0;
+                }
                 if(packet.index!=1 || packet.own_hash || packet.received_hash ||
                     !boundary_agreement.receive(words)){++rejected;continue;}
                 last_peer=now;++received;continue;
@@ -676,14 +845,25 @@ inline void poll() {
         Packet packet{};uint64_t sender=0;uint32_t size=0;
         if(!read(net,&packet,sizeof(packet),&size,&sender,channel))break;
         if(automatic_play::enabled && packet.nonce==retired_peer_nonce){++rejected;continue;}
-        if(protocol.receive(sender,packet,size)){++received;if(packet.echo==protocol.local_nonce)last_peer=now;}else ++rejected;
+        const bool had_match_id=protocol.remote_nonce!=0;
+        if(protocol.receive(sender,packet,size)){
+            ++received;if(packet.echo==protocol.local_nonce)last_peer=now;
+            if(automatic_play::enabled && !had_match_id)
+                automatic_report::identify(report_path.parent_path(),protocol.local_nonce,protocol.remote_nonce);
+        }else ++rejected;
     }
     if(continuous_mode && continuous_queued && protocol.mutual && last_peer && now-last_peer>9000){
         running=false;stopped=true;report("continuous_peer_silent_restart_required");return;
     }
+    if(continuous_mode && match_completion.local_clean && !data_done){
+        // No more combat inputs exist. Completion remains live above; stop
+        // flooding the peer with historical input retransmissions during cleanup.
+        if(now-last_report>=1000){last_report=now;report("continuous_finishing");}
+        return;
+    }
     const auto receive_end=steam_inputs::Capture::timestamp();
     if(continuous_mode && protocol.mutual && !data_done){
-        sc6::research::fresh_raw_sender.start(net,send,protocol.expected_peer,protocol.local_nonce,protocol.remote_nonce,channel,available,read);
+        sc6::research::fresh_raw_sender.start(net,send,protocol.expected_peer,protocol.local_nonce,protocol.remote_nonce,channel,available,read,continuous_mode);
         static sc6::research::RawPredictionRoute<>* raw_route=nullptr;
         static unsigned raw_fresh=0,raw_retry=0;
         auto* current=sc6::research::raw_prediction_transport.load(std::memory_order_acquire);
@@ -697,7 +877,8 @@ inline void poll() {
                 sc6::research::RawInputConfirmation raw;steam_inputs::Packet data;
                 if(!current->outgoing(index,raw) || raw.sender!=protocol.local_nonce || raw.recipient!=protocol.remote_nonce ||
                    !sc6::research::RawPredictionPacket::encode(raw,data))break;
-                if(send(net,protocol.expected_peer,&data,sizeof(data),1,channel)){++sent;uint64_t age{};current->mark_first_send(index,age);if(fresh)++raw_fresh;}else ++send_failed;
+                LARGE_INTEGER send_begin{};QueryPerformanceCounter(&send_begin);
+                if(send(net,protocol.expected_peer,&data,sizeof(data),1,channel)){++sent;uint64_t age{};current->mark_first_send(index,age,send_begin.QuadPart);if(fresh)++raw_fresh;}else ++send_failed;
             }
         }
     }
@@ -705,14 +886,34 @@ inline void poll() {
         static sc6::research::CombatStartSendCadence cadence;
         const auto start_packet=start->outgoing();
         if(cadence.due(start_packet,now,start->completed())){
-            if(send(net,protocol.expected_peer,start_packet.data(),static_cast<uint32_t>(start_packet.size()),1,channel))++sent;else ++send_failed;
+            start->transmit(start_packet,[&](int mode){
+                const bool ok=send(net,protocol.expected_peer,start_packet.data(),static_cast<uint32_t>(start_packet.size()),mode,channel);
+                if(ok)++sent;else ++send_failed;return ok;
+            });
+        }
+    }
+    if(auto* prep=sc6::research::combat_round_preparation.load(std::memory_order_acquire);
+       prep && continuous_mode && protocol.mutual && !data_done &&
+       prep->context(protocol.expected_peer,protocol.local_nonce,protocol.remote_nonce,protocol.expected_signature) &&
+       prep->due(sc6::research::CombatStartSync::now())){
+        const auto packet=prep->outgoing();
+        if(send(net,protocol.expected_peer,packet.data(),static_cast<uint32_t>(packet.size()),1,channel))++sent;else ++send_failed;
+    }
+    if(loading_session && !data_done){
+        loading_session->advance(GetTickCount64());
+        if((!loading_session->sealed_at || now-loading_session->sealed_at<10000) && loading_session->due(now)){
+            const auto wire=loading_session->outgoing();
+            if(send(net,protocol.expected_peer,wire.data(),static_cast<uint32_t>(wire.size()),1,channel))++sent;else ++send_failed;
+        }
+        if(loading_session->cancelled()){
+            running=false;stopped=true;report(continuous_queued?"loading_peer_cancel_after_queue_restart_required":"loading_sync_cancelled_native_fallback");return;
         }
     }
     const auto packet=protocol.outgoing();
     // UnreliableNoDelay prevents deferred sends after the bounded test ends.
     if(!data_done){if(send(net,protocol.expected_peer,&packet,sizeof(packet),1,channel))++sent;else ++send_failed;}
     peer_live=protocol.mutual && last_peer && now-last_peer<=9000;
-    if(input_mode && !data_done)sc6::research::combat_peer_context.publish(protocol,capture.composition.local_slot,now,peer_live);
+    if(input_mode && !data_done)sc6::research::combat_peer_context.publish(protocol,capture.composition.local_slot,GetTickCount64(),peer_live);
     ping.update(clock_us());
     if(input_mode && protocol.mutual && ping.due(clock_us())){
         steam_inputs::Packet probe;probe.nonce=protocol.local_nonce;probe.echo=protocol.remote_nonce;probe.kind=3;probe.own_hash=1;probe.index=ping.begin(clock_us());
@@ -865,14 +1066,41 @@ inline void poll() {
                     const auto prepared=capture.prepare_owned(protocol.local_nonce,continuous_mode || (suite_mode && suite.first_match_start()));
                     if(prepared!=steam_inputs::Capture::OwnedStart::attached){running=false;stopped=true;report("combat_buffer_start_failed");return;}
                 }
+                if(continuous_mode && !startup_hooks_ready){
+                    if(!prepare_continuous_hooks || !prepare_continuous_hooks()){
+                        running=false;stopped=true;report("continuous_hook_preparation_failed");return;
+                    }
+                    startup_hooks_ready=true;
+                    // Hook installation can be slow. Never choose a deadline from
+                    // the pre-install observation or pre-install poll timestamp.
+                    return;
+                }
+                if(automatic_play::enabled && continuous_mode){
+                    auto* pre=sc6::research::combat_resource_preparation.load();
+                    if(!pre || !pre->enable_live_prediction() || !research::loading_readiness_observer::installed.load()){
+                        running=false;stopped=true;report("loading_preparation_failed_native_fallback");return;
+                    }
+                    if(!loading_session){
+                        const auto last_loading=research::loading_readiness_observer::last_loading_tick.load();
+                        loading_session=research::loading_sync::bind(protocol.local_nonce,protocol.remote_nonce,protocol.expected_peer,protocol.expected_signature);
+                        if(!loading_session){running=false;stopped=true;report("loading_session_capacity_native_fallback");return;}
+                        if(last_loading>=start)
+                            loading_session->cancel(research::loading_sync::Session::missed_loading);
+                    }
+                    if(loading_session->cancelled()){
+                        running=false;stopped=true;report("loading_sync_cancelled_native_fallback");return;
+                    }
+                }
                 sc6::research::NativeClockDiscovery::Observation clock;
-                if(automatic_play::enabled && !capture.composition.local_slot && sc6::research::native_clock_hook::discovery.read(now,clock)){
-                    const auto round=round_event::snapshot();unsigned frame{};
-                    if(sc6::research::NativeBattleBoundaryAccess::counter(clock.base,frame)){
-                        const auto fight=RoundFightReadiness::read(clock.base,round.round,round.generation,frame);
-                        if(fight.permits(round.round,round.generation,frame,clock.thread)){
-                            capture.composition.configure(clock.clock.local_mask,LiveInputComposition::Purpose::authoritative_peer);
-                            capture.shadow.remote_slot=3-clock.clock.local_mask;last_announcement=0;
+                if(automatic_play::enabled && !capture.composition.local_slot){
+                    automatic_side_status=1;
+                    if(sc6::research::native_clock_hook::discovery.read(now,clock)){
+                        automatic_side_observation=clock;automatic_side_status=2;
+                        const auto round=round_event::snapshot();
+                        const auto side=clock.preparation_side(round.round,round.generation);
+                        if(side){
+                            capture.composition.configure(side,LiveInputComposition::Purpose::authoritative_peer);
+                            capture.shadow.remote_slot=3-side;last_announcement=0;automatic_side_status=3;
                             if(pending_automatic_slot && !capture.composition.announce(pending_automatic_slot)){
                                 running=false;stopped=true;report("automatic_side_disagreement");return;
                             }
@@ -881,6 +1109,11 @@ inline void poll() {
                 }
                 if(!capture.composition.peer_slot || !sc6::research::native_clock_hook::discovery.read(now,clock)){
                     if(now-last_report>=1000){last_report=now;report("waiting_for_combat_clock");}return;
+                }
+                if(loading_session && !loading_session->entered.load() &&
+                   (clock.fight.status==3 || clock.fight.vtable==0x3E87378)){
+                    loading_session->cancel(research::loading_sync::Session::missed_loading);
+                    running=false;stopped=true;report("loading_callback_missed_native_fallback");return;
                 }
                 if(clock.clock.local_mask!=capture.composition.local_slot){running=false;stopped=true;abort_combat_recording(protocol.local_nonce);report("combat_clock_slot_mismatch");return;}
                 auto* resources=sc6::research::combat_resource_preparation.load();
@@ -897,19 +1130,52 @@ inline void poll() {
                 const auto& admission_pairs=continuous_mode?resources->fight_pairs.pairs:resources->pairs;
                 if(!continuous_mode && now-capture.armed_at<10000)return;
                 if(now<resources->clock_started.load() || (!continuous_mode && now-resources->clock_started.load()<5000))return;
-                if(continuous_mode && admission_pairs.count.load(std::memory_order_acquire)<2){
+                const auto intentRound=round_event::snapshot();
+                if(continuous_mode && !boundary_agreement.bound() &&
+                   clock.fight.intro(intentRound.round,intentRound.generation,clock.thread)){
+                    if(!boundary_agreement.begin_first_fight(clock.clock.identity,intentRound.round,
+                        intentRound.counter,capture.composition.local_slot)){
+                        running=false;stopped=true;report("intro_intent_rejected");return;
+                    }
+                    startup_agreement_round=intentRound;
+                }
+                if(boundary_agreement.fallback_requested()){
+                    if(continuous_queued){running=false;stopped=true;report("intro_fallback_after_queue_rejected");return;}
+                    if(admission_pairs.count.load(std::memory_order_acquire)<2)return;
+                    if(!boundary_agreement.fallback(admission_pairs,capture.composition.local_slot)){
+                        running=false;stopped=true;report("intro_fallback_rejected");return;
+                    }
+                    boundary_sent=0;boundary_agreed_at=0;
+                }
+                if(continuous_mode && !boundary_agreement.first_fight() && admission_pairs.count.load(std::memory_order_acquire)<2){
                     if(now-last_report>=1000){last_report=now;report("waiting_for_fight_ready_pairs");}return;
                 }
-                if(continuous_mode && (admission_pairs.overwritten.load() || admission_pairs.unpaired.load() || admission_pairs.discontinuities.load())){
+                if(continuous_mode && !boundary_agreement.first_fight() && (admission_pairs.overwritten.load() || admission_pairs.unpaired.load() || admission_pairs.discontinuities.load())){
                     abort_combat_recording(protocol.local_nonce);running=false;stopped=true;report("boundary_pairs_rejected");return;
                 }
+                const bool first_agreement=!boundary_agreement.bound();
                 if(!boundary_agreement.bound() && !boundary_agreement.begin(admission_pairs,capture.composition.local_slot,continuous_mode)){
                     abort_combat_recording(protocol.local_nonce);if(suite_mode){suite.reason="boundary_pairs_rejected";suite_finishing=true;return;}running=false;stopped=true;report("boundary_pairs_rejected");return;
+                }
+                if(continuous_mode){
+                    const auto currentRound=round_event::snapshot();
+                    if(first_agreement)startup_agreement_round=currentRound;
+                    if(!continuous_queued && (currentRound.round!=startup_agreement_round.round ||
+                       currentRound.generation!=startup_agreement_round.generation || currentRound.counter!=startup_agreement_round.counter)){
+                        running=false;stopped=true;report("startup_retry_round_changed");return;
+                    }
+                }
+                if(continuous_mode && !boundary_agreement.first_fight() && !continuous_queued &&
+                   uint64_t(clock.clock.frame)+15>=boundary_agreement.target_clock()){
+                    if(startup_retries>=16 || !boundary_agreement.refresh(clock.clock.frame)){
+                        running=false;stopped=true;report("startup_target_retry_exhausted");return;
+                    }
+                    ++startup_retries;boundary_agreed_at=0;boundary_sent=0;
                 }
                 const auto boundary_hold=resources->hold_test.state.load();
                 const auto boundary_rejection=boundary_agreement.runtime_rejection(suite_mode?suite.profile:0,
                     boundary_hold,repeated.started,continuous_queued,clock.clock.identity,
-                    admission_pairs.rows[0].identity,clock.clock.frame);
+                    boundary_agreement.first_fight()?boundary_agreement.outgoing()[1]:admission_pairs.rows[0].identity,clock.clock.frame);
                 if(boundary_rejection){
                     boundary_rejection_mask=boundary_rejection;boundary_rejection_live_identity=clock.clock.identity;
                     boundary_rejection_startup_identity=admission_pairs.rows[0].identity;boundary_rejection_hold=boundary_hold;
@@ -928,15 +1194,32 @@ inline void poll() {
                 if(!boundary_agreed_at)boundary_agreed_at=now;
                 if(continuous_mode){
                     if(!continuous_queued){
+                        if(loading_session && !loading_session->admitted()){
+                            if(now-last_report>=1000){last_report=now;report("waiting_for_loading_peer_release");}return;
+                        }
                         ContinuousStartRequest request{protocol.local_nonce,protocol.remote_nonce,protocol.expected_peer,
                             protocol.expected_signature,protocol.local_nonce,capture.composition.local_slot,
-                            admission_pairs.rows[0].identity,boundary_agreement.target_clock(),boundary_agreement.target_battle(),true,!prediction_disabled};
+                            boundary_agreement.first_fight()?clock.clock.identity:admission_pairs.rows[0].identity,
+                            boundary_agreement.target_clock(),boundary_agreement.target_battle(),true,!prediction_disabled,boundary_agreement.first_fight(),
+                            startup_agreement_round.round,startup_agreement_round.counter,startup_agreement_round.generation};
                         if(!queue_continuous_start || !queue_continuous_start(request)){
                             running=false;stopped=true;report("continuous_start_request_rejected");return;
                         }
                         continuous_queued=true;
+                        if(loading_session){loading_session->sealed_at=now;loading_session->sealed.store(true,std::memory_order_release);}
                     }
-                    if(continuous_start_state && continuous_start_state()==4){running=false;stopped=true;report("continuous_start_rejected_restart_required");return;}
+                    if(continuous_start_state && continuous_start_state()==4){
+                        startup_last_rejection=continuous_start_rejection?continuous_start_rejection():0;
+                        startup_last_observed_frame=continuous_start_observed_frame?continuous_start_observed_frame():0;
+                        const auto retryRound=round_event::snapshot();
+                        if(retryRound.round==startup_agreement_round.round && retryRound.generation==startup_agreement_round.generation &&
+                           retryRound.counter==startup_agreement_round.counter && startup_last_rejection==5 && startup_retries<16 && retry_continuous_start && retry_continuous_start() &&
+                           boundary_agreement.refresh(startup_last_observed_frame)){
+                            ++startup_retries;continuous_queued=false;boundary_agreed_at=0;boundary_sent=0;
+                            report("retrying_missed_start_target");return;
+                        }
+                        running=false;stopped=true;report("continuous_start_rejected_restart_required");return;
+                    }
                     if(now-last_report>=1000){last_report=now;report("waiting_for_continuous_activation");}return;
                 }
                 if(suite_mode && (suite.profile==5 || suite.profile==7) && !resources->request_confirmation_hold(resources->pairs.rows[0].identity,
@@ -1015,7 +1298,7 @@ inline void poll() {
                 sc6::research::owned_transport_attachment.detach(capture.owned_nonce);
                 running=false;stopped=true;report("PREPARED_NOT_ACTIVATED");return;
             }
-            if(!network_game_handoff.bind(protocol.local_nonce,protocol.remote_nonce,capture.composition.local_slot))
+            if(!continuous_mode && !network_game_handoff.bind(protocol.local_nonce,protocol.remote_nonce,capture.composition.local_slot))
                 throw std::runtime_error("game_handoff_session_conflict");
             if(!capture.armed){
                 const auto marker=round_event::snapshot();

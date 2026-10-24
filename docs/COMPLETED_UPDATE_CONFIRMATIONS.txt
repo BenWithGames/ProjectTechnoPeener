@@ -1,0 +1,33 @@
+Completed-update confirmation processing
+
+The prior two passing recordings showed zero drains at the late clock check.
+This build adds a bounded owner-thread drain after a successful battle update.
+ReservedBattleDriver invokes publication only after tick_reserved is consumed.
+RawPredictionCoordinator first acknowledges exactly the revision and endpoint
+used by that update, then publishes that completed revision, then drains.
+
+Arrivals during capture/replay no longer wait for the next clock call to enter
+the raw history and scheduler. Archived truth for the newly available scheduler
+head is also submitted. No receiver-thread native writes, extra native calls,
+sleep, additional prediction frames, or changes to sampling are introduced.
+
+An arrival after replay is NOT acknowledged as applied. A mismatch leaves the
+new revision dirty and the scheduler responsible for correction on its next
+normal update or round settlement. There is no extra replay inside this drain.
+Round settlement must still reconcile before retirement. Conflicts fail closed.
+The existing partial-input-consumption guard and queue bound of 32 remain.
+
+Reports add continuous_completed_receipt_schema=1, completed_receipt_checks,
+completed_receipts_drained and completed_confirmations_submitted (all prefixed
+continuous_). These are per-session counters, also present on retired rounds.
+Keep using receive_to_drain, drain_to_scheduler and receive_to_prediction timing
+distributions alongside correction depth and outer-update timings. Future-frame
+truth still waits for its assigned consumption frame. This does not remove
+network transit time and does not promise a fixed latency or FPS improvement.
+
+LiveRawIntegrationTest covers both slots, arrivals after simulation, dirty state
+not being falsely acknowledged, settlement replay, future truth admission,
+conflicting late packets, and long-running delayed-input/retirement integration.
+The existing native hook boundaries are reused; no new binary assumption or
+Ghidra-derived offset is required. Fixed one-frame delay and three-frame limit,
+exact restoration verification, resource ownership and round checks remain.

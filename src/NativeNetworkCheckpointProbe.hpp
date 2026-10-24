@@ -363,7 +363,7 @@ struct NativeNetworkCheckpointProbe {
             network_checkpoint_status.prediction_state_changed=
                 !TwoFrameIdleReplay::transforms_equal(expected.transforms[0],observed.transforms[0]) ||
                 !TwoFrameIdleReplay::cameras_equal(expected.cameras[0],observed.cameras[0]) ||
-                expected.blends[0].bytes!=observed.blends[0].bytes ||
+                expected.blends[0].bytes!=observed.blends[0].bytes || expected.blends[0].controller!=observed.blends[0].controller ||
                 expected.measurements[0].rng!=observed.measurements[0].rng;
             for(unsigned side=0;side<2;++side)if(std::memcmp(expected.measurements[0].fields[side].data()+8,
                 observed.measurements[0].fields[side].data()+8,216))network_checkpoint_status.prediction_state_changed=1;

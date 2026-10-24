@@ -1,11 +1,27 @@
 #include "../src/ConfirmationAge.hpp"
+#include "../src/PostloadReadiness.hpp"
+#include "../src/NativeRestoreDiagnostic.hpp"
 #include "../src/NativeRollbackTiming.hpp"
+#include "../src/ReportMatchId.hpp"
 #include <cassert>
 #include <sstream>
 #include <stdexcept>
 #include <iostream>
 using namespace sc6::research;
 int main(){
+ assert(sc6::automatic_report::match_id(1,2)=="00000000000000010000000000000002");
+ assert(sc6::automatic_report::match_id(1,2)==sc6::automatic_report::match_id(2,1));
+ assert(sc6::automatic_report::match_id(1,3)!=sc6::automatic_report::match_id(1,2));
+ assert(sc6::automatic_report::match_id(0,2).empty());
+ assert(sc6::automatic_report::match_id(1,0).empty());
+ for(unsigned fail=0;fail<=9;++fail){
+  PostloadReadiness d;unsigned calls=0;bool ok=true;
+  for(unsigned step=1;step<=9 && ok;++step)ok=d.enter(step) && (++calls,step!=fail) && d.pass(step);
+  assert(ok==(fail==0));assert(calls==(fail?fail:9));
+  assert(d.rejected()==fail);assert(d.passed==((1u<<(fail?fail-1:9))-1));
+ }
+ static_assert(std::size(NativeRestoreDiagnostic::names)==NativeRestoreDiagnostic::count);
+ assert(std::string(NativeRestoreDiagnostic::names[NativeRestoreDiagnostic::postload_rejected])=="postload_rejected");
  ConfirmationAge a;a.frequency=1000000;
  a.observe(10,13,1000,5000,6000,7000);
  assert(a.buckets[0].samples==1 && a.buckets[0].total==1000 && a.buckets[1].total==1000);

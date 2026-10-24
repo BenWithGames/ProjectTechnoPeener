@@ -292,12 +292,17 @@ public:
             return pointer->source();
         }else return {};
     }
+    bool successor_dependencies_current_on_owner(){
+        if(GetCurrentThreadId()!=owner_thread.load() || stop_.load() || retired.load() || failed.load() || !ready.load())return false;
+        if constexpr(requires {resource().current_dependencies();})return resource().current_dependencies();
+        else return false;
+    }
     // Only the retired live session may authorize terminal resource cleanup.
     bool finish_live_match(unsigned owner,bool settled){
         if(!live_prediction_enabled.load() || !settled || owner!=GetCurrentThreadId() || owner!=owner_thread.load() || failed.load())return false;
         const auto end=resource().match_end_observation();
-        if(!end.cleanup_allowed(owner,GetCurrentThreadId(),failed.load(),settled,resource().cancelled()?resource().cancellation().reason.load():0))return false;
         match_end_vtable=end.vtable;match_end_handler=end.handler;match_end_thread=end.thread;match_end_state_query=end.state_query;
+        if(!end.cleanup_allowed(owner,GetCurrentThreadId(),failed.load(),settled,resource().cancelled()?resource().cancellation().reason.load():0))return false;
         match_end_requested=true;request_stop();return true;
     }
     bool stop_requested()const{return stop_.load(std::memory_order_acquire);}

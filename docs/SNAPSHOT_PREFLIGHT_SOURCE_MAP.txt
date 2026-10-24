@@ -1,0 +1,210 @@
+SaveProbe.hpp
+1: #pragma once
+2: #include "SaveStream.hpp"
+3: #include "SnapshotPreflightDiagnostic.hpp"
+4: #include "AnimationListGuard.hpp"
+5: // Included only by FrameRecorder.cpp, after Windows declarations.
+6: namespace sc6::research {
+7: struct SaveProbe {
+8:     SaveStream stream;
+9:     bool attempted{}, invoked{}, fault{}, preflight_ok{};
+10:     std::uint64_t bookkeeping_before{}, bookkeeping_after{};
+11:     LONGLONG elapsed_qpc{};
+12:     static bool guarded_copy(void* d,const void* s,std::size_t n) {
+13:         __try { std::memcpy(d,s,n); return true; }
+14:         __except(EXCEPTION_EXECUTE_HANDLER) { return false; }
+15:     }
+16:     SaveProbe():stream(guarded_copy) {}
+17:     static uintptr_t ptr(uintptr_t a) { return *reinterpret_cast<const uintptr_t*>(a); }
+18:     static bool method(uintptr_t object,unsigned slot,uintptr_t base,unsigned rva) {
+19:         return object>=0x10000 && ptr(ptr(object)+slot)==base+rva;
+20:     }
+21:     static bool preflight_detailed(uintptr_t b,SnapshotPreflightDiagnostic* diagnostic) {
+22:         SnapshotPreflightTrace trace(diagnostic,1);
+23:
+24:         for(unsigned p=0;p<2;++p) {
+25:             trace.location(__LINE__);auto player=trace.ptr(b+0x470DE90+p*8);
+26:             trace.location(__LINE__);if(!player || player!=trace.ptr(b+0x470F1A0+p*8)) return trace.reject(__LINE__);
+27:             trace.location(__LINE__);if(!trace.method(player+0x35A0,0x28,b,0x30B7B0) || !trace.method(player+0x27760,0x28,b,0x30B680)) return trace.reject(__LINE__);
+28:             for(unsigned off: {0x400u,0x420u,0x440u}) {
+29:                 trace.location(__LINE__);auto node=trace.ptr(player+0x44078+off); AnimationListGuard guard;
+30:                 while(node) {
+31:                     auto result=guard.visit(node);
+32:                     if(result!=AnimationListGuard::Result::accepted){
+33:                         if(diagnostic)diagnostic->record(result==AnimationListGuard::Result::cycle?5:4,node,guard.count,AnimationListGuard::limit,off);
+34:                         return trace.reject(__LINE__);
+35:                     }
+36:                     trace.location(__LINE__);if(!trace.method(node,0x30,b,0x30EA70) && !trace.method(node,0x30,b,0x30EB50)) return trace.reject(__LINE__);
+37:                     node=trace.ptr(node+0x18);
+38:                 }
+39:             }
+40:         }
+41:         trace.location(__LINE__);auto manager=trace.ptr(b+0x470DF28);
+42:         trace.location(__LINE__);if(!trace.method(manager,8,b,0x31F480)) return trace.reject(__LINE__);
+43:         trace.location(__LINE__);if(trace.ptr(manager+8)) {
+44:             trace.location(__LINE__);auto table=trace.ptr(manager+0x90); if(!table) return trace.reject(__LINE__);
+45:             for(unsigned i=0;i<16;++i) {
+46:                 trace.location(__LINE__);auto object=trace.ptr(table+0x270+8*i); if(!object) continue;
+47:                 // Only the paired type getter/writer combinations inspected for this build.
+48:                 bool ok=false;
+49:                 constexpr unsigned pairs[][2]={{0x301450,0x318860},{0x301470,0x33FBC0},
+50:                     {0x31F420,0x31C190},{0x2D9BF0,0x340ED0},{0x301490,0x317BD0},{0x2D9C30,0x341110}};
+51:                 trace.location(__LINE__);for(auto& pair:pairs) if(trace.method(object,0xE0,b,pair[0]) && trace.method(object,0x100,b,pair[1])) ok=true;
+52:                 if(!ok) return trace.reject(__LINE__);
+53:             }
+54:         }
+55:         trace.location(__LINE__);auto aux=trace.ptr(manager+0xA0);
+56:         if(aux) for(unsigned i=0;i<17;++i) {
+57:             trace.location(__LINE__);auto object=trace.ptr(aux+0x10+8*i);
+58:             trace.location(__LINE__);if(object && !trace.method(object,0x20,b,0x2D2BB0) && !trace.method(object,0x20,b,0x32AC00)) return trace.reject(__LINE__);
+59:         }
+60:         return true;
+61:         }
+62:     static bool preflight(uintptr_t b){return preflight_detailed(b,nullptr);}
+63:     // No restore routine is exposed. A fault invalidates the capture; it does not
+64:     // prove the game can recover from an arbitrary exception inside its allocator.
+65:     void run(uintptr_t base) noexcept {
+
+FullStateProbe.hpp
+280:         auto count=*reinterpret_cast<int*>(b+0x42A115C);
+281:         if(!serial || index<0 || index>=count)return 0;
+282:         auto item=ptr(b+0x42A1150)+static_cast<uintptr_t>(index)*24;
+283:         if(*reinterpret_cast<int*>(item+16)!=serial || (*reinterpret_cast<unsigned*>(item+8)&0x30000000))return 0;
+284:         return ptr(item);
+285:     }
+286:     static bool callbacks_detailed(uintptr_t b,SnapshotPreflightDiagnostic* diagnostic){
+287:         SnapshotPreflightTrace trace(diagnostic,2);
+288:
+289:         trace.location(__LINE__);auto interface=trace.ptr(b+0x470D188);
+290:         trace.location(__LINE__);if(!trace.method(interface,0xC0,b,0x400760))return trace.reject(__LINE__);
+291:         auto delegate=interface+0xA18;
+292:         trace.location(__LINE__);if(trace.read<int>(delegate+0x50)!=4)return trace.reject(__LINE__);
+293:         trace.location(__LINE__);auto list=trace.ptr(delegate+0x40);if(!list)list=delegate;
+294:         constexpr unsigned targets[]={0x3C6050,0x3C6050,0x5112A0,0x3C6020};
+295:         for(unsigned i=0;i<4;++i){
+296:             trace.location(__LINE__);auto entry=list+i*0x40,object=trace.ptr(entry+0x20);if(!object)object=entry;
+297:             trace.location(__LINE__);if(trace.read<int>(entry+0x30)<=0 || !trace.method(object,0x68,b,0x3EF060) || trace.ptr(object+0x10)!=b+targets[i])return trace.reject(__LINE__);
+298:             trace.location(__LINE__);auto index=trace.read<int>(object+8),serial=trace.read<int>(object+12);
+299:             trace.location(__LINE__);auto count=trace.read<int>(b+0x42A115C);
+300:             if(!serial || index<0 || index>=count)return trace.reject(__LINE__);
+301:             trace.location(__LINE__);auto item=trace.ptr(b+0x42A1150)+static_cast<uintptr_t>(index)*24;
+302:             trace.location(__LINE__);if(trace.read<int>(item+16)!=serial || (trace.read<unsigned>(item+8)&0x30000000))return trace.reject(__LINE__);
+303:             trace.location(__LINE__);auto target=trace.ptr(item);if(!target)return trace.reject(__LINE__);
+304:             if(i<2){
+305:                 trace.location(__LINE__);if(trace.ptr(target)!=b+0x3268078 || trace.read<unsigned>(target+0x3A0)!=i)return trace.reject(__LINE__);
+306:                 if(!CallbackAttachmentGuard::validate(b,target,i,trace))return false;
+307:                 constexpr unsigned slots[]={0x5F8,0x600,0x680,0x698};
+308:                 constexpr unsigned methods[]={0x3BF540,0x3BF8A0,0x3BE3A0,0x3BE670};
+309:                 trace.location(__LINE__);for(unsigned j=0;j<4;++j)if(!trace.method(target,slots[j],b,methods[j]))return trace.reject(__LINE__);
+310:                 trace.location(__LINE__);auto n=trace.read<int>(target+0x3B8);if(n<1 || n>64)return trace.reject(__LINE__);
+311:                 trace.location(__LINE__);auto components=trace.ptr(target+0x3B0);if(!components)return trace.reject(__LINE__);
+312:                 trace.location(__LINE__);for(int j=0;j<n;++j){auto c=trace.ptr(components+j*8);
+313:                     trace.location(__LINE__);if(!trace.method(c,0x308,b,0x1D5DBE0) || !trace.method(c,0x3A8,b,0x1DACA60))return trace.reject(__LINE__);
+314:                 }
+315:             }else if(trace.ptr(target)!=b+(i==2?0x32C3210:0x326A6C8))return trace.reject(__LINE__);
+316:         }
+317:         return true;
+318:         }
+319:     static bool callbacks(uintptr_t b){return callbacks_detailed(b,nullptr);}
+320:     static bool preflight_detailed(uintptr_t b,SnapshotPreflightDiagnostic* diagnostic){
+321:         SnapshotPreflightTrace trace(diagnostic,0);
+322:
+323:         if(!SaveProbe::preflight_detailed(b,diagnostic) || !callbacks_detailed(b,diagnostic))return false;
+324:         if(diagnostic)diagnostic->phase(3);
+325:         for(unsigned p=0;p<2;++p){
+326:             trace.location(__LINE__);auto player=trace.ptr(b+0x470DE90+p*8);
+327:             for(unsigned off:{0x400u,0x420u,0x440u}){
+328:                 trace.location(__LINE__);auto node=trace.ptr(player+0x44078+off);AnimationListGuard guard;
+329:                 while(node){
+330:                     auto result=guard.visit(node);
+331:                     if(result!=AnimationListGuard::Result::accepted){
+332:                         if(diagnostic)diagnostic->record(result==AnimationListGuard::Result::cycle?5:4,node,guard.count,AnimationListGuard::limit,off);
+333:                         return trace.reject(__LINE__);
+334:                     }
+335:                     trace.location(__LINE__);bool ok=(trace.method(node,0x30,b,0x30EA70) && trace.method(node,0x38,b,0x30EAE0)) ||
+336:                             (trace.method(node,0x30,b,0x30EB50) && trace.method(node,0x38,b,0x30EBA0));
+337:                     trace.location(__LINE__);if(!ok)return trace.reject(__LINE__);node=trace.ptr(node+0x18);
+338:                 }
+339:             }
+340:         }
+341:         trace.location(__LINE__);auto manager=trace.ptr(b+0x470DF28);
+342:         trace.location(__LINE__);if(!trace.method(manager,0,b,0x31F700))return trace.reject(__LINE__);
+343:         trace.location(__LINE__);if(trace.ptr(manager+8)){
+344:             trace.location(__LINE__);auto table=trace.ptr(manager+0x90);
+345:             constexpr unsigned pairs[][4]={{0x318860,0x3188A0,0x318640,0x2D2BC0},{0x33FBC0,0x33FF40,0x31A2B0,0x2D2BC0},
+346:                 {0x31C190,0x31C1E0,0x31BC50,0x2D2BC0},{0x340ED0,0x340F70,0x3402C0,0x340C50},
+347:                 {0x317BD0,0x317C70,0x3179E0,0x317BC0},{0x341110,0x3411A0,0x341010,0x340C50}};
+348:             trace.location(__LINE__);for(unsigned i=0;i<16;++i){auto object=trace.ptr(table+0x270+i*8);if(!object)continue;
+349:                 trace.location(__LINE__);if(object!=trace.ptr(manager+0x10+i*8) || !trace.method(object,0xC8,b,0x33E640))return trace.reject(__LINE__);
+350:                 bool ok=false;
+351:                 trace.location(__LINE__);for(auto& x:pairs)if(trace.method(object,0x100,b,x[0]) && trace.method(object,0x108,b,x[1]) && trace.method(object,0xD0,b,x[2]) && trace.method(object,0xD8,b,x[3]))ok=true;
+352:                 if(!ok)return trace.reject(__LINE__);
+353:             }
+354:         }
+355:         trace.location(__LINE__);auto aux=trace.ptr(manager+0xA0);
+356:         trace.location(__LINE__);if(aux)for(unsigned i=0;i<17;++i){auto object=trace.ptr(aux+0x10+i*8);if(!object)continue;
+357:             trace.location(__LINE__);if(!((trace.method(object,0x20,b,0x2D2BB0) && trace.method(object,0x28,b,0x2D2BB0)) ||
+358:                  (trace.method(object,0x20,b,0x32AC00) && trace.method(object,0x28,b,0x32ACE0))))return trace.reject(__LINE__);
+359:         }
+360:         return true;
+361:         }
+362:     static bool preflight(uintptr_t b){return preflight_detailed(b,nullptr);}
+363:     bool combat_requested()const{return general_combat_requested || throw_requested || charge_requested || attack_requested || edge_requested || reversal_requested;}
+364:     static bool charge_aux_active(uintptr_t b)noexcept{
+365:         __try {
+
+CallbackAttachmentGuard.hpp
+1: #pragma once
+2: #include "SnapshotPreflightDiagnostic.hpp"
+3: namespace sc6::research {
+4: // Pinned native evidence: 3CAEB0 builds 16-byte {weak object, socket name}
+5: // entries at owner+520; +528 is Num, +52C is Max. 3C90B0 resolves them with
+6: // F823F0 before attachment/scale callbacks. This is not a readiness flag.
+7: struct CallbackAttachmentGuard {
+8:     static constexpr unsigned limit=4096; // Bounded read budget, not a native capacity.
+9:     static constexpr unsigned particle_vtable=0x335DB28; // 8CB8C0, LuxParticleSystemComponent.
+10:     enum Reason : unsigned {none,shape,storage,registry,address,type,scale_method};
+11:     static bool validate(uintptr_t base,uintptr_t owner,unsigned side,SnapshotPreflightTrace& trace){
+12:         using D=SnapshotPreflightDiagnostic;
+13:         auto fail=[&](Reason reason,unsigned line){trace.attachment(side,D::attachment_reason,reason);return trace.reject(line);};
+14:         trace.location(__LINE__);const auto count=trace.read<int>(owner+0x528),capacity=trace.read<int>(owner+0x52C);
+15:         trace.attachment(side,D::attachment_count,static_cast<uint32_t>(count));
+16:         trace.attachment(side,D::attachment_capacity,static_cast<uint32_t>(capacity));
+17:         if(count<0 || capacity<count || static_cast<unsigned>(count)>limit)return fail(shape,__LINE__);
+18:         if(!count)return true;
+19:         trace.location(__LINE__);const auto data=trace.ptr(owner+0x520);
+20:         if(data<0x10000 || data>UINTPTR_MAX-static_cast<uintptr_t>(count)*16)return fail(storage,__LINE__);
+21:         unsigned live{},expired{};
+22:         for(int i=0;i<count;++i){
+23:             const auto entry=data+static_cast<uintptr_t>(i)*16;
+24:             trace.attachment(side,D::attachment_entry,entry);trace.attachment(side,D::attachment_object,0);trace.attachment(side,D::attachment_vtable,0);
+25:             trace.location(__LINE__);const auto index=trace.read<int>(entry),serial=trace.read<int>(entry+4);
+26:             // The remaining eight bytes are an FName, not an object pointer.
+27:             trace.location(__LINE__);(void)trace.read<uint64_t>(entry+8);
+28:             uintptr_t object{};
+29:             if(serial && index>=0){
+30:                 trace.location(__LINE__);const auto objects=trace.read<int>(base+0x42A115C);
+31:                 if(objects<0)return fail(registry,__LINE__);
+32:                 if(index<objects){
+33:                     trace.location(__LINE__);const auto table=trace.ptr(base+0x42A1150);
+34:                     if(table<0x10000 || table>UINTPTR_MAX-static_cast<uintptr_t>(index)*24-24)return fail(registry,__LINE__);
+35:                     const auto item=table+static_cast<uintptr_t>(index)*24;
+36:                     trace.location(__LINE__);if(trace.read<int>(item+16)==serial){
+37:                         trace.location(__LINE__);if(!(trace.read<unsigned>(item+8)&0x30000000u))object=trace.ptr(item);
+38:                     }
+39:                 }
+40:             }
+41:             // Match F823F0: null/expired/deleted weak references invoke no
+42:             // callback. Never resurrect them or dereference their old object.
+43:             if(!object){trace.attachment(side,D::attachment_expired,++expired);continue;}
+44:             trace.attachment(side,D::attachment_object,object);
+45:             if(object<0x10000)return fail(address,__LINE__);
+46:             trace.location(__LINE__);const auto vtable=trace.ptr(object);trace.attachment(side,D::attachment_vtable,vtable);
+47:             if(vtable!=base+particle_vtable)return fail(type,__LINE__);
+48:             trace.location(__LINE__);if(!trace.method(object,0x3A8,base,0x1DACA60))return fail(scale_method,__LINE__);
+49:             trace.attachment(side,D::attachment_live,++live);
+50:         }
+51:         return true;
+52:     }
+53: };
+54: }

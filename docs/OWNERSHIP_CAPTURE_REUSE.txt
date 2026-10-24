@@ -1,0 +1,39 @@
+Ownership batches, capture scans and effect storage reuse
+
+1. NativeHistoryRestore now asks rolling history for one read-only ownership
+batch at each existing validation point. Every key, thread, round, descriptor,
+root, control and effect reference still validates. Snapshots sharing an exact
+generated-buffer address and size reuse that batch's fresh fingerprint; each
+snapshot must match its own saved hash. This reduces 2-4 identical scans to one.
+A new batch is created before every native mutation; no observation survives a
+native load, restore attempt, later frame or round. EffectExternalReferences
+validation remains exact and uncached. Production effect_ranges only reads
+owned resource metadata. No native writer is invoked inside the batch.
+
+2. Capture still fingerprints before native saving and in its final guard after
+reference binding. The adjacent intermediate fingerprint is replaced by buffer
+address/size checks. Final descriptor/root/control checks and full buffer scan
+remain. Binding acquires strong references; it does not mutate buffer payloads.
+Thus capture goes from three full generated-buffer scans to two.
+
+3. Each snapshot slot keeps one retired effect Binding as spare storage. Native
+token release and all cleanup/quarantine checks precede recycling. Active valid
+bindings or nonzero generations cannot recycle. Capture overwrites live metadata
+and published payloads; EffectExternalReferences::capture resizes/refills its
+vectors, retaining allocation capacity. NativeEffectImage and emitter capture
+reset validity/counts before writing. The inactive spare is separate from the
+active effects pointer so an unused slot never claims effect ownership. Clean
+storage transfers move the spare; terminal discard frees it and its vectors.
+
+Reports: continuous_ownership_buffer_reads/reuses count actual batch scans and
+saved scans. continuous_capture_final_buffer_scan_reused and
+continuous_effect_binding_storage_reuse identify enabled paths. Existing capture,
+ownership, full restoration and outer-update timings remain available. Timings
+overlap; do not sum inclusive phases or infer rendered FPS from them.
+
+Tests exercise bounded scan reuse, distinct extents/saved hashes, invalid reads,
+fresh-batch detection after mutation, validation after every fallback load,
+same-allocation recycling, unreleased-token/valid-binding rejection, quarantined
+slots, transfer and final discard. Exact endpoint comparison, low input delay,
+three-frame prediction, cleanup, diagnostics and round safety remain unchanged.
+No new native offsets or relaxed animation/camera/effect comparison rules.

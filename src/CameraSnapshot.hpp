@@ -1,6 +1,7 @@
 #pragma once
 #include "FullRestoreStream.hpp"
 #include "CameraSlots.hpp"
+#include "CameraCaptureIndex.hpp"
 namespace sc6::research {
 struct CameraSnapshot {
     struct Record {
@@ -82,6 +83,24 @@ struct CameraSnapshot {
     static bool player_selection_loaded(unsigned a,unsigned b,unsigned c) noexcept {
         return player_selection_pair(a,b) && (c==0 || c==a);
     }
+    // Pinned 31B760 caches two positions and the starting angles; 31B880
+    // advances +220 by float(392D03DA), capped at float(3D9CAC08).
+    // The concrete 3E87EB0 camera reset (31A2B0) clears these scalars.
+    static bool alternate_field(unsigned offset) noexcept {
+        return (offset>=8 && offset<=16) || (offset>=24 && offset<=32) || (offset>=40 && offset<=56);
+    }
+    static bool alternate_value(unsigned offset,unsigned bits) noexcept {
+        if(offset==40)return bits<=1;
+        if(offset==44)return bits<=1 || bits==UINT32_MAX;
+        if(offset==56)return bits<=0x3D9CAC08u; // positive finite interpolation accumulator
+        return (bits&0x7F800000u)!=0x7F800000u;
+    }
+    static bool alternate_pair(unsigned offset,unsigned a,unsigned b) noexcept {
+        return alternate_field(offset) && alternate_value(offset,a) && alternate_value(offset,b);
+    }
+    static bool alternate_loaded(unsigned offset,unsigned a,unsigned b,unsigned c) noexcept {
+        return alternate_pair(offset,a,b) && (c==a || c==(offset==44?UINT32_MAX:0u));
+    }
     struct ReadinessDiagnostic {unsigned reason{},record{},section{},offset{},side{};uint64_t saved{},next{};};
     bool adjacent_combat_ready(const CameraSnapshot& next,uintptr_t base,bool charge_rising=false,ReadinessDiagnostic* detail=nullptr,bool idle_camera=false,bool decision_counters=false,unsigned span=1)const noexcept {
         if(detail)*detail={};
@@ -125,6 +144,7 @@ struct CameraSnapshot {
                 else if(decision_counters && j==124){if(!player_selection_pair(av,bv))return reject(18,3,j,av,bv);}
                 else if(decision_counters && j==0){if(!forced_selection_pair(av,bv))return reject(19,3,j,av,bv);}
                 else if(decision_counters && (j==116 || j==120)){if(!decision_counter_pair(av,bv))return reject(16,3,j,av,bv);}
+                else if(decision_counters && alternate_field(j)){if(!alternate_pair(j,av,bv))return reject(20,3,j,av,bv);}
                 else if(av!=bv)return reject(14,3,j,av,bv);
             }
         }
@@ -185,7 +205,7 @@ struct CameraSnapshot {
                 // Idle-only target correction: stable A/B, observed load reset, live identity.
                 for(unsigned j=0;!adjacent_throw && j<128;j+=4){
                     const auto av=word(a.targets.data()+j),bv=word(b.targets.data()+j);
-                    if(av!=bv && !(decision_counters && ((j==112 && camera_mode_pair(av,bv)) || ((j==116 || j==120) && decision_counter_pair(av,bv)) || (j==124 && player_selection_pair(av,bv)) || (j==0 && forced_selection_pair(av,bv))))){
+                    if(av!=bv && !(decision_counters && ((alternate_field(j) && alternate_pair(j,av,bv)) || (j==112 && camera_mode_pair(av,bv)) || ((j==116 || j==120) && decision_counter_pair(av,bv)) || (j==124 && player_selection_pair(av,bv)) || (j==0 && forced_selection_pair(av,bv))))){
                         if(diagnostic){diagnostic->section=4;diagnostic->offset=j;diagnostic->a=av;diagnostic->b=bv;diagnostic->c=word(c.targets.data()+j);diagnostic->live=0;}
                         return restore_reject(diagnostic,__LINE__);
                     }
@@ -203,6 +223,10 @@ struct CameraSnapshot {
                     const bool factor=j==0x68 || j==0x6C;
                     auto av=word(a.targets.data()+j),bv=word(b.targets.data()+j),cv=word(c.targets.data()+j);
                     if(diagnostic){diagnostic->section=2;diagnostic->offset=j;diagnostic->a=av;diagnostic->b=bv;diagnostic->c=cv;}
+                    if(decision_counters && alternate_field(j)){
+                        if(!alternate_loaded(j,av,bv,cv))return restore_reject(diagnostic,__LINE__);
+                        continue;
+                    }
                     if(decision_counters && j==0){
                         if(!forced_selection_loaded(av,bv,cv))return restore_reject(diagnostic,__LINE__);
                         continue;
@@ -263,6 +287,8 @@ struct CameraSnapshot {
             auto& a=records[selected];
             // All guards above passed; preserve the captured selector as well.
             if(decision_counters){
+                for(unsigned j=0;j<128;j+=4)if(alternate_field(j))
+                    std::memcpy(reinterpret_cast<void*>(a.owner+0x1E8+j),a.targets.data()+j,4);
                 std::memcpy(reinterpret_cast<void*>(a.owner+0x2A4),a.targets.data()+116,8);
                 std::memcpy(reinterpret_cast<void*>(a.owner+0x2AC),a.targets.data()+124,4);
                 std::memcpy(reinterpret_cast<void*>(a.owner+0x258),a.targets.data()+112,4);
@@ -302,20 +328,18 @@ struct CameraSnapshot {
     bool capture(const FullRestoreStream& stream,uintptr_t base) noexcept {
         count=0;failure=0;exception=0;valid=false;
         __try {
-            if(!stream.sealed){failure=1;return false;}
-            constexpr unsigned sites[]={0x33FC68,0x33FC7B,0x33FC8E,0x33FE69,0x33FE7F,0x33FE95};
+            CameraCaptureIndex index;
+            if(!index.build(stream,base)){failure=1;return false;}
             constexpr unsigned offsets[]={0x50,0x60,0x70,0x110,0x120,0x130};
             constexpr unsigned sizes[]={16,16,4,16,4,16};
             for(unsigned i=0;i<stream.writes;++i){
-                if(stream.traces[i].writer!=base+sites[0])continue;
+                if(stream.traces[i].writer!=base+CameraCaptureIndex::sites[0])continue;
                 auto source=stream.traces[i].source;
                 if(source<0x10050){failure=2;return false;}
                 auto owner=source-0x50;
                 if(owner>UINTPTR_MAX-0x1C8){failure=2;return false;}
-                for(unsigned k=0;k<6;++k){unsigned matches=0;
-                    for(unsigned j=0;j<stream.writes;++j)
-                        if(stream.traces[j].writer==base+sites[k] && stream.traces[j].source==owner+offsets[k] && stream.lengths[j]==sizes[k])++matches;
-                    if(matches!=1){failure=3;return false;}
+                for(unsigned k=0;k<6;++k){
+                    if(index.matches(stream,k,owner+offsets[k],sizes[k])!=1){failure=3;return false;}
                 }
                 if(count==records.size()){failure=4;return false;}
                 auto& r=records[count];r.owner=owner;r.smoothing_valid=false;

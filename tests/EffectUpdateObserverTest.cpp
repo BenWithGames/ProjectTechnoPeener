@@ -160,6 +160,18 @@ static unsigned runtime_frees{};
 static uintptr_t runtime_native(uintptr_t address,uintptr_t argument){assert(address==4096 && argument==0x70);++runtime_frees;return 88;}
 static void runtime_tests(){
     using Runtime=sc6::research::EffectRetentionRuntime<2,2>;
+    {
+        Runtime contended;assert(contended.begin(alloc::base,11,12,&runtime_native,&fixture_environment));
+        std::atomic<bool> locked{},release{};
+        std::thread worker([&]{contended.route()->gate->release_decision([&]{
+            locked=true;while(!release.load())std::this_thread::yield();return false;});});
+        while(!locked.load())std::this_thread::yield();
+        unsigned retries{};
+        assert(contended.allocation_with_retry(4096,0x180,0x2FC720,[&]{++retries;release=true;worker.join();return true;}));
+        assert(retries==1 && contended.allocation_recovered==1 && contended.allocation_attempts==2 && !contended.stopped());
+        assert(!contended.allocation_with_retry(4096,0x180,0x2FC720,[&]{assert(false);return true;}));
+        assert(contended.stopped() && contended.allocation_reason==3); // overlapping allocation is never retried
+    }
     Runtime runtime;assert(runtime.begin(alloc::base,1,1,&runtime_native,&fixture_environment));
     release_bridge::route.store(runtime.route());
     allocation_result=4096;

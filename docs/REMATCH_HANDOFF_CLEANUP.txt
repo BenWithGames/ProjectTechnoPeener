@@ -1,0 +1,6 @@
+Automatic rematch handoff cleanup
+
+Continuous automatic play no longer binds the legacy validation-only handoff.
+After native release and report saving, handoff retirement excludes active readers, clears old queued requests and confirmations, and permits a fresh session. Late packets and callbacks cannot reactivate the retired session. Legacy late-input tests are not retired by this path.
+
+Adaptive delay remains 0-2 frames with a 3-frame prediction maximum. Exact verification, native cleanup and round safety checks remain enabled. Validate with a complete match followed by immediate Rematch without returning to the lobby.

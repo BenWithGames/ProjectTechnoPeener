@@ -94,6 +94,12 @@ public:
         if(net&&peer&&local&&remote&&!worker_.joinable())worker_=std::thread([this]{run();});
     }
     void stop(){stopping_=true;if(worker_.joinable())worker_.join();}
+    unsigned delay_proposal(uint64_t peer){
+        std::lock_guard lock(mutex_);const auto tick=now();
+        if(!peer || config_.peer!=peer || !config_.local || !config_.remote ||
+           tick<config_.refreshed || tick-config_.refreshed>=3000000)return 2;
+        return published_.adaptive.proposal(tick);
+    }
     std::optional<unsigned> value(){std::lock_guard lock(mutex_);const auto tick=now();
         return config_.peer&&tick>=config_.refreshed&&tick-config_.refreshed<3000000?published_.value(tick):std::nullopt;}
     void report(std::ostream& out){SteamPing snapshot;uint64_t gap{};
@@ -101,6 +107,13 @@ public:
         out<<"overlay_ping_method=dedicated_worker_minimum_of_5_minus_reply_handling\noverlay_ping_network_only=0\noverlay_ping_refresh_seconds=3\noverlay_ping_samples="<<snapshot.latest_samples
            <<"\noverlay_ping_raw_us="<<snapshot.latest_raw_us<<"\noverlay_ping_handling_us="<<snapshot.latest_handling_us<<"\noverlay_ping_max_poll_gap_us="<<gap<<"\noverlay_ping_rtt_ms=";
         auto v=snapshot.value(now());if(v)out<<*v;else out<<"unavailable";out<<'\n';
+        out<<"adaptive_delay_schema=2\nadaptive_delay_bursts="<<snapshot.adaptive.count
+           <<"\nadaptive_delay_worst_raw_us="<<snapshot.adaptive.worst_us
+           <<"\nadaptive_delay_method=max_of_two_complete_burst_raw_p80"
+           <<"\nadaptive_delay_selection_us="<<snapshot.adaptive.selection_us
+           <<"\nadaptive_delay_complete_recent="<<snapshot.adaptive.complete_recent
+           <<"\nadaptive_delay_evidence_reason="<<snapshot.adaptive.reason
+           <<"\nadaptive_delay_proposal="<<snapshot.adaptive.proposal(now())<<'\n';
     }
 };
 inline OverlayPingTransport overlay_ping;

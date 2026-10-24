@@ -12,6 +12,9 @@ template<class Session> class RawPredictionCoordinator {
     uint64_t local_{},round_{},owner_{},revision_{},through_{};
     unsigned remote_{};
     bool bound_{},prepared_{},failed_{};
+    std::atomic<uint64_t> completed_checks_{},completed_drained_{},completed_submitted_{};
+    uint64_t submitted_count_{};
+    std::atomic<uint64_t> pre_execute_checks_{},pre_execute_drained_{};
     bool fail(){failed_=true;return false;}
     CombatFrameInput marker(uint32_t raw)const{
         CombatFrameInput value;value.envelope[(remote_-1)*2]=raw;return value;
@@ -41,6 +44,7 @@ public:
             if(result!=Session::Arrival::accepted && result!=Session::Arrival::duplicate)return fail();
             route_.measure_confirmation(owner,n,session_.head());
             submitted_[n]=true;
+            ++submitted_count_;
         }
         return true;
     }
@@ -52,12 +56,43 @@ public:
         if(history.head()!=session_.head()+1 || !f || !f->complete)return fail();
         revision_=history.revision();through_=history.head();prepared_=true;return true;
     }
+    // Last owner-thread drain after both filters and before any snapshot/load.
+    // Refresh the acknowledgment token only for this still-unexecuted update.
+    bool before_execute(uint64_t owner){
+        if(!prepared_ || failed_ || owner!=owner_ || through_!=session_.head()+1 ||
+           route_.delivery().head()!=through_)return fail();
+        ++pre_execute_checks_;
+        if(!route_.pending_receipts())return true;
+        const auto prior=route_.counters().drained;
+        prepared_=false;
+        if(!drain(owner))return false;
+        const auto& history=route_.delivery();const auto* f=history.frame(session_.head());
+        if(history.head()!=through_ || !f || !f->complete)return fail();
+        revision_=history.revision();prepared_=true;
+        pre_execute_drained_+=route_.counters().drained-prior;
+        return true;
+    }
+    uint64_t pre_execute_checks()const{return pre_execute_checks_;}
+    uint64_t pre_execute_drained()const{return pre_execute_drained_;}
     template<class Publish> bool after_step(uint64_t owner,Publish publish){
         if(!prepared_ || failed_ || owner!=owner_ || session_.head()!=through_ ||
            session_.state==Session::State::restart_required)return fail();
         prepared_=false;
-        return route_.acknowledge(owner,revision_,through_) && route_.publish_confirmed(owner,publish);
+        if(!route_.acknowledge(owner,revision_,through_) || !route_.publish_confirmed(owner,publish))return fail();
+        // The completed update owns only revision_/through_. Accept late truth
+        // AFTER acknowledging it, never as evidence that late corrections ran.
+        // Both input consumers have finished and the scheduler has advanced, so
+        // this also admits archived truth for its newly available head frame.
+        ++completed_checks_;
+        const auto drained=route_.counters().drained,submitted=submitted_count_;
+        const bool ok=drain(owner);
+        completed_drained_+=route_.counters().drained-drained;
+        completed_submitted_+=submitted_count_-submitted;
+        return ok;
     }
+    uint64_t completed_checks()const{return completed_checks_;}
+    uint64_t completed_drained()const{return completed_drained_;}
+    uint64_t completed_submitted()const{return completed_submitted_;}
     // Settlement replay runs at a captured endpoint, not from the clock drain.
     template<class Apply,class Publish> bool settle(uint64_t owner,Apply apply,Publish publish){
         if(!drain(owner) || !route_.request_handoff(owner))return false;

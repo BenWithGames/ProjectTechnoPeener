@@ -5,9 +5,9 @@ namespace sc6::research {
 // Durations overlap; hold_wall measures elapsed waiting, not CPU execution.
 struct NativeStartupTiming {
     enum Kind {resources_first,resources_rearm,session_first,session_rearm,
-        prepare_first,prepare_rearm,activation,hold_wall,rearm_poll,workspace_construct,descriptor_acquire,buffer_acquire,effect_session,hook_install,session_bind,first_capture,initial_ring_capture,settlement_wait,route_retire,rearm_provider,count};
+        prepare_first,prepare_rearm,activation,hold_wall,rearm_poll,workspace_construct,descriptor_acquire,buffer_acquire,effect_session,hook_install,session_bind,first_capture,initial_ring_capture,settlement_wait,route_retire,rearm_provider,first_intro_prepare,count};
     inline static constexpr const char* names[]={"resources_first","resources_rearm","session_first","session_rearm",
-        "prepare_first","prepare_rearm","activation","hold_wall","rearm_poll","workspace_construct","descriptor_acquire","buffer_acquire","effect_session","hook_install","session_bind","first_capture","initial_ring_capture","settlement_wait","route_retire","rearm_provider"};
+        "prepare_first","prepare_rearm","activation","hold_wall","rearm_poll","workspace_construct","descriptor_acquire","buffer_acquire","effect_session","hook_install","session_bind","first_capture","initial_ring_capture","settlement_wait","route_retire","rearm_provider","first_intro_prepare"};
     struct Bucket {std::atomic<uint64_t> calls{},ticks{},maximum{},max_round{},max_thread{},last_begin{},last_end{};};
     std::array<Bucket,count> buckets;
     // Append-only bounded trace: a writer publishes once; readers never see an
@@ -22,7 +22,7 @@ struct NativeStartupTiming {
         if(kind>=count || !frequency || !begin || end<begin){++invalid;return;}
         if(kind==prepare_first || kind==prepare_rearm || kind==session_first || kind==session_rearm ||
            kind==activation || kind==hold_wall || kind==session_bind || kind==first_capture ||
-           kind==initial_ring_capture || kind==settlement_wait || kind==route_retire){
+           kind==initial_ring_capture || kind==settlement_wait || kind==route_retire || kind==first_intro_prepare){
             const auto index=event_count.fetch_add(1,std::memory_order_relaxed);
             if(index<events.size()) {auto& e=events[index];e.kind=kind;e.thread=thread;e.round=round;e.begin=begin;e.end=end;e.ready.store(true,std::memory_order_release);}
             else event_omitted.fetch_add(1,std::memory_order_relaxed);

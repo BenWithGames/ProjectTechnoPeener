@@ -5,11 +5,11 @@
 #include <cstdint>
 #include <ostream>
 namespace sc6::research {
-// One owner-thread writer. Atomic aggregates allow deferred worker reporting.
+// Owner and transport writers use atomic aggregates for deferred reporting.
 // Every timestamp is local QPC; never subtract timestamps from different PCs.
 struct ConfirmationAge {
-    enum Kind {receive_to_drain,drain_to_scheduler,local_publish_to_receive,local_publish_to_scheduler,count};
-    inline static constexpr const char* names[]={"receive_to_drain","drain_to_scheduler","local_publish_to_receive","local_publish_to_scheduler"};
+    enum Kind {receive_to_drain,drain_to_scheduler,local_publish_to_receive,local_publish_to_scheduler,sample_to_publish,publish_to_send_begin,send_call,receive_to_enqueue,receive_to_prediction,sample_end_to_publish,count};
+    inline static constexpr const char* names[]={"receive_to_drain","drain_to_scheduler","local_publish_to_receive","local_publish_to_scheduler","sample_to_publish","publish_to_send_begin","send_call","receive_to_enqueue","receive_to_prediction","sample_end_to_publish"};
     struct Bucket {std::atomic<uint64_t> samples{},total{},maximum{};std::array<std::atomic<uint64_t>,8> bins{};};
     std::array<Bucket,count> buckets{};
     std::array<std::atomic<uint64_t>,5> behind_frames{};
@@ -19,7 +19,7 @@ struct ConfirmationAge {
     void add(Kind kind,uint64_t begin,uint64_t end){
         if(!frequency || !begin || end<begin){++invalid;return;}
         const auto ticks=end-begin;auto& b=buckets[kind];b.total.fetch_add(ticks,std::memory_order_relaxed);
-        if(ticks>b.maximum.load(std::memory_order_relaxed))b.maximum.store(ticks,std::memory_order_relaxed);
+        auto old=b.maximum.load(std::memory_order_relaxed);while(old<ticks && !b.maximum.compare_exchange_weak(old,ticks,std::memory_order_relaxed)){}
         const double us=static_cast<double>(ticks)*1e6/static_cast<double>(frequency);
         constexpr double edges[]={1000,4000,8000,16666.6666667,33333.3333333,66666.6666667,100000};
         unsigned bin=0;while(bin<7 && us>edges[bin])++bin;
@@ -36,7 +36,7 @@ struct ConfirmationAge {
         add(local_publish_to_scheduler,published,submitted);
     }
     void write(std::ostream& out)const{
-        out<<"confirmation_age_schema=1\nconfirmation_age_local_clock_only=1\nconfirmation_age_network_latency=0\nconfirmation_age_frequency="<<frequency
+        out<<"confirmation_age_schema=2\nconfirmation_age_local_clock_only=1\nconfirmation_age_network_latency=0\nconfirmation_age_frequency="<<frequency
            <<"\nconfirmation_age_early="<<early.load()<<"\nconfirmation_age_unpublished="<<unpublished.load()
            <<"\nconfirmation_age_unmeasured="<<unmeasured.load()<<"\nconfirmation_age_invalid="<<invalid.load()<<'\n';
         for(unsigned i=0;i<5;++i)out<<"confirmation_age_behind_frames_"<<i<<'='<<behind_frames[i].load()<<'\n';
@@ -49,3 +49,4 @@ struct ConfirmationAge {
     }
 };
 }
+

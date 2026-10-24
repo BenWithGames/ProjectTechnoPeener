@@ -1,0 +1,14 @@
+Null animation table / scalar reset audit, 2026-10-21
+Fresh Ghidra: null-blend-reset-audit and null-blend-writer-audit.
+303230 clears links and masks but does not clear block +10/+14.
+2F8FE0..2F8FE3 installs the verified wrapper table; 2F9012 clears +14.
+The prior inactive-table rule unnecessarily required saved/next +14 == 0.
+The corrected rule permits saved scalar words and restores them exactly.
+Zero selection indices and masks remain required for this pointer exception.
+Loaded scalar must still be zero. Foreign tables, owners, active masks,
+changed other pointers and stale live captures remain rejected before writes.
+Exact final comparison remains. Both sides and arbitrary scalar bit patterns tested.
+Failure 21844 proves null/null became nonnull after load, but its report lacks
+scalar/index/mask details, so the exact triggering predicate is not proven.
+New diagnostics include all three indices/scalars/masks and verified table.
+Fixed one-frame delay and three-frame prediction cap remain unchanged.

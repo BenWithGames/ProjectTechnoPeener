@@ -40,7 +40,7 @@ struct TwoFrameIdleReplay {
         for(unsigned side=0;side<2;++side){q.before_players[side]=a.before.players[side];q.after_players[side]=b.before.players[side];}
         q.rings[0]=a.rings;q.rings[1]=a.rings;q.rings[2]=b.rings;q.rings[3]=b.rings;
         for(unsigned i=0;i<2;++i){
-            q.blends[i]=audit.visuals->blends[first+i];q.transforms[i]=audit.visuals->transforms[first+i];
+            q.blends[i]=audit.visuals->blends[first+i];q.transforms[i]=audit.visuals->transform_checkpoint(first+i);
             q.cameras[i]=audit.visuals->cameras[first+i];
             if(!q.blends[i].valid || !q.transforms[i].valid || !q.cameras[i].valid)return false;
         }
@@ -182,7 +182,7 @@ struct TwoFrameIdleReplay {
         if(q.replay_keys_equal)mask|=4;
         if(q.replay_ring_equal)mask|=8;
         if(q.blends[1].valid && q.blends[4].valid)mask|=16;
-        if(q.blends[1].bytes==q.blends[4].bytes)mask|=32;
+        if(q.blends[1].bytes==q.blends[4].bytes && q.blends[1].controller==q.blends[4].controller)mask|=32;
         if(!std::memcmp(q.blends[1].owners,q.blends[4].owners,sizeof(q.blends[1].owners)))mask|=64;
         if(transforms_equal(q.transforms[1],q.transforms[4]))mask|=128;
         if(cameras_equal(q.cameras[1],q.cameras[3]))mask|=256;
@@ -192,7 +192,7 @@ struct TwoFrameIdleReplay {
     static bool comparison_ok(const FullStateProbe& q,uintptr_t base){
         return !q.fault && q.replay_done && q.replay_keys_equal && q.replay_ring_equal &&
             q.blends[1].valid && q.blends[4].valid &&
-            q.blends[1].bytes==q.blends[4].bytes &&
+            q.blends[1].bytes==q.blends[4].bytes && q.blends[1].controller==q.blends[4].controller &&
             !std::memcmp(q.blends[1].owners,q.blends[4].owners,sizeof(q.blends[1].owners)) &&
             transforms_equal(q.transforms[1],q.transforms[4]) && cameras_equal(q.cameras[1],q.cameras[3]) && native_equal(q,base);
     }

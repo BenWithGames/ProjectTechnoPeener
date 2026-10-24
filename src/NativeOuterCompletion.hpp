@@ -22,6 +22,7 @@ private:
     bool fail(){failed_=true;return false;}
 public:
     bool failed()const{return failed_;}
+    bool sole_entry(unsigned owner,uintptr_t outer)const{return !failed_ && !completing_ && depth_==1 && owner_==owner && calls_[0].outer==outer;}
     bool enter(unsigned owner,uintptr_t outer){
         if(failed_)return false;
         if(!owner || !outer || (owner_ && owner_!=owner) || completing_ || depth_==calls_.size() || sequence_==UINT64_MAX)return fail();

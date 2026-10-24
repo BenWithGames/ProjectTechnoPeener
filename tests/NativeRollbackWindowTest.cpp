@@ -147,6 +147,7 @@ struct SuccessorResourcesFixture {
     ~SuccessorResourcesFixture(){assert(dependency.reset());}
     bool start(uintptr_t){return dependency.acquire(1,2,reinterpret_cast<uintptr_t>(&control),40,[](uintptr_t){},[](uintptr_t){});}
     bool start_successor(SuccessorResourcesFixture& prior){++attempts;return !reject && dependency.retain_from(prior.dependency);}
+    bool current_dependencies()const{return !reject && dependency.active();}
     bool stop(){return !stop_failure && dependency.reset();}
     ReplayDependencySource source(){last_source=generation;return {this,[](void*,uint32_t){return true;},&dependency};}
     template<class Stream> void wind_report(Stream& out)const{out<<"fixture_generation="<<generation<<'\n';}
@@ -440,10 +441,13 @@ int main(){
             CombatResourcePreparation<F> resources;
             assert(resources.start(1));
             assert(!resources.successor_source_on_owner().available() && F::attempts==0);
+            assert(!resources.successor_dependencies_current_on_owner());
             resources.owner_thread=GetCurrentThreadId();resources.ready=true;
-            std::thread foreign([&]{assert(!resources.successor_source_on_owner().available());});foreign.join();
+            assert(resources.successor_dependencies_current_on_owner());
+            std::thread foreign([&]{assert(!resources.successor_source_on_owner().available());assert(!resources.successor_dependencies_current_on_owner());});foreign.join();
             assert(F::attempts==0 && resources.source_on_owner().available() && F::last_source==1);
             F::reject=true;assert(!resources.successor_source_on_owner().available());
+            assert(!resources.successor_dependencies_current_on_owner());
             assert(resources.source_on_owner().available() && F::last_source==1);
             F::reject=false;
             for(unsigned i=0;i<15;++i){assert(resources.successor_source_on_owner().available());assert(F::control.strong==2);}
@@ -453,6 +457,7 @@ int main(){
             assert(report.str().find("continuous_resource_generations=16\n")!=std::string::npos);
             assert(report.str().find("retired_resources_0_fixture_generation=1\n")!=std::string::npos);
             resources.request_stop();assert(!resources.source_on_owner().available());
+            assert(!resources.successor_dependencies_current_on_owner());
         }
         assert(F::control.strong==1);
         {
@@ -478,7 +483,8 @@ int main(){
         assert(next.reset() && control.strong==1);
         ReplayOwnedResources unstarted,successor;
         assert(!successor.start_successor(unstarted));
-        NativeEffectSession effect;assert(effect.retired_on_owner());
+        // Keep this large fixture off the unoptimized monolithic test stack.
+        auto effect_storage=std::make_unique<NativeEffectSession>();auto& effect=*effect_storage;assert(effect.retired_on_owner());
         std::thread foreign_effect([&]{assert(!effect.retired_on_owner());});foreign_effect.join();
         effect.captures=1;assert(!effect.retired_on_owner());
         effect.retirements=1;assert(effect.retired_on_owner());
@@ -1175,6 +1181,21 @@ int main(){
         assert(earlyA.target_clock()==70 && earlyA.target_battle()==80);
         assert(earlyA.receive(earlyB.outgoing()));assert(earlyB.receive(earlyA.outgoing()));
         assert(earlyA.receive(earlyB.outgoing()) && earlyA.ready() && earlyB.ready());
+        const auto staleAck=earlyB.outgoing();
+        assert(earlyA.refresh(75) && earlyA.target_clock()>75 && !earlyA.ready());
+        assert(earlyA.receive(staleAck) && !earlyA.ready());
+        assert(earlyB.newer(earlyA.outgoing()));
+        assert(earlyB.receive(earlyA.outgoing()) && !earlyB.ready());
+        assert(earlyA.receive(earlyB.outgoing()) && earlyA.ready());
+        assert(earlyB.receive(earlyA.outgoing()) && earlyB.ready());
+        assert(earlyB.refresh(200));assert(earlyA.refresh(140));
+        assert(earlyA.receive(earlyB.outgoing()));assert(earlyB.receive(earlyA.outgoing()));
+        assert(earlyA.receive(earlyB.outgoing()) && earlyA.ready() && earlyB.ready());
+        assert(earlyA.target_clock()==earlyB.target_clock());
+        assert(earlyA.target_battle()-earlyA.target_clock()==10);
+        assert(!earlyA.refresh(UINT32_MAX));
+        auto badRevision=earlyB.outgoing();++badRevision[5];
+        assert(!earlyA.receive(badRevision) && earlyA.failed());
         StartupBoundaryAgreement legacy;assert(!legacy.begin(early,1));
         StartupBoundaryPairs discontinuous;discontinuous.clock(1,10);discontinuous.battle(20);
         discontinuous.clock(1,12);discontinuous.battle(22);
@@ -1320,6 +1341,27 @@ int main(){
         cancelled.frame(15,true);assert(cancelled.failed.load() && cancelled.retired.load() && !cancelled.ready.load());
     }
     {
+        StartupBoundaryAgreement earlyA,earlyB;
+        assert(earlyA.begin_first_fight(7,1,42,1) && earlyB.begin_first_fight(7,1,42,2));
+        assert(!earlyA.ready() && earlyA.first_fight());
+        assert(earlyA.receive(earlyB.outgoing()) && earlyB.receive(earlyA.outgoing()));
+        assert(earlyA.receive(earlyB.outgoing()) && earlyA.ready() && earlyB.ready());
+        assert(!earlyA.runtime_rejection(0,0,false,false,7,7,1000));
+        assert(earlyA.runtime_rejection(0,0,false,false,8,7,1000)==2);
+        for(unsigned index:{1u,2u,3u,4u,5u,6u,7u,8u,9u}){
+            StartupBoundaryAgreement guard;assert(guard.begin_first_fight(7,1,42,1));
+            auto bad=earlyB.outgoing();bad[index]=index==7?2:bad[index]+1;
+            assert(!guard.receive(bad) && guard.failed());
+        }
+        StartupBoundaryPairs fallbackPairs;
+        fallbackPairs.rows[0]={7,100,200};fallbackPairs.count=2;
+        StartupBoundaryAgreement late,early;
+        assert(late.begin(fallbackPairs,2,true) && early.begin_first_fight(7,1,42,1));
+        assert(late.receive(early.outgoing()) && !late.ready());
+        assert(early.receive(late.outgoing()) && early.fallback_requested() && !early.ready());
+        assert(early.fallback(fallbackPairs,1) && !early.first_fight());
+        assert(late.receive(early.outgoing()) && early.receive(late.outgoing()) && late.receive(early.outgoing()));
+        assert(late.ready() && early.ready() && early.target_clock()==160);
         NativeCombatSession::Config config;ReplayDependencySource source;
         auto shared=std::make_unique<sc6::observation::Shared>();
         NativeArmingDispatch dispatch(config,source,*shared,22,GetTickCount64()+1000);
@@ -1390,7 +1432,31 @@ int main(){
         native_clock_hook::bridge(address);assert(waiting.state()==NativeArmingDispatch::State::rejected);
         assert(!native_clock_hook::start_hold.load() && !combat_routes.load());
         native_clock_hook::preparation_poll=nullptr;
+        assert(waiting.rejection()==5 && waiting.observed_frame()==101);
+        // Republish for withdrawal test; no resources or native hold were touched.
+        // The callback is still attached until explicitly withdrawn.
         unsigned supplied=0;
+        NativeArmingDispatch withdrawing(config,source,*shared,22,GetTickCount64()+1000);
+        *reinterpret_cast<unsigned*>(address+0x3A4)=99;
+        assert(withdrawing.queue());
+        const auto* loadedCallback=native_clock_hook::preparation_poll.load();
+        assert(withdrawing.withdraw_unstarted() && !native_clock_hook::preparation_poll.load());
+        *reinterpret_cast<unsigned*>(address+0x3A4)=100;
+        loadedCallback->poll(loadedCallback->context,address);
+        assert(withdrawing.state()==NativeArmingDispatch::State::rejected && !combat_routes.load());
+        NativeArmingDispatch missed(config,source,*shared,22,GetTickCount64()+1000);
+        assert(missed.queue());*reinterpret_cast<unsigned*>(address+0x3A4)=101;
+        native_clock_hook::bridge(address);assert(missed.rejection()==5);
+        assert(missed.withdraw_unstarted() && !native_clock_hook::preparation_poll.load());
+        NativeArmingDispatch wrongIdentity(config,source,*shared,22,GetTickCount64()+1000);
+        assert(wrongIdentity.queue());*reinterpret_cast<unsigned*>(address+0x3A0)=config.clock_identity+1;
+        native_clock_hook::bridge(address);assert(wrongIdentity.rejection()==4 && !wrongIdentity.withdraw_unstarted());
+        native_clock_hook::preparation_poll=nullptr;*reinterpret_cast<unsigned*>(address+0x3A0)=config.clock_identity;
+        NativeArmingDispatch wrongThread(config,source,*shared,22,GetTickCount64()+1000);
+        assert(wrongThread.queue());
+        std::thread foreign([&]{native_clock_hook::bridge(address);});foreign.join();
+        assert(wrongThread.rejection()==2 && !wrongThread.withdraw_unstarted());
+        native_clock_hook::preparation_poll=nullptr;
         NativeArmingDispatch deferred(config,source,*shared,22,GetTickCount64()+1000);
         unsigned rearm_calls=0;
         auto rearm_provider=[](void* p,uintptr_t,NativeCombatSession::Config&,ReplayDependencySource&){
@@ -1410,12 +1476,102 @@ int main(){
         *reinterpret_cast<unsigned*>(address+0x3A4)=100;
         native_clock_hook::bridge(address);assert(supplied==1 && deferred.state()==NativeArmingDispatch::State::rejected);
         assert(rearm_calls==0); // Rejected preparation cannot acquire a successor.
+        assert(deferred.rejection()==6 && !deferred.withdraw_unstarted());
         assert(!native_clock_hook::start_hold.load() && !combat_routes.load());
         native_clock_hook::preparation_poll=nullptr;
         NativeArmingDispatch cancelled(config,source,*shared,22,GetTickCount64()+1000);
         assert(cancelled.source_on_owner(&supplied,provider) && cancelled.queue());cancelled.cancel();
         assert(!cancelled.automatic_rearm(&rearm_calls,rearm_provider));
         native_clock_hook::bridge(address);assert(supplied==1 && cancelled.state()==NativeArmingDispatch::State::rejected);
+        native_clock_hook::preparation_poll=nullptr;
+        // Intro preparation runs native-owned until the first freshly verified
+        // fighting entry. No wall-clock guess or cached readiness grants a hold.
+        auto* memory=VirtualAlloc(nullptr,0x4900000,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE);assert(memory);
+        const auto base=reinterpret_cast<uintptr_t>(memory),clockObject=base+0x1000,mode=base+0x7000;
+        auto word=[&](uintptr_t address,unsigned value){*reinterpret_cast<unsigned*>(address)=value;};
+        *reinterpret_cast<uintptr_t*>(clockObject)=base+0x3283578;
+        *reinterpret_cast<uintptr_t*>(base+0x3283578+0x620)=base+0x3FDB80;
+        *reinterpret_cast<uintptr_t*>(base+0x3283578+0x628)=base+0x3E9EE0;
+        *reinterpret_cast<uintptr_t*>(base+0x3283578+0x630)=base+0x3E2000;
+        word(clockObject+0x398,2);word(clockObject+0x39C,1);word(clockObject+0x43FC,3);word(clockObject+0x4400,2);
+        *reinterpret_cast<unsigned char*>(clockObject+0x4404)=1;*reinterpret_cast<unsigned char*>(clockObject+0x4424)=2;
+        word(clockObject+0x3A0,7);word(clockObject+0x3A4,100);word(base+0x470D0C4,500);
+        *reinterpret_cast<uintptr_t*>(base+0x4843ED0)=mode;
+        *reinterpret_cast<uintptr_t*>(mode)=base+0x3E87378;
+        *reinterpret_cast<uintptr_t*>(base+0x3E87378+0x10)=base+0x384040;
+        *reinterpret_cast<uintptr_t*>(base+0x3E873D0+0x10)=base+0x384EE0;
+        assert(sc6::RoundFightReadiness::read(base,4,3,500).intro(4,3,GetCurrentThreadId()));
+        word(base+0x48463F8,1);
+        assert(!sc6::RoundFightReadiness::read(base,4,3,500).intro(4,3,GetCurrentThreadId()));
+        word(base+0x48463F8,0);*reinterpret_cast<unsigned short*>(base+0x4846408)=1;
+        assert(!sc6::RoundFightReadiness::read(base,4,3,500).intro(4,3,GetCurrentThreadId()));
+        *reinterpret_cast<unsigned short*>(base+0x4846408)=0;
+        const auto oldIdentity=sc6::round_event::identity;const auto oldCounter=sc6::round_event::event_counter;
+        sc6::round_event::identity={};sc6::round_event::identity.known=true;
+        sc6::round_event::identity.round=4;sc6::round_event::identity.boundary=3;sc6::round_event::event_counter=5;
+        auto earlyConfig=config;earlyConfig.base=base;earlyConfig.clock_object=clockObject;earlyConfig.caller=base+1;
+        native_clock_hook::installed_base=base;
+        for(unsigned variant=0;variant<3;++variant){
+            *reinterpret_cast<uintptr_t*>(mode)=base+0x3E87378;
+            sc6::round_event::event_counter=5;
+            NativeArmingDispatch first(earlyConfig,source,*shared,22,GetTickCount64()+60000);
+            unsigned requests=0;
+            assert(first.first_fight() && first.source_on_owner(&requests,provider) && first.queue());
+            const auto* callback=native_clock_hook::preparation_poll.load();
+            assert(!first.first_fight());
+            for(unsigned frame=101;frame<110;++frame){word(clockObject+0x3A4,frame);callback->poll(callback->context,clockObject);}
+            assert(first.state()==NativeArmingDispatch::State::waiting && !requests);
+            *reinterpret_cast<uintptr_t*>(mode)=base+0x3E873D0;
+            word(base+0x48463F8,1);callback->poll(callback->context,clockObject);assert(!requests);
+            word(base+0x48463F8,0);*reinterpret_cast<unsigned short*>(base+0x4846408)=1;
+            callback->poll(callback->context,clockObject);assert(!requests);
+            *reinterpret_cast<unsigned short*>(base+0x4846408)=0;
+            if(variant==1)sc6::round_event::event_counter=6;
+            if(variant==2)word(clockObject+0x39C,2);
+            callback->poll(callback->context,clockObject);
+            assert(first.state()==NativeArmingDispatch::State::rejected);
+            assert(first.rejection()==(variant==0?6u:variant==1?10u:12u));
+            assert(requests==(variant==0?1u:0u));
+            assert(!native_clock_hook::start_hold.load() && !combat_routes.load());
+            native_clock_hook::preparation_poll=nullptr;word(clockObject+0x39C,1);
+        }
+        // Exercise the production first-intro callback with real reservation
+        // publication. Native memory is a fixture; no simulation runs here.
+        {
+            struct Control {uintptr_t table{};LONG strong{1},weak{1};bool ready{true};} control;
+            GeneratedSnapshotDependency dependency;
+            assert(dependency.acquire(1,2,reinterpret_cast<uintptr_t>(&control),40,[](uintptr_t){},[](uintptr_t){}));
+            ReplayDependencySource preparedSource{&control,[](void*,uint32_t){return true;},&dependency,
+                [](void* p){return static_cast<Control*>(p)->ready;}};
+            for(unsigned fault=0;fault<4;++fault){
+                sc6::round_event::event_counter=5;
+                *reinterpret_cast<uintptr_t*>(mode)=base+0x3E87378;
+                word(mode+8,10);word(mode+12,120);word(base+0x470D0C4,500);word(clockObject+0x3A4,100);
+                NativeArmingDispatch first(earlyConfig,preparedSource,*shared,22,GetTickCount64()+60000);
+                assert(first.first_fight() && first.queue());
+                const auto* callback=native_clock_hook::preparation_poll.load();
+                callback->poll(callback->context,clockObject);
+                assert(!combat_round_preparation.load() && !native_clock_hook::start_hold.load());
+                word(mode+8,11);word(base+0x470D0C4,501);word(clockObject+0x3A4,101);
+                callback->poll(callback->context,clockObject);
+                const auto* prep=combat_round_preparation.load();assert(prep && prep->reserved());
+                auto offer=CombatStartPacket::decode(prep->outgoing(),112);assert(offer && offer->offer.first_frame==610);
+                assert(first.state()==NativeArmingDispatch::State::waiting && !combat_routes.load() && !native_clock_hook::start_hold.load());
+                const auto* barrier=round_transition_boundary_guard.load();assert(barrier && barrier->before_step(barrier->context));
+                if(fault==0){word(mode+12,121);} // Published projection must not change.
+                if(fault==1){word(base+0x470D0C4,611);}
+                if(fault==2){++sc6::round_event::event_counter;}
+                if(fault==3){word(base+0x470D0C4,610);} // Still Start at promised Fight frame.
+                callback->poll(callback->context,clockObject);
+                assert(first.state()==NativeArmingDispatch::State::rejected);
+                assert(first.rejection()==(fault==2?10u:14u));
+                word(base+0x470D0C4,610);assert(!barrier->before_step(barrier->context));
+                native_clock_hook::preparation_poll=nullptr;combat_round_preparation=nullptr;round_transition_boundary_guard=nullptr;
+            }
+            assert(dependency.reset());
+        }
+        sc6::round_event::identity=oldIdentity;sc6::round_event::event_counter=oldCounter;
+        VirtualFree(memory,0,MEM_RELEASE);
         native_clock_hook::preparation_poll=nullptr;native_clock_hook::installed=false;
         native_clock_hook::installed_base=0;native_clock_hook::original=nullptr;
     }
@@ -1439,55 +1595,76 @@ int main(){
         CombatStartAgreement::Offer a{1,2,100,77,3,4,500,1,0,3,7200};auto b=a;
         b.sender=2;b.recipient=1;b.ticket=200;b.slot=2;
         using Ingress=CombatStartIngress;
-        const auto early=CombatStartPacket{a,1,0}.encode();
-        assert(Ingress::receive(nullptr,true,true,11,11,2,1,77,early,80)==Ingress::Result::deferred);
-        assert(Ingress::receive(nullptr,true,true,99,11,2,1,77,early,80)==Ingress::Result::rejected);
-        assert(Ingress::receive(nullptr,true,false,11,11,2,1,77,early,80)==Ingress::Result::rejected);
-        assert(Ingress::receive(nullptr,false,true,11,11,2,1,77,early,80)==Ingress::Result::rejected);
-        assert(Ingress::receive(nullptr,true,true,11,11,2,9,77,early,80)==Ingress::Result::rejected);
-        assert(Ingress::receive(nullptr,true,true,11,11,2,1,78,early,80)==Ingress::Result::rejected);
+        const auto early=CombatStartPacket{a,1,0,{1000000,0,0,0}}.encode();
+        assert(Ingress::receive(nullptr,true,true,11,11,2,1,77,early,early.size())==Ingress::Result::deferred);
+        assert(Ingress::receive(nullptr,true,true,99,11,2,1,77,early,early.size())==Ingress::Result::rejected);
+        assert(Ingress::receive(nullptr,true,false,11,11,2,1,77,early,early.size())==Ingress::Result::rejected);
+        assert(Ingress::receive(nullptr,false,true,11,11,2,1,77,early,early.size())==Ingress::Result::rejected);
+        assert(Ingress::receive(nullptr,true,true,11,11,2,9,77,early,early.size())==Ingress::Result::rejected);
+        assert(Ingress::receive(nullptr,true,true,11,11,2,1,78,early,early.size())==Ingress::Result::rejected);
         assert(Ingress::receive(nullptr,true,true,11,11,2,1,77,early,79)==Ingress::Result::rejected);
         CombatStartExchange delayed;
         assert(delayed.begin(11,b));
-        assert(Ingress::receive(&delayed,true,true,11,11,2,1,77,early,80)==Ingress::Result::delivered);
+        assert(Ingress::receive(&delayed,true,true,11,11,2,1,77,early,early.size())==Ingress::Result::delivered);
         assert(!delayed.consume()); // retransmission is accepted, not permission to activate
-        CombatStartExchange left,right;CombatStartMailbox mailbox(GetCurrentThreadId());
-        assert(left.attach(mailbox));assert(left.begin(22,a) && right.begin(11,b));
-        CombatStartAgreement transferred;assert(!mailbox.take(transferred));
-        auto first=left.outgoing();assert(first[0]==0x43 && first[1]==0x36);
-        assert(!right.receive(99,true,first,first.size()));assert(!right.receive(11,false,first,first.size()));
-        assert(!right.receive(11,true,first,79));assert(!right.consume());
-        assert(right.receive(11,true,first,80));auto ack=right.outgoing();
-        std::thread network([&]{assert(left.receive(22,true,ack,80));assert(!mailbox.take(transferred));});network.join();
-        assert(!mailbox.take(transferred)); // acknowledgement alone cannot activate
-        auto reply=left.outgoing();
-        assert(right.receive(11,true,reply,80));
+        // Simulate independent clock epochs, preparation skew, and a 66ms RTT.
+        // No activation until a reliable proposal/ack/commit and the local deadline.
+        CombatStartExchange left,right;CombatStartMailbox mailbox(GetCurrentThreadId()),other(GetCurrentThreadId());
+        assert(left.attach(mailbox) && right.attach(other));assert(left.begin(22,a) && right.begin(11,b));
         assert(left.report_local_hold(a.ticket));assert(!left.report_local_hold(a.ticket));
-        auto held=left.outgoing();assert(right.receive(11,true,held,80));
-        assert(!mailbox.take(transferred)); // remote side has not reached its hold
-        assert(right.report_local_hold(b.ticket));held=right.outgoing();
-        std::thread held_network([&]{assert(left.receive(22,true,held,80));});held_network.join();
-        assert(mailbox.take(transferred) && transferred.activation_ready() && transferred.consume(a));
-        assert(!mailbox.take(transferred));assert(left.consume() && right.consume());
-        assert(!left.consume());
-        for(unsigned offset:{0u,4u,8u,56u,64u}){auto corrupt=first;corrupt[offset]=255;assert(!CombatStartPacket::decode(corrupt,80));}
-        auto roundtrip=CombatStartPacket::decode(first,80);assert(roundtrip && roundtrip->offer==a);
-        auto next_a=a,next_b=b;next_a.round=next_b.round=4;next_a.event=next_b.event=5;
-        next_a.first_frame=next_b.first_frame=0;++next_a.ticket;++next_b.ticket;
-        CombatStartExchange next_left,next_right;
-        CombatStartMailbox next_mailbox(GetCurrentThreadId());assert(next_left.attach(next_mailbox));
-        assert(next_left.begin(22,next_a,&left) && next_right.begin(11,next_b));
-        assert(next_left.receive(22,true,held,80) && next_left.retired_packets()==1);
-        auto wrong_old=CombatStartPacket{b,3,a.ticket+1}.encode();
-        assert(!next_left.receive(22,true,wrong_old,80));
-        assert(next_left.report_local_hold(next_a.ticket) && next_right.report_local_hold(next_b.ticket));
-        for(unsigned n=0;n<3;++n){
-            auto packet=next_right.outgoing();assert(next_left.receive(22,true,packet,80));
-            packet=next_left.outgoing();assert(next_right.receive(11,true,packet,80));
+        struct Transit {uint64_t at;bool to_left;CombatStartPacket::Bytes bytes;};
+        std::vector<Transit> transit;
+        CombatStartSendCadence lc,rc;CombatStartAgreement transferred,rt;
+        uint64_t left_release=0,right_release=0;constexpr uint64_t offset=9000000;
+        for(uint64_t time=1000000;time<2000000;time+=1000){
+            if(time==1030000)assert(right.report_local_hold(b.ticket));
+            for(size_t n=0;n<transit.size();){
+                if(transit[n].at>time){++n;continue;}
+                const auto packet=transit[n];transit.erase(transit.begin()+n);
+                assert(packet.to_left?left.receive(22,true,packet.bytes,packet.bytes.size(),time):
+                    right.receive(11,true,packet.bytes,packet.bytes.size(),time+offset));
+            }
+            auto l=left.outgoing(time),r=right.outgoing(time+offset);
+            if(lc.due(l,time/1000,left.completed())){left.sent(l,time);transit.push_back({time+33000,false,l});}
+            if(rc.due(r,time/1000,right.completed())){right.sent(r,time+offset);transit.push_back({time+33000,true,r});}
+            if(mailbox.take(transferred,time))left_release=time;
+            if(other.take(rt,time+offset))right_release=time;
+            if(left_release && right_release)break;
         }
-        CombatStartAgreement new_agreement;
-        assert(next_mailbox.take(new_agreement) && new_agreement.activation_ready() && new_agreement.consume(next_a));
+        assert(left_release && left_release==right_release);
+        assert(transferred.activation_ready() && transferred.consume(a) && rt.consume(b));
+        assert(!mailbox.take(transferred));assert(left.consume() && right.consume());assert(!left.consume());
+        auto first=CombatStartPacket{a,1,0,{1000000,0,0,0}}.encode();
+        for(unsigned field:{0u,4u,8u,56u,64u}){auto corrupt=first;corrupt[field]=255;assert(!CombatStartPacket::decode(corrupt,corrupt.size()));}
+        auto roundtrip=CombatStartPacket::decode(first,first.size());assert(roundtrip && roundtrip->offer==a);
+        auto next_a=a;next_a.round=4;next_a.event=5;next_a.first_frame=0;++next_a.ticket;
+        CombatStartExchange next_left;CombatStartMailbox next_mailbox(GetCurrentThreadId());assert(next_left.attach(next_mailbox));
+        assert(next_left.begin(22,next_a,&left));
+        auto old=CombatStartPacket{b,6,a.ticket,{2000000,0,0,2000000}}.encode();
+        assert(next_left.receive(22,true,old,old.size()) && next_left.retired_packets()==1);
+        auto wrong_old=CombatStartPacket{b,3,a.ticket+1}.encode();
+        assert(!next_left.receive(22,true,wrong_old,wrong_old.size()));
         CombatStartExchange reused;assert(!reused.begin(22,a,&left));
+        auto next_b=b;next_b.round=4;next_b.event=5;next_b.first_frame=0;++next_b.ticket;next_b.delay=2;
+        CombatStartExchange next_right;CombatStartMailbox next_other(GetCurrentThreadId());
+        assert(next_right.attach(next_other) && next_right.begin(11,next_b,&right));
+        assert(next_left.report_local_hold(next_a.ticket) && next_right.report_local_hold(next_b.ticket));
+        transit.clear();lc={};rc={};left_release=right_release=0;
+        for(uint64_t time=2000000;time<3000000;time+=1000){
+            for(size_t n=0;n<transit.size();){
+                if(transit[n].at>time){++n;continue;}
+                const auto packet=transit[n];transit.erase(transit.begin()+n);
+                assert(packet.to_left?next_left.receive(22,true,packet.bytes,packet.bytes.size(),time):
+                    next_right.receive(11,true,packet.bytes,packet.bytes.size(),time+offset));
+            }
+            auto l=next_left.outgoing(time),r=next_right.outgoing(time+offset);
+            if(lc.due(l,time/1000,next_left.completed())){next_left.sent(l,time);transit.push_back({time+33000,false,l});}
+            if(rc.due(r,time/1000,next_right.completed())){next_right.sent(r,time+offset);transit.push_back({time+33000,true,r});}
+            if(next_mailbox.take(transferred,time)){left_release=time;assert(transferred.agreed_delay()==2);}
+            if(next_other.take(rt,time+offset))right_release=time;
+            if(left_release && right_release)break;
+        }
+        assert(left_release && left_release==right_release); // new round independently measures and agrees
     }
     {
         CombatStartAgreement::Offer local{1,2,100,77,3,4,500,1,0,3,7200};
@@ -1496,7 +1673,7 @@ int main(){
         assert(agreed.receive(peer) && agreed.receive(peer));assert(!agreed.consume(local));
         assert(agreed.acknowledge(2,100,200));assert(agreed.consume(local));assert(!agreed.consume(local));
         for(unsigned field=0;field<5;++field){CombatStartAgreement mismatch;assert(mismatch.begin(local));auto bad=peer;
-            switch(field){case 0:++bad.build;break;case 1:++bad.first_frame;break;case 2:++bad.delay;break;case 3:bad.slot=1;break;case 4:++bad.round;break;}
+            switch(field){case 0:++bad.build;break;case 1:++bad.first_frame;break;case 2:bad.delay=3;break;case 3:bad.slot=1;break;case 4:++bad.round;break;}
             assert(!mismatch.receive(bad));assert(!mismatch.receive(peer));}
         CombatStartAgreement stale;assert(stale.begin(local) && stale.receive(peer));
         assert(!stale.acknowledge(2,99,200) && !stale.consume(local));

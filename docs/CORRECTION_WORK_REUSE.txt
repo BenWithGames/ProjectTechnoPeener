@@ -1,0 +1,15 @@
+CORRECTION WORK REUSE - 2026-10-21
+
+Avoids a second transform endpoint copy: the restorer uses the prepared endpoint already owned by its probe. Other endpoint controls remain copied. No borrowed archive pointers survive preparation. Default full endpoint copying remains available.
+
+Completion checking uses one exact comparison to detect unchanged records, and scans individual bytes only when different. Live source checks, topology validation, transactional pre-write checks and exact endpoint verification remain enabled. No validation result is cached across native loading or updates.
+
+Ghidra audit: SC6CorrectionWorkAudit.java exports PlayerLoad (0x30AE80), PlayerSave (0x30A980), and GroupReset (0x349290). Loading resets and rebuilds animation state; this is why live validation remains fresh. Exports are in work/ghidra-sc6-focus/correction-work-audit.
+
+Diagnostics added: completion_records_checked, completion_unchanged_records, completion_diagnostic_scans, completion_endpoint_bytes_reused.
+
+Focused regression coverage runs original and prepared-endpoint paths through existing success/rejection fixtures, checks controls-only endpoint copying, and tests first-difference evidence at every offset for lengths 0 through 512.
+
+Local mock endpoint-copy benchmark: 2000 records, approximately 19.839 us full copy versus 2.281 us controls-only. The equal-buffer microbenchmark was optimized too aggressively to provide useful timing and is not used as evidence of speedup. Live performance has not yet been measured for this build.
+
+Low latency, adaptive 0-2 frame delay, 3-frame prediction limit, ownership cleanup, animation controller restoration, diagnostics and round safety checks are retained.

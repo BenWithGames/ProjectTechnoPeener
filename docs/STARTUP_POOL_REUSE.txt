@@ -1,0 +1,9 @@
+Startup and round snapshot storage reuse
+
+Evidence: match-47320-21402265 had session-first 41.622 ms, workspace construction 25.493 ms, session-rearm mean 16.470 ms and first capture mean 0.505 ms. Timings are inclusive. No measured live speedup claimed before the next test.
+
+Ghidra focused rearm-storage-ownership audit confirms resource clear releases strong ownership and payload destruction frees allocations (RVAs 899110, 1c14e80, 29b9940, 2dda440). Reuse transfers only detached FullStateProbe storage, never native leases or effect bindings. All slots must pass preflight; owner, borrowed/live slots, active effects/references, capture faults, loaded probes and stream failures reject reuse.
+
+Initial live session consumes unused setup capture storage on the owner thread. Later rounds reuse only after verified history retirement and committed native continuation in the same session/thread. New wrappers and history retain no prior keys or guards. Donors are terminal and stale handles fail. Unsafe or unavailable donors use normal fresh allocation.
+
+Adaptive delay 0-2 and prediction maximum 3 remain unchanged. Diagnostics, exact verification and round safety are retained. First-time hook installation and bilateral agreement costs remain and require separate measurement.

@@ -1,0 +1,9 @@
+ONE-FRAME DELAY TEST BUILD
+
+Both players must install this build. Launch SC6 and play normally; no warmup or test script is needed.
+
+Prediction-enabled startup and every round rearm propose a fixed one-frame input delay. Both peers still agree before activation. A negotiated delay other than one is rejected before route publication. Inputs are sent immediately; only their consumption is delayed. Prediction-disabled baseline remains zero in the mod's route. The three-frame prediction limit is unchanged.
+
+Reports identify input_delay_adaptive=0, input_delay_test_fixed_frames=1 and the actual input_delay_frames. The overlay shows the actual agreed delay. Existing optimizations, diagnostics, exact verification, ownership cleanup and round safety remain enabled.
+
+This is a comparison build, not a change to adaptive thresholds. Compare the same connection and characters against the previous two-frame matches, including correction depth, stalls, timing and feel.

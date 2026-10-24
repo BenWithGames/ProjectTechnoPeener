@@ -37,6 +37,154 @@ int main(){
   assert(c->capture(owners,base,true));assert(a->same_topology(*c));
   for(unsigned i=0;i<a->count;++i)assert(!std::memcmp(a->records[i].bytes.data(),c->records[i].bytes.data(),a->records[i].size));
  }
+ // D78 shares the base solver, but also retains owner control references.
+ // Exercise history/position changes, both sides, nonzero parent and contact counts.
+ for(unsigned side=0;side<2;++side){
+  *reinterpret_cast<uintptr_t*>(owners[0]+0x10)=0;
+  *reinterpret_cast<uintptr_t*>(owners[side]+0x10)=group;
+  *reinterpret_cast<uintptr_t*>(owners[0]+8)=0;
+  *reinterpret_cast<uintptr_t*>(owners[side]+8)=hit;
+  *reinterpret_cast<uintptr_t*>(node)=base+0x3E88D78;
+  *reinterpret_cast<uintptr_t*>(node+0x2B0)=owners[side]+0x2C;
+  *reinterpret_cast<uintptr_t*>(node+0x2B8)=owners[side]+0x38;
+  *reinterpret_cast<unsigned*>(owners[side]+0x2C)=1;
+  *reinterpret_cast<float*>(owners[side]+0x38)=0.5f;
+  *reinterpret_cast<float*>(node+0x2A0)=-0.25f;
+  const auto parent=base+0x6000;
+  *reinterpret_cast<uintptr_t*>(node+0x28)=parent;
+  *reinterpret_cast<uintptr_t*>(node+0x50)=parent;
+  *reinterpret_cast<uintptr_t*>(parent)=base+0x3E88DB8;
+  for(unsigned from=0;from<=4;++from)for(unsigned to=0;to<=4;++to){
+   state(from,from);
+   for(unsigned o=0x80;o<0xC0;o+=4)*reinterpret_cast<float*>(node+o)=float(o+from);
+   *reinterpret_cast<float*>(node+0x10)=0.011394858f;
+   assert(a->capture(owners,base,true));
+   state(to,to+10);
+   for(unsigned o=0x80;o<0xC0;o+=4)*reinterpret_cast<float*>(node+o)=float(o+to+10);
+   *reinterpret_cast<float*>(node+0x10)=0.005053222f;
+   assert(b->capture(owners,base,true)&&c->capture(owners,base,true));
+   assert(a->restore_sway(*b,*c,base,true)&&a->restore_constraints(*b,*c,base,true));
+   assert(*reinterpret_cast<float*>(node+0x10)==0.005053222f);
+   assert(a->restore_sway(*b,*c,base));assert(c->capture(owners,base,true));
+   assert(a->restore_constraints(*b,*c,base));assert(c->capture(owners,base,true));
+   for(unsigned i=0;i<a->count;++i)assert(!std::memcmp(a->records[i].bytes.data(),c->records[i].bytes.data(),a->records[i].size));
+   assert(c->refresh_intermediate(*a,owners,base));assert(c->unchanged_live(owners,base));
+  }
+  assert(a->capture(owners,base,true));
+  unsigned parent_record=UINT32_MAX;
+  for(unsigned i=0;i<a->count;++i)if(a->records[i].address==parent && a->records[i].kind==2)parent_record=i;
+  assert(parent_record!=UINT32_MAX);
+  a->records[parent_record].side=1-side;assert(!a->d78_dependencies(base));
+  a->records[parent_record].side=side;assert(a->d78_dependencies(base));
+  a->records[parent_record].size=0x78;assert(!a->d78_dependencies(base));
+  a->records[parent_record].size=0x80;assert(a->d78_dependencies(base));
+  // Configuration stays immutable; invalid control encodings still reject.
+  assert(a->capture(owners,base,true));
+  *reinterpret_cast<float*>(node+0x2A0)=-0.5f;
+  *reinterpret_cast<float*>(node+0x10)=10.0f;
+  assert(b->capture(owners,base,true)&&c->capture(owners,base,true));
+  assert(!a->restore_sway(*b,*c,base));assert(*reinterpret_cast<float*>(node+0x10)==10.0f);
+  *reinterpret_cast<float*>(node+0x2A0)=-0.25f;
+  for(unsigned offset:{0x2Cu,0x38u}){
+   assert(a->capture(owners,base,true));
+   auto& value=*reinterpret_cast<unsigned*>(owners[side]+offset);auto saved=value;value=offset==0x2C?3u:0x7FC00000u;
+   assert(b->capture(owners,base,true)&&c->capture(owners,base,true));
+   assert(!a->restore_sway(*b,*c,base));value=saved;
+  }
+  // Native 308310 modes and changing blend values, using production restore order.
+  for(unsigned from=0;from<3;++from)for(unsigned to=0;to<3;++to)for(float blend:{0.0f,0.125f,0.5f,0.99f,1.0f}){
+   *reinterpret_cast<unsigned*>(owners[side]+0x2C)=from;
+   *reinterpret_cast<float*>(owners[side]+0x38)=blend;
+   *reinterpret_cast<float*>(node+0x10)=1.0f;state(1,1);
+   assert(a->capture(owners,base,true));
+   *reinterpret_cast<unsigned*>(owners[side]+0x2C)=to;
+   *reinterpret_cast<float*>(owners[side]+0x38)=blend*0.9f;
+   *reinterpret_cast<float*>(node+0x10)=2.0f;state(2,2);
+   assert(b->capture(owners,base,true)&&c->capture(owners,base,true));
+   assert(a->restore_root_wind(*b,*c,true)&&a->restore_sway(*b,*c,base,true));
+   assert(*reinterpret_cast<float*>(owners[side]+0x38)==blend*0.9f);
+   assert(a->restore_root_wind(*b,*c));assert(c->capture(owners,base,true));
+   assert(a->restore_sway(*b,*c,base));assert(c->capture(owners,base,true));
+   assert(a->restore_constraints(*b,*c,base));assert(c->capture(owners,base,true));
+   for(unsigned i=0;i<a->count;++i)assert(!std::memcmp(a->records[i].bytes.data(),c->records[i].bytes.data(),a->records[i].size));
+  }
+  // A third post-load control value is not silently accepted; all writes stay blocked.
+  *reinterpret_cast<float*>(owners[side]+0x38)=0.25f;assert(a->capture(owners,base,true));
+  *reinterpret_cast<float*>(owners[side]+0x38)=0.5f;assert(b->capture(owners,base,true));
+  *reinterpret_cast<float*>(owners[side]+0x38)=0.75f;assert(c->capture(owners,base,true));
+  assert(!a->restore_root_wind(*b,*c)&&!a->restore_sway(*b,*c,base));
+  assert(a->sway_check.control_offset==0x38 && a->sway_check.control_saved==0x3E800000 &&
+         a->sway_check.control_next==0x3F000000 && a->sway_check.control_current==0x3F400000);
+  // A live write after capture, including at the audited control, also rejects.
+  assert(b->capture(owners,base,true)&&c->capture(owners,base,true));
+  *reinterpret_cast<float*>(owners[side]+0x38)=0.9f;
+  assert(!a->restore_root_wind(*b,*c)&&!a->restore_sway(*b,*c,base));
+  *reinterpret_cast<float*>(owners[side]+0x38)=0.5f;assert(a->capture(owners,base,true));
+  *reinterpret_cast<unsigned*>(owners[side]+0x34)=1;
+  assert(b->capture(owners,base,true)&&c->capture(owners,base,true));
+  assert(!a->restore_root_wind(*b,*c));*reinterpret_cast<unsigned*>(owners[side]+0x34)=0;
+  // Reference rebinding and missing parent coverage fail capture, before writes.
+  *reinterpret_cast<uintptr_t*>(node+0x2B0)=owners[side]+0x30;
+  assert(!c->capture(owners,base,true));
+  *reinterpret_cast<uintptr_t*>(node+0x2B0)=owners[side]+0x2C;
+  *reinterpret_cast<uintptr_t*>(node+0x50)=base+0x7000;
+  assert(!c->capture(owners,base,true));
+  *reinterpret_cast<uintptr_t*>(node+0x50)=0;
+  *reinterpret_cast<uintptr_t*>(node+0x28)=0;
+  *reinterpret_cast<uintptr_t*>(owners[side]+0x10)=0;
+  *reinterpret_cast<uintptr_t*>(owners[side]+8)=0;
+ }
+ *reinterpret_cast<uintptr_t*>(owners[0]+0x10)=group;
+ *reinterpret_cast<uintptr_t*>(owners[0]+8)=hit;
+ // Audited native branch bytes change independently of object identity.
+ for(auto type:{uintptr_t(0x3E88DB8),uintptr_t(0x3E88DF8)})for(unsigned from=0;from<4;++from)for(unsigned to=0;to<4;++to){
+  *reinterpret_cast<uintptr_t*>(node)=base+type;
+  state(1,1);*reinterpret_cast<unsigned char*>(node+0x7C)=static_cast<unsigned char>(from);*reinterpret_cast<unsigned char*>(node+0x7D)=static_cast<unsigned char>(3-from);
+  assert(a->capture(owners,base,true));
+  state(2,2);*reinterpret_cast<unsigned char*>(node+0x7C)=static_cast<unsigned char>(to);*reinterpret_cast<unsigned char*>(node+0x7D)=static_cast<unsigned char>(3-to);
+  assert(b->capture(owners,base,true)&&c->capture(owners,base,true));
+  assert(a->restore_sway(*b,*c,base,true)&&a->restore_constraints(*b,*c,base,true));
+  assert(*reinterpret_cast<unsigned char*>(node+0x7C)==to);
+  assert(a->restore_sway(*b,*c,base));assert(c->capture(owners,base,true));
+  assert(a->restore_constraints(*b,*c,base));assert(c->capture(owners,base,true));
+  for(unsigned i=0;i<a->count;++i)assert(!std::memcmp(a->records[i].bytes.data(),c->records[i].bytes.data(),a->records[i].size));
+ }
+ *reinterpret_cast<uintptr_t*>(node)=base+0x3E88DB8;
+ state(1,1);assert(a->capture(owners,base,true));
+ // XYZ belongs to captured position state on the two audited sway types.
+ for(auto type:{uintptr_t(0x3E88DB8),uintptr_t(0x3E88DF8)}){
+  *reinterpret_cast<uintptr_t*>(node)=base+type;
+  float saved[3]={-10.25f,2.5f,99.0f},later[3]={12.0f,-3.0f,0.0f};
+  std::memcpy(reinterpret_cast<void*>(node+0x10),saved,12);assert(a->capture(owners,base,true));
+  std::memcpy(reinterpret_cast<void*>(node+0x10),later,12);assert(b->capture(owners,base,true)&&c->capture(owners,base,true));
+  assert(a->restore_sway(*b,*c,base,true)&&a->restore_constraints(*b,*c,base,true));
+  assert(!std::memcmp(reinterpret_cast<void*>(node+0x10),later,12));
+  *reinterpret_cast<float*>(node+0x10)=88.0f;assert(!a->restore_sway(*b,*c,base));
+  assert(*reinterpret_cast<float*>(node+0x10)==88.0f);
+  std::memcpy(reinterpret_cast<void*>(node+0x10),later,12);
+  assert(a->restore_sway(*b,*c,base));assert(!std::memcmp(reinterpret_cast<void*>(node+0x10),saved,12));
+  assert(c->capture(owners,base,true));assert(a->restore_constraints(*b,*c,base));
+  assert(c->capture(owners,base,true));
+  for(unsigned i=0;i<a->count;++i)assert(!std::memcmp(a->records[i].bytes.data(),c->records[i].bytes.data(),a->records[i].size));
+ }
+ state(1,1);assert(a->capture(owners,base,true));
+ // Neighboring unknown fields remain immutable; report the exact byte, no writes.
+ *reinterpret_cast<unsigned char*>(node+0x7E)=1;
+ assert(b->capture(owners,base,true)&&c->capture(owners,base,true));
+ assert(!a->restore_sway(*b,*c,base));assert(a->sway_check.offset==0x7E && a->sway_check.actual==1);
+ assert(!a->restore_constraints(*b,*c,base));assert(a->constraint_check.offset==0x7E);
+ *reinterpret_cast<unsigned char*>(node+0x7E)=0;
+ assert(b->capture(owners,base,true)&&c->capture(owners,base,true));
+ // Live mutation is not ignored even for a restorable byte.
+ *reinterpret_cast<unsigned char*>(node+0x7C)=255;
+ assert(!a->restore_sway(*b,*c,base));assert(a->sway_check.offset==0x7C);
+ *reinterpret_cast<unsigned char*>(node+0x7C)=3;
+ // Unrecognized node types do not get the exception.
+ auto x=a->records[0],y=x; x.kind=y.kind=2;x.size=y.size=0x80;x.side=y.side=0;
+ *reinterpret_cast<uintptr_t*>(x.bytes.data())=*reinterpret_cast<uintptr_t*>(y.bytes.data())=base+0x1234;
+ y.bytes[0x7C]=std::byte{7};T::RestoreCheckDiagnostic diagnostic;
+ assert(T::compare_sway_header(x,y,base,diagnostic) && diagnostic.offset==0x7C);
+ y=x;y.bytes[0x10]=std::byte{7};diagnostic={};assert(T::compare_sway_header(x,y,base,diagnostic)&&diagnostic.offset==0x10);
  // Native finalize updates each link distance independently of stable topology.
  for(unsigned links=1;links<=4;++links){
   *reinterpret_cast<short*>(node+0xD8)=static_cast<short>(links);
@@ -77,6 +225,17 @@ int main(){
  // Rebuild the node index every capture: a new cycle must reject, then recover.
  *reinterpret_cast<uintptr_t*>(node+0x28)=node;assert(!c->capture(owners,base,true)&&c->failure==5);
  *reinterpret_cast<uintptr_t*>(node+0x28)=0;assert(c->capture(owners,base,true));
+ // Capture indexes retain cycle detection and cross-list duplicate rejection.
+ *reinterpret_cast<uintptr_t*>(group+0x40)=group;
+ assert(!c->capture(owners,base,true)&&c->failure==3);
+ *reinterpret_cast<uintptr_t*>(group+0x40)=0;
+ *reinterpret_cast<uintptr_t*>(hit+0x28)=hit;
+ assert(!c->capture(owners,base,true)&&c->failure==13);
+ *reinterpret_cast<uintptr_t*>(hit+0x28)=0;
+ *reinterpret_cast<uintptr_t*>(owners[0]+0x18)=hit;
+ assert(!c->capture(owners,base,true)&&c->failure==13);
+ *reinterpret_cast<uintptr_t*>(owners[0]+0x18)=0;
+ assert(c->capture(owners,base,true));
  // Dependency index must retain side ownership and child metadata validation.
  auto owner_record=0u;
  for(unsigned i=0;i<c->count;++i)if(c->records[i].kind==26){owner_record=i;break;}
@@ -113,4 +272,3 @@ int main(){
  a->valid=false;assert(!b->refresh_intermediate(*a,owners,base));
  VirtualFree(mem,0,MEM_RELEASE);std::cout<<"Constraint slot transitions (25), dependencies, no-partial-write and bounds passed\n";
 }
-

@@ -1,0 +1,46 @@
+Snapshot preflight rejection diagnostics, 2026-10-21
+The preceding reports failed first capture at native stage1 (game frames567/358),
+before saving or restoration. No condition is relaxed by this build.
+continuous_preflight_schema=1:
+phase 1=SaveProbe native save eligibility, 2=callbacks/weak targets/components,
+3=FullStateProbe restore eligibility, 4=custom check supplied by a test.
+line identifies the exact rejected condition in the matching source map.
+rejected=1 is failure; exception records the native exception code when applicable.
+read_address is the most recent attempted read, including a faulting address.
+module permits conversion of method addresses to RVAs; object is the last
+virtual-method target. observations counts all observations, not just retained ones.
+The last32 observations are output chronologically as:
+kind,address,actual,expected,size_or_slot
+kind1=scalar/pointer read (expected unused, final word byte width)
+kind2=virtual-method comparison (expected exact native function, final word slot)
+kind3=object below minimum address (no dereference, expected minimum).
+Paired method checks preserve native short-circuit order. The source map and
+actual/expected methods distinguish rejected type combinations without relaxing
+any allowlist. Weak index/serial/flags, delegate counts, identity pointers and
+component reads are also recorded.
+
+Collection uses bounded owner-thread memory, no allocation or formatting.
+Evidence is copied to existing report atomics before failed snapshot teardown;
+report formatting remains outside capture. Snapshot exceptions retain provenance.
+Existing callers use the same predicates without trace collection; default native
+snapshot capture collects evidence in its original preflight pass, not a retry.
+Tests exercise acceptance parity, player/callback/weak/component/camera/auxiliary
+rejections, observation retention and faulting-read capture before native saving.
+
+Fixed1-frame input delay,3-frame prediction limit, all existing optimizations,
+loaded-blend diagnostics, exact verification, ownership and round checks retained.
+This is diagnostic evidence, not a claimed fix for the unknown startup subcheck.
+
+2026-10-22 update: continuous_preflight_schema=2 appends per-owner attachment
+evidence without moving the original observation ring. The historical fixed
+delay statement above describes the original build; current builds retain
+adaptive 0-2 frame delay with the 3-frame prediction limit.
+continuous_preflight_attachment_<0|1>_ fields:
+count,capacity: native array Num/Max at owner+528/+52C (32-bit values).
+live,expired: validated live components and native-skipped weak targets.
+entry,object,vtable: last inspected entry and resolved component addresses.
+reason: 0 none,1 shape/budget,2 storage,3 registry,4 object address,
+5 component type,6 scale method. The last-read ring still identifies exceptions.
+Phase 2 lines may refer to CallbackAttachmentGuard.hpp; its matching source is
+included in SNAPSHOT_PREFLIGHT_SOURCE_MAP.txt. See CALLBACK_ATTACHMENT_PREFLIGHT.md
+for the Ghidra evidence replacing the unsupported empty-attachment assumption.

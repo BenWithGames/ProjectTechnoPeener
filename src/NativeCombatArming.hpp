@@ -3,6 +3,7 @@
 #include "CombatStartPacket.hpp"
 #include "RoundFightReadiness.hpp"
 #include "NativeStartupTiming.hpp"
+#include "OverlayPingTransport.hpp"
 namespace sc6::research {
 // Process-lifetime owner of startup routes. Must be heap allocated and called
 // at an independently verified quiescent boundary on the simulation thread.
@@ -90,7 +91,12 @@ private:
         const auto& next=config.identity;
         if(!valid_successor(config_,config,object))return stop(CombatRuntimeStatus::activation_failure);
         const auto fight=sc6::RoundFightReadiness::read(config.base,next.round,next.generation,next.frame);
-        if(!fight.permits(next.round,next.generation,next.frame,owner_))return true;
+        if(!fight.permits(next.round,next.generation,next.frame,owner_)){
+            const auto* preparation=combat_round_preparation.load(std::memory_order_acquire);
+            if(preparation && preparation->reserved() && preparation->matches(config.offer))
+                return stop(CombatRuntimeStatus::activation_failure);
+            return true;
+        }
         successor_=std::make_unique<NativeCombatArming>(this);
         if(!successor_->automatic_rearm(rearm_context_,rearm_provider_) ||
             !successor_->prepare(config,source,*shared_,steam_peer_,true))return stop(CombatRuntimeStatus::activation_failure);
@@ -109,8 +115,13 @@ public:
         if(attempted_ || rearm_provider_ || !context || !provider || GetCurrentThreadId()!=owner_)return false;
         rearm_context_=context;rearm_provider_=provider;return true;
     }
-    bool prepare(const NativeCombatSession::Config& config,ReplayDependencySource source,
-        observation::Shared& shared,uint64_t steam_peer,bool quiescent_verified){
+    bool prepare(const NativeCombatSession::Config& requested,ReplayDependencySource source,
+        observation::Shared& shared,uint64_t steam_peer,bool quiescent_verified,NativeRollingHistory<>* prepared_history=nullptr){
+        auto config=requested;
+        const auto* transition=combat_round_preparation.load(std::memory_order_acquire);
+        const bool prepared_delay=transition && (previous_ || transition->reserved()) && transition->fresh(CombatStartSync::now()) &&
+            transition->context(steam_peer,config.offer.sender,config.offer.recipient,config.offer.build) && transition->matches(config.offer);
+        if(!prepared_delay)config.offer.delay=sc6::InputDelayBuildPolicy::proposal(config.prediction_enabled,sc6::overlay_ping.delay_proposal(steam_peer));
         NativeStartupScope measured(previous_?NativeStartupTiming::prepare_rearm:NativeStartupTiming::prepare_first,config.identity.round);
         // Refuse before a native hold, resource access, or route publication.
         preparation_stage_=1;
@@ -140,7 +151,7 @@ public:
         if(!exchange_.attach(mailbox_) || !exchange_.begin(steam_peer,config.offer,previous_?&previous_->exchange_:nullptr))return stop();
         preparation_stage_=5;
         {NativeStartupScope allocation(previous_?NativeStartupTiming::session_rearm:NativeStartupTiming::session_first,config.identity.round);
-        session_=std::make_unique<NativeCombatSession>(config,source,previous_?previous_->session_.get():nullptr);}
+        session_=std::make_unique<NativeCombatSession>(config,source,previous_?previous_->session_.get():nullptr,prepared_history);}
         if(!session_->prepare(shared) || !hold_.bind(config.base,config.clock_object,owner_,config.clock_identity,config.clock_frame,
             GetTickCount64(),10000,config.image_verified,config.bilateral_private,config.boundaries_owned))return stop();
         // There is one owner-thread publisher. Consumers only load these;
@@ -151,16 +162,21 @@ public:
         published_=true;
         CombatRuntimeStatus* empty_status=previous_?&previous_->session_->status:nullptr;
         if(!combat_runtime_status.compare_exchange_strong(empty_status,&session_->status,std::memory_order_release))return stop();
+        if(!hold_.announce(exchange_,config.offer.ticket,config.clock_object,GetTickCount64()))return stop();
+        const bool reserved_ready=exchange_.prime_reservation(transition,CombatStartSync::now());
         CombatStartExchange* empty_exchange=previous_?&previous_->exchange_:nullptr;
         if(!combat_start_exchange.compare_exchange_strong(empty_exchange,&exchange_,std::memory_order_release))return stop();
-        if(!hold_.announce(exchange_,config.offer.ticket,config.clock_object,GetTickCount64()))return stop();
         phase_=Phase::holding;hold_begin_=NativeRollbackTiming::now();
         const native_clock_hook::StartupPoll* empty_poll=previous_?&previous_->poll_route_:nullptr;
         if(!native_clock_hook::startup_poll.compare_exchange_strong(empty_poll,&poll_route_,std::memory_order_release))return stop();
+        // The prepared mailbox can activate at this same safe owner boundary;
+        // otherwise a whole native tick would be lost waiting for worker polling.
+        if(reserved_ready)return poll();
         return true;
     }
     bool poll(){
         if(GetCurrentThreadId()!=owner_)return false;
+        if(exchange_.failed())return stop(CombatRuntimeStatus::activation_failure);
         if(session_ && session_->status.stop_requested.load(std::memory_order_acquire))return stop(CombatRuntimeStatus::requested);
         if(phase_==Phase::active){
             if(session_->complete()){session_->terminate(CombatRuntimeStatus::capture_limit);phase_=Phase::complete;return true;}

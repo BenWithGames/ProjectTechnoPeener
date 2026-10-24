@@ -2,6 +2,7 @@
 #include <Windows.h>
 #include <cstdint>
 #include <limits>
+#include <array>
 namespace sc6::research {
 // Caller must own the generated buffer. Use allocator byte length, never a
 // serializer relocation extent. Equality is diagnostic, not immutability proof.
@@ -16,5 +17,18 @@ struct GeneratedBufferFingerprint {
   }__except(EXCEPTION_EXECUTE_HANDLER){value.valid=false;}return value;
  }
  bool matches(const GeneratedBufferFingerprint& other)const{return valid && other.valid && buffer==other.buffer && size==other.size && hash==other.hash;}
+};
+// One read-only validation batch only; never retain across native mutations.
+template<unsigned Capacity> struct GeneratedBufferValidationBatch {
+ std::array<GeneratedBufferFingerprint,Capacity> observed{};unsigned count{},reads{},reuses{};
+ bool matches(const GeneratedBufferFingerprint& expected){
+  if(!expected.valid)return false;
+  for(unsigned i=0;i<count;++i)if(observed[i].buffer==expected.buffer && observed[i].size==expected.size){
+   ++reuses;return expected.matches(observed[i]);
+  }
+  const auto live=GeneratedBufferFingerprint::read(expected.buffer,expected.size);++reads;
+  if(count<Capacity)observed[count++]=live;
+  return expected.matches(live);
+ }
 };
 }

@@ -72,6 +72,43 @@ int main(){
         // Newer confirmations win even if older packets are later delivered.
         l.receive(4,0x800,0);l.receive(3,0,0);assert(l.seed_frame==4 && l.seed_held==0x800);
     }
+    // Completed-match retirement excludes readers and rejects stale sessions.
+    {
+        H clean;assert(clean.retire_completed(100,100,100));
+        assert(clean.retire_completed(100,100,100) && clean.retirements==1);
+        assert(!clean.bind(100,200,1));
+        for(uint64_t session=101;session<105;++session){
+            const unsigned side=unsigned(session%2)+1;
+            assert(clean.bind(session,session+100,side));
+            H::Boundary first{1,0,1,0,{}};
+            clean.boundary(session,7,first);
+            H::Request request{session,session+100,side,0,1,0,{}};
+            assert(clean.publish(request));
+            assert(!clean.retire_completed(session,0,session));
+            assert(!clean.retire_completed(session,session,0));
+            assert(!clean.retire_completed(session+1,session+1,session+1));
+            clean.late_enabled=true;
+            assert(!clean.retire_completed(session,session,session));
+            clean.late_enabled=false;
+            std::atomic<bool> entered{false},release{false};
+            std::thread reader([&]{H::ReadGuard guard(clean);assert(guard.entered);
+                entered=true;while(!release.load())std::this_thread::yield();});
+            while(!entered.load())std::this_thread::yield();
+            assert(!clean.retire_completed(session,session,session));
+            assert(clean.retirement_check==4 && !clean.publish(request));
+            assert(!clean.bind(session+1,session+101,side));
+            H::Confirmation confirmation;
+            assert(!clean.confirmed(session,session+100,7,first,confirmation));
+            release=true;reader.join();
+            assert(clean.retire_completed(session,session,session));
+            assert(!clean.started && !clean.failed && clean.owner==0 && clean.local_nonce==0);
+            assert(clean.write==0 && clean.read==0 && clean.submitted==0);
+            for(const auto& entry:clean.confirmations)assert(!entry.valid);
+            assert(!clean.publish(request));
+            clean.boundary(session,7,first);assert(!clean.started);
+        }
+        assert(clean.retirements==5 && clean.retirement_waits==4 && clean.discarded_requests==4);
+    }
     // Exercise release/acquire publication under real concurrent producer/consumer use.
     h=std::make_unique<H>();assert(h->bind(10,20,1));
     std::thread producer([&]{for(unsigned i=0;i<10000;++i){H::Request q{10,20,1,i,1,0,{}};

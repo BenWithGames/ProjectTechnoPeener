@@ -1,0 +1,25 @@
+Confirmation and admission race reduction
+
+Fast-channel receive is repeated once after a successful fresh send batch,
+before sleeping. Each receive pass remains capped at 32 packets. Sender remains
+a worker; authentication, duplicate/conflict handling and owner-thread application
+are unchanged. Counters distinguish post-send passes and accepted receipts.
+
+At native admission, an eligible prediction-budget rejection gets one immediate
+late drain and retry. Native service is not repeated. The reservation gate and
+fight/prediction checks are reevaluated. No grace sleep, forced catch-up loop,
+clock increment outside the native advance routine, or extra prediction horizon.
+The unchanged-state check in NativeClockAccess::finish remains authoritative.
+This reuses the existing audited service/wait/advance ordering (3F5D20 and
+3E2000); no new native offset or instruction replacement is introduced.
+
+This targets missed opportunities which can leave one peer behind, not a general
+peer phase-lock controller. It cannot fix genuinely late packets or remove all
+corrections. Adaptive delay and all restoration/round guards remain unchanged.
+Counters admission_receipt_rechecks/recovered plus existing phase and correction
+journals must be compared in paired live reports before claiming reduced jitter.
+
+Tests cover receipts during sends, admission-time arrivals, absent receipts,
+failed drain, lost gate/eligibility, disabled prediction, excluded rejection,
+and actual session budget/reservation integration. One native service and at most
+one advance are required. Large test dispatch fixtures are heap allocated.

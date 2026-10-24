@@ -1,0 +1,95 @@
+ANIMATION RESTORATION AUDIT - 2026-10-21
+
+Scope: pinned SC6 animation restoration path, native player serialization,
+blend reset/update, selected-table controller, three timer slots, secondary
+animation groups, and supplemental replay endpoint comparison. This is a
+static audit, not a claim that every move or resource lifetime is validated.
+No production source, diagnostics, exact comparisons, or safety guards were
+changed in this audit. No new gameplay test was started.
+
+Binary SHA256:
+F8904E4B04BCA3B47BC52A683F6190365D2EB89EE8F44F8072759E9C5E04A553
+Fresh Ghidra exports: work/ghidra-sc6-focus/animation-restoration-audit/
+Script: work/ghidra-sc6-focus/scripts/SC6AnimationRestorationAudit.java
+Paths above are relative to workspace root (two levels above this repository).
+Research function names are annotations, not recovered original symbols.
+Ghidra follows shared/tail code; PE unwind ranges alone are not complete
+logical function extents. Verify accesses against machine code.
+
+1. HIGH PRIORITY: selected-animation controller coverage is incomplete.
+Native dispatcher 2F77C0 initializes the controller at player+95ED0.
+37C230 writes controller+10 (progress mirror) and +2C (initialized flag).
+37C2F0 reads +14, +18/+1C and +20, writes +10, and can call 37C130,
+which writes +28. These values affect whether selection is restarted,
+clamped, advanced, or cleared. The player save/load functions 30A980 and
+30AE80 serialize the range beginning at 95FA0, not this earlier controller.
+FullStateProbe::capture_blend captures only 32 bytes at 95EC0: resource,
+player, controller player, controller table. It does not capture the mutable
+controller fields starting at 95EE0. No explicit supplemental capture or
+restoration for that mutable range was found in src.
+Consequence: restoring block5's selected table and scalar is not proof that
+the state controlling the next animation update was rewound. This is a
+coverage gap, not proof of the cause of a particular prior failure.
+Required next implementation: capture the controller state with its resource
+identity, validate dependencies at load entry, restore audited mutable fields,
+and compare the controller at the replay endpoint. Do not copy arbitrary
+pointers or assume native load handles it.
+
+2. Endpoint verification has the same coverage boundary.
+TwoFrameIdleReplay compares blend bytes and owners. selected_dependencies
+are used by the guarded selected-table restoration, but are not part of that
+blend endpoint equality. Exact verification remains exact for captured data;
+it cannot validate controller bytes absent from the snapshot. Extend the
+capture and endpoint contract together, not merely the restore writes.
+
+3. Legitimate block5 lifecycle transitions remain rejected.
+37C2F0 and 37C130 clear table/index/scalar when the selected animation ends.
+CombatBlend::inactive_table_pair only permits null/default changes while
+both snapshots are inactive. The selected-table restoration also requires
+the same selected table in both adjacent captures. Selected->null and
+selected->different-selected transitions are therefore unsupported today.
+Keep rejection until source-resource ownership and controller state are
+handled together. Removing the pointer comparison alone would be unsafe.
+
+4. Timer rate is written by activation, but current policy keeps it exact.
+349840 writes slot+44 (rate), +40 (cursor=3), +38 (category=0), +3C
+(selector), +48 (active=2), and deactivates the other nonzero slots.
+3499D0 consumes the first active slot, checks the player tag, uses selector
+and cursor to sample, advances by rate, then clears cursor/state on completion.
+38B740 initializes resource pointers, category offsets, callback and tag.
+Current supplemental restoration restores +3C/+40/+48, not +44 or +38.
+The known dispatcher 2F77C0 passes the same constant rate, so this audit does
+NOT establish a reachable rate-change failure. Other categories, changed
+rates, callbacks, and resource changes remain outside the supported policy.
+Do not broaden their acceptance without restoring and validating the state.
+
+5. Seven-block reset does not justify seven-block scalar relaxation.
+2F8FA0 clears scalar+14 and installs default tables on all seven B0 blocks.
+2F90D0 updates masks, weights and indices on other blocks; 37C2F0 supplies
+the audited changing scalar for block5. Existing evidence does not justify
+allowing arbitrary scalar transitions on every other block. Keep exact
+checks there. Base weights and all block weights remain restored and checked.
+
+6. Secondary group restoration is supported by the reviewed load order.
+30AE80 loads 95FA0..97190, invokes 349290, and restores saved control fields.
+349290 clears secondary masks/weights; 3495B0 rebuilds from those controls.
+ActiveAnimationGroup restores only the two audited groups after checking
+both players, controls, masks and weights before writes. Its exact comparison
+and pointer-free writes remain appropriate. Unsupported shapes stay rejected.
+
+7. Keep dependency and round boundaries explicit.
+The selected-table membership check proves an exact child start within the
+resource directory, not full semantic validity of every sample payload or
+unlimited resource lifetime. Existing ownership and round guards must remain.
+The ring pointer remains managed by RingSnapshot rather than blend memcpy.
+The general restore route performs all-hop preflight before native loads.
+No audit finding authorizes bypassing those checks or treating a guarded
+rejection as a successful rollback.
+
+Next work before another test:
+- Implement controller snapshot/restore/endpoint coverage as one change.
+- Cover unchanged selection, activation, completion and reselection with
+  regression cases for both sides; verify dependency rejection before writes.
+- Retain timer-rate/category restrictions until their callers are audited.
+- Run full native build and only then package/install a new test build.
+This audit itself does not produce a new DLL or establish a live-match pass.

@@ -14,12 +14,15 @@ namespace sc6::research {
 // Simulation-thread-only storage. Construction allocates; acquire/retire do not.
 // No automatic recycling: a retained rollback reference must first be retired.
 // This storage does not widen native capture/restore readiness guards.
-template<unsigned Capacity=4> class NativeSnapshotPool {
+template<unsigned Capacity=4,class Boundary=NativeBoundarySnapshot> class NativeSnapshotPool {
 public:
     struct Handle {unsigned index{};uint64_t serial{},session{},round{},frame{};};
 private:
+    using State=typename Boundary::StateType;
     struct Slot {
-        NativeBoundarySnapshot snapshot{NativeBoundarySnapshot::Mode::idle};
+        Boundary snapshot{NativeBoundarySnapshot::Mode::idle};
+        Slot()=default;
+        explicit Slot(std::unique_ptr<State> storage):snapshot(NativeBoundarySnapshot::Mode::idle,std::move(storage)){}
         Handle key{};bool occupied{},borrowed{},poisoned{};
         std::array<ResourceReferenceLease,8> dependencies;
         std::array<uintptr_t,8> dependency_controls{};
@@ -42,15 +45,55 @@ private:
         return true;
     }
 public:
-    NativeSnapshotPool(){(void)FullStateProbe::reset_defaults();for(auto& s:slots_)s=std::make_unique<Slot>();}
-    bool discard_drained_storage(){
-        if(GetCurrentThreadId()!=owner_)return false;
-        if(discarded_)return true;
-        for(const auto& s:slots_){
-            if(s->borrowed || (s->occupied && !s->poisoned) || (s->snapshot.effects && s->snapshot.effects->snapshot.generation))return false;
-            for(const auto& dependency:s->dependencies)if(dependency.active())return false;
+    bool storage_reused{};
+    std::array<uint64_t,2> reuse_diagnostic{}; // rejection, slot
+    // Only detached byte storage transfers. Native leases and effect bindings
+    // remain with their old owner and must already have been released.
+    bool reusable_storage(){
+        if(!serial_ && !discarded_)bind_current_thread();
+        reuse_diagnostic={1,UINT_MAX};
+        if(discarded_ || GetCurrentThreadId()!=owner_)return false;
+        for(unsigned i=0;i<Capacity;++i){const auto& s=*slots_[i];reuse_diagnostic[1]=i;
+            reuse_diagnostic[0]=2;if(s.borrowed || (s.occupied && !s.poisoned))return false;
+            reuse_diagnostic[0]=3;if(s.snapshot.effects && s.snapshot.effects->snapshot.generation)return false;
+            if(s.snapshot.spare_effects && (s.snapshot.spare_effects->snapshot.generation || s.snapshot.spare_effects->valid))return false;
+            reuse_diagnostic[0]=4;for(const auto& lease:s.dependencies)if(lease.active())return false;
+            reuse_diagnostic[0]=5;const auto* q=s.snapshot.data.get();
+            if(!q || s.snapshot.fault || s.snapshot.exception || q->fault || q->restore_invoked ||
+                q->saved.stream.failures || q->after_save.stream.failures)return false;
         }
-        discarded_=true;for(auto& s:slots_)s->snapshot.data.reset();return true;
+        reuse_diagnostic[0]=0;return true;
+    }
+    explicit NativeSnapshotPool(NativeSnapshotPool* previous=nullptr){
+        (void)State::reset_defaults();
+        if(previous && previous->reusable_storage()){
+            previous->discarded_=true;
+            for(unsigned i=0;i<Capacity;++i){
+                previous->slots_[i]->snapshot.data->reset_for_reuse();
+                slots_[i]=std::make_unique<Slot>(std::move(previous->slots_[i]->snapshot.data));
+                slots_[i]->snapshot.spare_effects=std::move(previous->slots_[i]->snapshot.spare_effects);
+            }
+            storage_reused=true;
+        }else {if(previous)reuse_diagnostic=previous->reuse_diagnostic;for(auto& s:slots_)s=std::make_unique<Slot>();}
+    }
+    std::array<uint64_t,5> discard_diagnostic{}; // reason, owner, caller, acquisitions, slot
+    bool discard_drained_storage(){
+        // Pristine setup storage has never acquired native ownership. Transfer
+        // it once, just as first capture does, before terminal game-thread cleanup.
+        if(!serial_ && !discarded_)bind_current_thread();
+        discard_diagnostic={1,owner_,GetCurrentThreadId(),serial_,UINT_MAX};
+        if(GetCurrentThreadId()!=owner_)return false;
+        if(discarded_){discard_diagnostic[0]=0;return true;}
+        unsigned index=0;
+        for(const auto& s:slots_){
+            discard_diagnostic[4]=index++;
+            if(s->borrowed){discard_diagnostic[0]=2;return false;}
+            if(s->occupied && !s->poisoned){discard_diagnostic[0]=3;return false;}
+            if(s->snapshot.effects && s->snapshot.effects->snapshot.generation){discard_diagnostic[0]=4;return false;}
+            if(s->snapshot.spare_effects && (s->snapshot.spare_effects->snapshot.generation || s->snapshot.spare_effects->valid)){discard_diagnostic[0]=4;return false;}
+            for(const auto& dependency:s->dependencies)if(dependency.active()){discard_diagnostic[0]=5;return false;}
+        }
+        discarded_=true;for(auto& s:slots_){s->snapshot.data.reset();s->snapshot.effects.reset();s->snapshot.spare_effects.reset();}discard_diagnostic[0]=0;return true;
     }
     ~NativeSnapshotPool(){
         // Native disposal must never migrate to an arbitrary destructor thread.
@@ -109,24 +152,32 @@ public:
         struct Release {Slot* slot;~Release(){slot->borrowed=false;}} release{s};
         return callback(s->snapshot);
     }
+    // Owner evidence retained across failure cleanup: reason, frame, slot,
+    // borrowed, poisoned, snapshot fault/exception, probe fault/loaded, stream failures.
+    std::array<uint64_t,10> retirement_diagnostic{};
     bool retire(const Handle& h){
-        auto* s=find(h);if(!s || s->borrowed)return false;
+        retirement_diagnostic={1,h.frame,h.index,0,0,0,0,0,0,0};
+        auto* s=find(h);if(!s)return false;
+        retirement_diagnostic[3]=s->borrowed;retirement_diagnostic[4]=s->poisoned;
+        retirement_diagnostic[0]=2;if(s->borrowed)return false;
         // Even poisoned snapshots relinquish their resource ownership. Their
         // capture storage remains quarantined under the existing policy.
-        if(!drain(*s))return false;
+        retirement_diagnostic[0]=3;if(!drain(*s))return false;
         auto& snapshot=s->snapshot;auto& q=*snapshot.data;
         // A failed or loaded snapshot is not a clean reusable capture slot.
-        if(snapshot.fault || snapshot.exception || q.fault || q.restore_invoked || q.saved.stream.failures || q.after_save.stream.failures){
-            s->poisoned=true;return false;
-        }
+        retirement_diagnostic[5]=snapshot.fault;retirement_diagnostic[6]=snapshot.exception;
+        retirement_diagnostic[7]=q.fault;retirement_diagnostic[8]=q.restore_invoked;
+        retirement_diagnostic[9]=(uint64_t(q.saved.stream.failures)<<32)|q.after_save.stream.failures;
+        const unsigned rejection=snapshot.fault?4:snapshot.exception?5:q.fault?6:q.restore_invoked?7:q.saved.stream.failures?8:q.after_save.stream.failures?9:0;
+        if(rejection){retirement_diagnostic[0]=rejection;s->poisoned=true;return false;}
         // Ownership has drained and all quarantine guards passed. Reset metadata
         // and defaults while retaining count-gated transform buffer storage.
         snapshot.data->reset_for_reuse();
         snapshot.direction_bits=0x400;snapshot.direction_slot=1;snapshot.capture_stage=0;snapshot.mode_values_valid=false;snapshot.mode_values={};
         snapshot.mode=NativeBoundarySnapshot::Mode::idle;snapshot.module=0;snapshot.thread=0;
         snapshot.attempted=snapshot.valid=snapshot.fault=false;snapshot.exception=0;
-        snapshot.effects.reset();
-        s->occupied=false;return true;
+        if(!snapshot.recycle_effect_binding()){s->poisoned=true;retirement_diagnostic[0]=10;return false;}
+        s->occupied=false;retirement_diagnostic[0]=0;return true;
     }
 };
 }

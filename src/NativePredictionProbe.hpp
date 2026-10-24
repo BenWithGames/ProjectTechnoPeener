@@ -162,7 +162,7 @@ struct NativePredictionProbe {
                 }
                 const auto& b=*frames[1]->data;const auto& p=*frames[2]->data;
                 state_changed=!TwoFrameIdleReplay::transforms_equal(b.transforms[0],p.transforms[0]) ||
-                    !TwoFrameIdleReplay::cameras_equal(b.cameras[0],p.cameras[0]) || b.blends[0].bytes!=p.blends[0].bytes ||
+                    !TwoFrameIdleReplay::cameras_equal(b.cameras[0],p.cameras[0]) || b.blends[0].bytes!=p.blends[0].bytes || b.blends[0].controller!=p.blends[0].controller ||
                     b.measurements[0].rng!=p.measurements[0].rng;
                 for(unsigned side=0;side<2;++side)state_changed=state_changed ||
                     std::memcmp(b.measurements[0].fields[side].data()+8,p.measurements[0].fields[side].data()+8,216)!=0;

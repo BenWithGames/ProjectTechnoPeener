@@ -80,6 +80,29 @@ int main(){
     }
     *reinterpret_cast<uint16_t*>(memoryBase+0x4846408)=0;
     check(Fight::read(memoryBase,2,9,100).permits(2,9,100,GetCurrentThreadId()),"live Normal combat resumes after markers clear");
+    // GameSet evidence must be sampled, not default zero after an early return.
+    *reinterpret_cast<uintptr_t*>(routeState)=memoryBase+0x3E87530;
+    *reinterpret_cast<uintptr_t*>(memoryBase+0x3E87530+0x10)=memoryBase+0x387530;
+    *reinterpret_cast<uint16_t*>(memoryBase+0x4846408)=11;
+    *reinterpret_cast<uint32_t*>(memoryBase+0x48463F8)=7;
+    *reinterpret_cast<uintptr_t*>(memoryBase+0x4843ED8)=routeState;
+    const auto gameSet=Fight::read(memoryBase,2,9,100);
+    check(gameSet.status==1 && gameSet.handler==0x387530 && gameSet.round_result==11 &&
+        gameSet.native_playback==7 && gameSet.pending_state==routeState &&
+        !gameSet.permits(2,9,100,GetCurrentThreadId()),"GameSet reports actual result/playback/pending state without granting combat");
+    using Results=Fight::PlayerResults;
+    for(unsigned a=0;a<=14;++a)for(unsigned b=0;b<=14;++b){
+        const bool expected=a==1 || b==1 || a==3 || b==3 || a==11 || b==11 || (a==4 && b==4);
+        check(Results{uint16_t(a),uint16_t(b),true}.may_adjudicate()==expected,"all result combinations match native adjudication candidates");
+        check(!Results{uint16_t(a),uint16_t(b),false}.may_adjudicate(),"unreadable player state never authorizes a result");
+    }
+    *reinterpret_cast<uintptr_t*>(memoryBase+0x470DE90)=routeState+0x1000;
+    *reinterpret_cast<uintptr_t*>(memoryBase+0x470DE98)=routeState+0x2000;
+    *reinterpret_cast<uint16_t*>(routeState+0x1000+0x3D0)=1;
+    *reinterpret_cast<uint16_t*>(routeState+0x2000+0x3D0)=0;
+    check(Results::read(memoryBase).may_adjudicate(),"reads native player result fields before GameSet");
+    *reinterpret_cast<uintptr_t*>(memoryBase+0x470DE98)=0;
+    check(!Results::read(memoryBase).valid && !Results::read(0).valid,"missing player rejected");
     *reinterpret_cast<uintptr_t*>(memoryBase+0x4843ED0)=1;
     check(Fight::read(memoryBase,2,9,100).status==0,"unreadable fight state blocks without exception escape");
 

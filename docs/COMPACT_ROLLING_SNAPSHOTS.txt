@@ -1,0 +1,24 @@
+COMPACT ROLLING SNAPSHOTS - 2026-10-21
+
+Automatic live prediction now uses CompactNativeBoundarySnapshot in its four-slot rolling history. Each slot contains one native save stream, two before/after measurements and timer samples, ring evidence, and one transform, animation/controller, camera, camera-slot and selector checkpoint. Retained effect bindings and dependency leases remain owned by the existing boundary/pool lifetime machinery.
+
+Restoration still uses the complete FullStateProbe workspace. Preparation copies required source and endpoint evidence into it and uses the same native loader, ownership checks, exact comparisons, diagnostic collection and round guards. The older full boundary remains available for fixture and research runners. No native value or audited active field was excluded from verification.
+
+Ghidra: fresh targeted decompilation of FullSave RVA 0x3841E0 and PlayerSubLoad 0x30EDC0, together with the previous PlayerSave/PlayerLoad audit, supports retaining the native serialized state and separating additional capture evidence from multi-step replay scratch. Native saving visits both players and shared state; loading reconstructs dependencies. Native serialization/loading order has not changed. Evidence: work/ghidra-sc6-focus/compact-boundary-audit.
+
+Measured storage (bytes, MSVC x64):
+Full probe per boundary: 37,469,224; compact boundary: 4,634,240.
+Four rolling slots save 131,339,936 bytes, excluding unchanged effect bindings.
+Reset bytes per retired slot: 3,344,232 -> 808,864.
+Local mock reset benchmark: approximately 45.297 us -> 10.076 us.
+These are component/footprint measurements, not measured live FPS or a promise of total correction speedup.
+
+Regression coverage:
+- Shared full/compact native capture, bounded preparation, stale-input/invalid blend rejection, and native restoration verification.
+- Existing full replay, controller, camera, effects, native stream and round-safety tests.
+- Exact compact reset defaults while preserving unpublished backing storage.
+- Exact serialized readback without consuming archived source data.
+- 100 compact pool acquisition/retirement cycles with real reference counts.
+- Stale handle, borrowed slot, wrong thread, failed capture/load quarantine and detached round-storage reuse.
+
+Low latency, adaptive 0-2 frame delay, 3-frame prediction limit, all ownership cleanup, raw failure evidence, match report ZIPs and safety checks remain enabled. Live validation of this build is pending.

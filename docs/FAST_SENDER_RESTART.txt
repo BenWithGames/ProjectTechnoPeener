@@ -1,0 +1,14 @@
+Fast sender match lifecycle and receipt order
+Clean stop joins the worker and closes handles before allowing restart.
+Setup failure remains latched until explicit stop; no per-poll retry storm.
+Each start has fresh cursor/nonces/peer arguments and per-run counters.
+Lifetime start/stop counters show whether automatic rematches restarted it.
+Worker receives bounded authenticated fast-channel packets before sending.
+No network calls or cross-thread prediction mutations were added to game thread.
+NativeClockDispatch already drains after validated native service and before
+prediction/scheduler admission. Partial input-consumer and owner guards retained.
+The receive-to-admission wait includes normal frame-boundary scheduling; this
+change does not promise to eliminate that wait or propagation latency.
+One-frame delay, three-frame prediction limit and all restoration checks retained.
+Regression: same worker restart three times, idempotent stop/start, per-match
+counter reset, receive-before-send, failed-send cursor retry, authentication.

@@ -39,6 +39,12 @@ public:
         }
         return true;
     }
+    // Reading seals the native filter pair and prepares the coordinator token.
+    // The final receipt drain must follow that callback, before any capture.
+    template<class Boundary,class Coordinator> bool read_for_execution(uintptr_t argument,uintptr_t caller,
+        Boundary& out,Coordinator& coordinator,uint64_t owner){
+        return read(argument,caller,out) && coordinator.before_execute(owner);
+    }
     template<class Boundary> static bool callback(void* context,uintptr_t argument,uintptr_t caller,Boundary& out){
         return static_cast<NativeBattleBoundaryReader*>(context)->read(argument,caller,out);
     }

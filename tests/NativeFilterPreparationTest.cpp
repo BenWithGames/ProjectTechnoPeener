@@ -90,6 +90,27 @@ int main(){
         uint32_t replay{};assert(v.raw(1,3,4,500,slot-1,replay) && replay==8);
         assert(!v.raw(1,4,4,500,slot-1,replay));
     }
+    for(unsigned delay=0;delay<=2;++delay)for(unsigned slot=1;slot<=2;++slot){
+        auto delayed=std::make_unique<RawPredictionRoute<>>();
+        assert(delayed->bind(1,2,3,4,500,slot,thread,{0,0},nullptr,delay));
+        NativeFilterFramePreparation<Access> fp(*delayed);
+        assert(fp.bind({0x1000,0x2000,0,thread,7,100,500},slot,true,true));
+        RawInputHistoryView v;assert(v.bind(delayed->delivery(),1,3,4,500,thread));
+        for(unsigned n=0;n<4;++n){
+            Access::frame=100+n;Access::local=99;
+            assert(delayed->publish_local(thread,n,n==0?8:0));
+            if(n>=delay)assert(delayed->submit({2,1,3,4,500+n,3-slot,0})==RawPredictionRoute<>::Submit::accepted);
+            const unsigned expected=n==delay?8:0;
+            assert(fp.filter(0x1000,slot-1,0,false,false,false,raw)==R::prepared && raw==expected);
+            assert(fp.filter(0x1000,2-slot,0,false,false,false,raw)==R::prepared && raw==0);
+            std::array<uint32_t,10> e{};e[(slot-1)*2]=expected;e[(slot-1)*2+1]=expected;
+            assert(fp.complete(500+n,e));
+            uint32_t replay{};assert(v.raw(1,3,4,500+n,slot-1,replay) && replay==expected);
+            assert(delayed->reconcile(thread,[](const auto&){return true;}));
+            assert(delayed->publish_confirmed(thread,[](auto,auto,auto,auto,const auto&){return true;}));
+        }
+        assert(delayed->request_handoff(thread) && delayed->retire(thread));
+    }
     RawPredictionRoute<> absent;assert(absent.bind(1,2,3,4,500,1,thread,{0,0}));
     NativeFilterFramePreparation<Access> ap(absent);assert(ap.bind({0x1000,0x2000,0,thread,7,100,500},1,true,true));
     assert(ap.filter(0x1000,0,0,false,false,false,raw)==R::failed && absent.delivery().head()==0);

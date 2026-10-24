@@ -1,0 +1,23 @@
+Automatic match-end storage cleanup
+
+Friend report match-24200-8508687 completed 904 corrections across five rounds,
+with clean settlement/history retirement and match_end_clean=1. Automatic cleanup
+then failed. Startup snapshots were retired with captured=0 and failed=0.
+
+The unused startup pool retained its setup-thread owner. Its empty history could
+release on the game thread, but discarding allocated storage subsequently required
+the original setup thread. The existing first-capture ownership transfer was never
+invoked because this automatic runner does not capture into that startup pool.
+
+Terminal discard now applies that one-time ownership transfer only to a pristine,
+never-acquired, not-yet-discarded pool. Used pools retain their owner-thread check.
+Borrowed slots, live snapshots, retained effects and resource leases still reject
+discard. The terminal pool cannot be acquired again.
+
+New startup_cleanup diagnostics report stage (1 retirement flags, 2 pool discard,
+0 success), pool reason (1 wrong thread, 2 borrowed, 3 live slot, 4 effect reference,
+5 resource lease, 0 success), owner/caller threads, acquisitions and slot.
+
+Regression coverage includes cross-thread empty history release/discard, pristine
+pool transfer and idempotence, used-pool foreign-thread rejection and owner cleanup.
+Two-frame delay, three-frame prediction, exact verification and round guards remain.

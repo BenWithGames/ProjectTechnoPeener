@@ -17,10 +17,23 @@ public:
     EffectBirthJournal births;
     // Rolling-history edits share the allocation hook's direct-memory gate.
     // Never wait for worker allocations on the simulation thread.
-    template<class Edit> bool edit_births(Edit edit){
+    std::atomic<unsigned> branch_gate_outcome{},branch_gate_attempts{},branch_gate_accepted{};
+    std::atomic<uint64_t> branch_gate_recovered{},branch_gate_exhausted{};
+    bool branch_births(unsigned at){
+        branch_gate_outcome=branch_gate_attempts=branch_gate_accepted=0;
         if(!owner() || !active_)return false;
-        bool accepted=false;
-        return gate_.try_access(notices_.stopped,[&]{accepted=edit(births);}) && accepted;
+        unsigned attempts{};EffectMemoryGate::AccessOutcome outcome{};
+        LARGE_INTEGER start{},frequency{};
+        const bool accepted=births.resume_bounded(gate_,notices_.stopped,at,[&]{
+            LARGE_INTEGER now{};if(!QueryPerformanceCounter(&now))return false;
+            if(!start.QuadPart){start=now;if(!QueryPerformanceFrequency(&frequency) || frequency.QuadPart<=0)return false;}
+            if(now.QuadPart-start.QuadPart>=frequency.QuadPart/1000)return false;
+            SwitchToThread();return true;
+        },64,attempts,outcome);
+        branch_gate_outcome=static_cast<unsigned>(outcome);branch_gate_attempts=attempts;branch_gate_accepted=accepted;
+        if(accepted && attempts>1)++branch_gate_recovered;
+        if(outcome==EffectMemoryGate::AccessOutcome::contended)++branch_gate_exhausted;
+        return accepted;
     }
     EffectBirthJournal::Compaction compact_births(unsigned first){
         if(!owner() || !active_)return EffectBirthJournal::Compaction::rejected;
@@ -30,6 +43,14 @@ public:
     std::atomic<uint64_t> native_deferred{},snapshot_protected{},allocator_releases{},revivals{};
     template<class Stream> void retention_report(Stream& out)const{
         births.report(out);
+        out<<"suite_effect_allocation_schema=1\nsuite_effect_allocation_reason="<<allocation_reason.load()
+           <<"\nsuite_effect_allocation_address="<<allocation_address.load()<<"\nsuite_effect_allocation_bytes="<<allocation_bytes.load()
+           <<"\nsuite_effect_allocation_caller="<<allocation_caller.load()<<"\nsuite_effect_allocation_thread="<<allocation_thread.load()
+           <<"\nsuite_effect_allocation_attempts="<<allocation_attempts.load()<<"\nsuite_effect_allocation_gate="<<allocation_gate.load()
+           <<"\nsuite_effect_allocation_recovered="<<allocation_recovered.load()<<"\nsuite_effect_unexpected_release="<<unexpected_release.load()<<'\n';
+        out<<"suite_birth_branch_gate_outcome="<<branch_gate_outcome.load()<<"\nsuite_birth_branch_gate_attempts="<<branch_gate_attempts.load()
+           <<"\nsuite_birth_branch_gate_accepted="<<branch_gate_accepted.load()<<"\nsuite_birth_branch_gate_recovered="<<branch_gate_recovered.load()
+           <<"\nsuite_birth_branch_gate_exhausted="<<branch_gate_exhausted.load()<<'\n';
         out<<"suite_wind_restore_schema=1\nsuite_wind_restore_check="<<restore_check.load()
            <<"\nsuite_wind_restore_object="<<restore_object.load()<<"\nsuite_wind_restore_gate="<<restore_gate_outcome.load()
            <<"\nsuite_wind_restore_attempts="<<restore_attempts.load()<<"\nsuite_wind_restore_image_check="<<restore_image_check.load()
@@ -59,6 +80,9 @@ public:
     std::atomic<uint64_t> capture_gate_frame{},capture_gate_attempts{},capture_gate_contentions{},capture_gate_stops{};
     std::atomic<unsigned> capture_check{},capture_object{},image_check{},image_exception{},capture_stopped{},capture_window_failed{};
     std::atomic<uintptr_t> capture_address{},capture_vtable{};
+    std::atomic<unsigned> allocation_reason{},allocation_thread{},allocation_attempts{},allocation_gate{};
+    std::atomic<uint64_t> allocation_recovered{};
+    std::atomic<uintptr_t> allocation_address{},allocation_bytes{},allocation_caller{},unexpected_release{};
     using Registry=EffectObjectRegistry<Capacity,Slots>;
     using Window=typename Registry::Window;
     using Token=typename Window::Token;
@@ -110,6 +134,7 @@ private:
             self.registry_.released(address);self.forget_address(address);return;
         }
         self.notices_.before_native(address);
+        if(self.notices_.stopped.load()){uintptr_t empty=0;self.unexpected_release.compare_exchange_strong(empty,address);}
     }
     static void allocation_return(void* context,uintptr_t address,uintptr_t bytes,uintptr_t caller) {
         auto& self=*static_cast<EffectRetentionRuntime*>(context);
@@ -148,16 +173,35 @@ public:
         });return ok;
     }
     bool allocation(uintptr_t address,std::size_t bytes,uintptr_t caller_rva){
-        if(!owner() || !active_ || restart_required_)return false;
-        bool accepted=false;
-        gate_.try_access(notices_.stopped,[&]{
+        LARGE_INTEGER start{},frequency{};
+        return allocation_with_retry(address,bytes,caller_rva,[&]{
+            LARGE_INTEGER now{};if(!QueryPerformanceCounter(&now))return false;
+            if(!start.QuadPart){start=now;if(!QueryPerformanceFrequency(&frequency) || frequency.QuadPart<=0)return false;}
+            if(now.QuadPart-start.QuadPart>=frequency.QuadPart/1000)return false;
+            SwitchToThread();return true;
+        });
+    }
+    template<class Retry> bool allocation_with_retry(uintptr_t address,std::size_t bytes,uintptr_t caller_rva,Retry&& retry){
+        // Allocation has already returned but construction has not started.
+        // Retry only brief bookkeeping contention; never an entered rejection,
+        // unexpected release, or stale identity. No native call occurs under gate.
+        if(notices_.stopped.load())return false;
+        allocation_reason=0;allocation_address=address;allocation_bytes=bytes;
+        allocation_caller=caller_rva;allocation_thread=GetCurrentThreadId();
+        allocation_attempts=0;allocation_gate=0;
+        if(!owner() || !active_ || restart_required_){allocation_reason=1;return false;}
+        bool accepted=false;unsigned attempts{};EffectMemoryGate::AccessOutcome outcome{};
+        gate_.try_access_bounded(notices_.stopped,[&]{
             uintptr_t* empty=nullptr;for(auto& slot:notices_.addresses)if(!slot){empty=&slot;break;}
-            if(empty && registry_.allocation(address,bytes,caller_rva,module_)){
-                *empty=address;accepted=births.allocation(address,bytes,caller_rva);
-                if(!accepted)notices_.stopped=true;
-            }
-            else notices_.stopped=true;
-        });return accepted;
+            if(!empty){allocation_reason=2;notices_.stopped=true;return;}
+            if(!registry_.allocation(address,bytes,caller_rva,module_)){allocation_reason=3;notices_.stopped=true;return;}
+            *empty=address;accepted=births.allocation(address,bytes,caller_rva);
+            if(!accepted){allocation_reason=4;notices_.stopped=true;}
+        },retry,64,attempts,outcome);
+        allocation_attempts=attempts;allocation_gate=static_cast<unsigned>(outcome);
+        if(accepted && attempts>1)++allocation_recovered;
+        if(!accepted && !allocation_reason.load())allocation_reason=outcome==EffectMemoryGate::AccessOutcome::contended?5:6;
+        return accepted;
     }
     Token constructed(uintptr_t address,uintptr_t vtable,bool verified_list_member){
         Token token{};if(!owner() || !active_)return token;

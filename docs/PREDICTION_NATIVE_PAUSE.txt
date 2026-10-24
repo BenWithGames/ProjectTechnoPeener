@@ -1,0 +1,45 @@
+Prediction native-pause reconciliation
+
+Evidence: friend reports 167a6e2cf86b1606cbf17160342e14f0 and
+44f5002bc2a2d69ba2f6f4eab689b197. Within-round advance gaps >=25 ms:
+45 (38 with pending-reservation clock calls), and 20 (18 with such calls).
+Largest gaps were 92.7 ms. Five clock services with four pending rejections
+occurred in several gaps. No prediction-budget rejection accompanied those
+examples. Correction duration is not the whole interval between updates.
+Reproducible correlation: build-native/combat-gap-analysis.json.
+
+Fresh Ghidra audit: work/ghidra-sc6-focus/pending-combat-audit
+3E9EE0 consumes reason 4425, changes wait history 3A8, calls 433290 for
+network pause bit 1, and calls the native wait owner's +88 notification.
+433290 changes only the requested pause bit, then tail-calls 438980 to apply
+combined pause flags. It preserves other pause reasons. 3FDB80 services
+inputs and notifies the same owner with +90(5). 3FE520 consumes clock delta
+later; clock advance alone is not proof that battle consumed the update.
+
+Previously prediction could authorize the clock but leave the native wait
+side effect active. Further clock services correctly refused to create a
+second reservation while battle had not consumed the first. This explains
+an avoidable path to pending-update stalls. Logs did not record the native
+pause flag itself, so the next live run must confirm how many gaps disappear.
+
+Fix: after existing admission succeeds, run the native zero-reason clear path
+for wait reasons 0 or 2 only. The first wait call has already consumed reason
+4425; require it still be zero. Preserve the native 3A8 wait-history value
+across reconciliation, and verify identity/frame/phase and the clear result.
+Do not advance twice or alter rings, confirmation cursors, or prediction depth.
+For a validated pending reservation, retain the same permission until battle
+consumes it. Never carry permission to a fresh reservation; never release a
+transition/pacing reason 1, 3 or unknown. Faults remain terminal.
+
+New report counters: prediction_native_pause_releases,
+prediction_native_pause_pending_releases, prediction_native_pause_failures.
+Existing clock unavailable/prediction rejection and whole-outer timing remain.
+Tests cover pause side effects even when native wait returns false, five
+services before one battle consumption, wait-history preservation, native
+transition reasons, and withheld admission. Existing identity, phase, duplicate
+advance, exception, confirmation and round-safety regression coverage remains.
+
+This retains fixed 1-frame delay, 3-frame prediction, compact snapshots,
+ownership reuse, exact endpoint verification and deferred diagnostics.
+No guarantee that every source of stutter is removed; compare same-round gaps
+and pending counters in the next paired reports.

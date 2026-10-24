@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <ostream>
 namespace sc6 { void recorder_init(); void recorder_poll(); void recorder_stop(); }
 
 namespace sc6 { inline bool (*prepare_owned_replay)(){}; }
@@ -11,9 +12,17 @@ struct ContinuousStartRequest {
     unsigned local_slot{},clock_identity{},clock_frame{},battle_frame{};
     bool private_match_confirmed{};
     bool prediction_enabled{true};
+    bool first_fight{};
+    unsigned round{},event{};
+    std::uint64_t generation{};
 };
+inline bool (*prepare_continuous_hooks)(){};
+inline bool (*retry_continuous_start)(){};
+inline unsigned (*continuous_start_rejection)(){};
+inline unsigned (*continuous_start_observed_frame)(){};
 inline bool (*queue_continuous_start)(const ContinuousStartRequest&){};
 // 0 = no request, 1 = waiting, 2 = preparing, 3 = prepared, 4 = rejected.
 inline unsigned (*continuous_start_state)(){};
 inline unsigned (*continuous_start_stage)(){};
+inline void (*continuous_start_report)(std::ostream&){};
 }

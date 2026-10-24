@@ -7,6 +7,9 @@
 #include <cassert>
 #include <cstdio>
 using namespace sc6::research;
+__declspec(noinline) unsigned old_scan(const std::byte* a,const std::byte* b,unsigned n){
+ for(unsigned i=0;i<n;++i)if(a[i]!=b[i])return i;return UINT32_MAX;
+}
 int main(){
  auto s=std::make_unique<FullRestoreStream>(),d=std::make_unique<FullRestoreStream>();
  s->writes=2;s->lengths[0]=3;s->lengths[1]=5;s->stream.write_position=8;s->sealed=true;s->stream.transfers=2;
@@ -30,5 +33,36 @@ int main(){
  x->saved.lengths[0]=y->restored.lengths[0]=48;x->saved.stream.write_position=y->restored.stream.write_position=48;x->before_players[0]=0x100000;
  x->saved.traces[0].writer=y->restored.traces[0].writer=0x30AA54;x->saved.traces[0].source=y->restored.traces[0].source=0x143DF0;
  assert(!NativeAdjacentRestore::native_equal(*x,*y,0,&diag));assert(diag.structural & 4);
+
+ auto completion=std::make_unique<ImmediateIdleCorrection>();
+ std::array<std::byte,512> left{},right{};
+ for(unsigned n=0;n<=512;++n){
+  assert(!completion->difference(left.data(),right.data(),n));
+  assert(completion->difference_offset==UINT32_MAX && !completion->saved_word && !completion->live_word);
+  for(unsigned byte=0;byte<n;++byte){
+   right[byte]=std::byte{0xA5};assert(completion->difference(left.data(),right.data(),n));
+   assert(completion->difference_offset==byte && completion->saved_word==0 && completion->live_word==0xA5);
+   right[byte]=std::byte{};
+  }
+ }
+ LARGE_INTEGER frequency{},start{},end{};QueryPerformanceFrequency(&frequency);
+ volatile unsigned consumed=0;constexpr unsigned scans=100000;
+ QueryPerformanceCounter(&start);
+ for(unsigned i=0;i<scans;++i)consumed=old_scan(left.data(),right.data(),512);
+ QueryPerformanceCounter(&end);const double old_us=(end.QuadPart-start.QuadPart)*1e6/frequency.QuadPart/scans;
+ QueryPerformanceCounter(&start);
+ for(unsigned i=0;i<scans;++i){completion->difference(left.data(),right.data(),512);consumed=completion->difference_offset;}
+ QueryPerformanceCounter(&end);const double new_us=(end.QuadPart-start.QuadPart)*1e6/frequency.QuadPart/scans;
+ x->transforms[0].count=2000;x->transforms[0].valid=true;
+ for(unsigned i=0;i<2000;++i)x->transforms[0].records[i].size=512;
+ constexpr unsigned copies=1000;
+ QueryPerformanceCounter(&start);
+ for(unsigned i=0;i<copies;++i){assert(y->copy_restore_endpoint_from(*x));consumed=y->transforms[0].count;}
+ QueryPerformanceCounter(&end);const double copy_us=(end.QuadPart-start.QuadPart)*1e6/frequency.QuadPart/copies;
+ QueryPerformanceCounter(&start);
+ for(unsigned i=0;i<copies;++i){assert(y->copy_restore_endpoint_from(*x,false));consumed=y->transforms[0].count;}
+ QueryPerformanceCounter(&end);const double controls_us=(end.QuadPart-start.QuadPart)*1e6/frequency.QuadPart/copies;
+ std::printf("Mock microseconds: equal512 scan %.4f -> %.4f; endpoint with2000 records %.3f -> controls %.3f (sink %u)\n",old_us,new_us,copy_us,controls_us,unsigned(consumed));
+ std::puts("PASS: first-difference evidence exact for every offset at lengths 0..512; endpoint controls omit duplicate transform storage");
  std::puts("PASS: bounded copies preserve controls/errors, clear obsolete metadata, isolate source, reject invalid sizes; exact scans retain mismatch counts and self-pointer rejection");
 }

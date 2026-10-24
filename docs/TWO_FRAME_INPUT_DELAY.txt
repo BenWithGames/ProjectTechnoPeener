@@ -1,0 +1,11 @@
+Two-frame input-delay comparison build
+
+Prediction-enabled automatic play now samples fresh local raw inputs at simulation frame N and immediately publishes them for consumption at N+2. The existing event-driven sender is unchanged; there is no added send wait or sleep. Both peers use two known-neutral prefix frames at each activation/round. The native filter and replay adapter read the same delayed immutable history. Input edge formation and confirmation frame IDs remain aligned.
+
+Prediction stays limited to three unresolved simulation frames. At 60 updates/second, two input frames add approximately 33.3 ms of local response delay. Fewer late corrections and less visible jitter are hypotheses to compare in live play, not guaranteed outcomes.
+
+New protocol signatures reject older zero-delay prediction peers. Prediction-disabled baseline remains unchanged. Round settlement still requires all consumed input to be confirmed and corrections applied. Only the bounded, never-consumed delayed tail may be retired; late packets for consumed frames must still match archived truth. New rounds begin with a fresh neutral prefix.
+
+Latency diagnostics correlate consumption N with publication N-2, excluding the synthetic prefix. Reports include input_delay_frames, input_delay_neutral_prefix_frames and prediction_limit_frames; send-age and correction timings remain enabled. All exact restoration verification, ownership cleanup, diagnostics and round safety checks remain enabled.
+
+Validation includes two-peer scheduling, delayed confirmations/correction, held and released inputs, both player slots through native filter preparation and replay history, unchanged three-frame limit, prefix conflicts, future-tail bounds and old-round packet isolation. Native hook addresses and native buffering logic are unchanged; this change is entirely in the owned raw-input route. Live two-PC comparison remains required.

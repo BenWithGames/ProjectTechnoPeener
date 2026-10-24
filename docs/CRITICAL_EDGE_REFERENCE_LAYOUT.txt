@@ -1,0 +1,13 @@
+Critical Edge camera reference-layout fix
+
+Evidence: local match-47940-15948140 failed across frames 9313/9314. Recovered read-only snapshots contain 2338 and 2333 records. The slot-4 camera type changes 0 -> 8, replacing five 4-byte transfers (340EFB..340F59) with 24+4 bytes (31C1BB/31C1D1). Existing camera slot mapping already supported this three-record reduction.
+
+The actual unmapped change is after the camera slots: saved records 1125/1126 (32AC76,16 bytes;32ACAC,8 bytes) disappear. The secondary camera arena object's vtable changes 3E88858 -> 3E88B28. Reference pointer at +3B8 and serialized relocation/extra values are zero in this capture. No external object needs revival.
+
+Fresh targeted Ghidra audit: 324900 saves the 2F0-byte table and 41E0-byte arena before iterating 17 virtual callbacks. 3249E0 restores those blocks before invoking each restored object's load callback. Vtable 3E88858 uses 32AC00/32ACE0 (16+8-byte reference records). The five other explicitly allowed vtables use 2D2BB0, which returns the stream without transfers.
+
+Fix: after ordinary slot mapping fails, validate this exact table/arena schema, stable sources, all 17 object addresses and audited vtables; map optional reference records by object index. Omitted/added references must be null with a valid null encoding. Unknown types, non-null unretained references and unrelated records stay rejected. The native reader still consumes all saved bytes and exact verification remains enabled. No changes to low-latency delivery, prediction depth, snapshot optimizations or round safety.
+
+Diagnostics retain the original positional shape mismatch and add shape_map_reason, shape_map_saved_record and shape_map_next_record. Reasons: 1 incompatible slot ownership; 2 parsing; 3 reference schema; 4 fixed-block source; 5 external reference presence change; 6 unrelated suffix mismatch.
+
+Validation: original 100 camera type pairs; synthetic reference presence changes both ways; unknown vtable, non-null reference and unrelated writer rejection; recovered Critical Edge streams mapped successfully in both directions. Native in-game replay of this Critical Edge still needs live confirmation.

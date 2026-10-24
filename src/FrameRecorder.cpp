@@ -12,6 +12,8 @@
 #include <sstream>
 #include <memory>
 #include "FrameRecorder.hpp"
+#include "RoundTransitionReservation.hpp"
+#include "LoadingReadinessObserver.hpp"
 #include "SaveProbe.hpp"
 #include "SharedRestoreProbe.hpp"
 #include "FullStateProbe.hpp"
@@ -105,6 +107,13 @@ extern "C" void SC6NativeOuterEnter(uintptr_t outer)noexcept{
     const auto error=GetLastError();
     sc6::research::native_outer_timing.enter(outer,sc6::research::NativeOuterTiming::now(),sc6::research::NativeOuterTiming::observe(outer));
     if(!sc6::research::native_outer_completion.enter(GetCurrentThreadId(),outer))contain_outer_failure();
+    if(const auto* routes=sc6::research::combat_routes.load(std::memory_order_acquire);
+        routes && !routes->retired() && routes->recover && sc6::research::native_outer_completion.sole_entry(GetCurrentThreadId(),outer)){
+        bool ok=false;
+        try{ok=routes->recover(routes->recovery_context,outer);}catch(...){ok=false;}
+        if(!ok)contain_outer_failure();
+    }
+    sc6::research::native_outer_timing.checkpoint(sc6::research::NativeOuterTiming::entry_recovery,sc6::research::NativeOuterTiming::now());
     SetLastError(error);
 }
 extern "C" void SC6NativeOuterReturned(uintptr_t outer)noexcept{
@@ -130,6 +139,7 @@ extern "C" { void* SC6BattleAfterOriginal=nullptr; void SC6BattleAfterBridge(); 
 extern "C" void SC6TraceBattleAfter(uintptr_t outer,uintptr_t input_header) noexcept {
     auto& trace=sc6::research::field_update_trace;
     const DWORD error=GetLastError();
+    sc6::research::native_outer_timing.checkpoint(sc6::research::NativeOuterTiming::to_battle_return,sc6::research::NativeOuterTiming::now());
     if(trace.enabled.load(std::memory_order_acquire) && GetCurrentThreadId()==trace.owner && trace.count){
         const auto last=trace.events[trace.count-1];
         if(last.assignment==2){trace.inspect_callbacks(outer);uintptr_t args[]={last.player,2,0,0};trace.record(args,trace.base+0x3FE816,3);}
@@ -142,6 +152,7 @@ extern "C" void SC6TraceBattleAfter(uintptr_t outer,uintptr_t input_header) noex
         // the remaining native loops against a possibly partial restoration.
         gate->enter(GetCurrentThreadId(),outer,input_header,[]{Sleep(1000);});
     }
+    sc6::research::native_outer_timing.checkpoint(sc6::research::NativeOuterTiming::post_battle_callback,sc6::research::NativeOuterTiming::now());
     SetLastError(error);
 }
 extern "C" { void* SC6CleanupAfterOriginal=nullptr; void SC6CleanupAfterBridge(); }
@@ -443,6 +454,7 @@ void write_capture(Recorder& r) {
                     <<"\nhop"<<i<<"_rings_equal="<<q.replay_ring_equal
                     <<"\nhop"<<i<<"_native_equal="<<sc6::research::TwoFrameIdleReplay::native_equal(q,r.base)
                     <<"\nhop"<<i<<"_native_raw_byte_differences="<<q.replay_byte_differences
+                    <<"\nhop"<<i<<"_animation_controller_equal="<<(q.blends[1].controller==q.blends[4].controller)
                     <<"\nhop"<<i<<"_blend_equal="<<(q.blends[1].valid && q.blends[4].valid && q.blends[1].bytes==q.blends[4].bytes && !std::memcmp(q.blends[1].owners,q.blends[4].owners,sizeof(q.blends[1].owners)))
                     <<"\nhop"<<i<<"_transforms_equal="<<sc6::research::TwoFrameIdleReplay::transforms_equal(q.transforms[1],q.transforms[4])
                     <<"\nhop"<<i<<"_cameras_equal="<<sc6::research::TwoFrameIdleReplay::cameras_equal(q.cameras[1],q.cameras[3])<<'\n';
@@ -521,7 +533,7 @@ void write_capture(Recorder& r) {
             std::uint64_t offset=0;
             for(unsigned j=0;j<frame.saved.writes;++j){trace<<i<<','<<j<<','<<offset<<','<<frame.saved.lengths[j]<<','
                 <<frame.saved.traces[j].source<<','<<frame.saved.traces[j].writer-r.base<<'\n';offset+=frame.saved.lengths[j];}
-            auto& blend=a.visuals->blends[i];auto& transform=a.visuals->transforms[i];auto& camera=a.visuals->cameras[i];
+            auto& blend=a.visuals->blends[i];auto& transform=a.visuals->transform_checkpoint(i);auto& camera=a.visuals->cameras[i];
             report<<prefix<<"_blend_valid="<<blend.valid<<'\n'<<prefix<<"_transforms_valid="<<transform.valid<<'\n'
                   <<prefix<<"_transform_failure="<<transform.failure<<'\n'<<prefix<<"_camera_valid="<<camera.valid<<'\n'
                   <<prefix<<"_camera_failure="<<camera.failure<<'\n';
@@ -654,8 +666,14 @@ void write_capture(Recorder& r) {
                     bytes.write(reinterpret_cast<const char*>(blend.bytes[side].data()),static_cast<std::streamsize>(blend.bytes[side].size()));
                 }
                 bytes.flush();report<<"blend_"<<name<<"_written="<<bool(bytes)<<'\n';
+                if(blend.controller.valid){
+                    std::ofstream controller(r.directory/(r.stem+"-animation-controller-"+name+".bin"),std::ios::binary);
+                    for(const auto& side:blend.controller.bytes)controller.write(reinterpret_cast<const char*>(side.data()),side.size());
+                    controller.flush();report<<"animation_controller_"<<name<<"_written="<<bool(controller)<<'\n';
                 }
-                auto& t=s.transforms[i];report<<"transforms_"<<name<<"_valid="<<t.valid<<'\n';
+
+                }
+                auto& t=s.transform_checkpoint(i);report<<"transforms_"<<name<<"_valid="<<t.valid<<'\n';
                 report<<"transforms_"<<name<<"_failure="<<t.failure<<"\ntransforms_"<<name<<"_failure_address="<<t.failure_address<<"\ntransforms_"<<name<<"_exception="<<t.trapped_exception<<"\ntransforms_"<<name<<"_records="<<t.count<<'\n';
                 if(t.count){
                     std::ofstream transform_meta(r.directory/(r.stem+"-transforms-"+name+".csv"));
@@ -896,6 +914,16 @@ extern "C" void SC6RecordEntry(uintptr_t argument,uintptr_t* replacement=nullptr
     struct LastErrorGuard { DWORD value=GetLastError(); ~LastErrorGuard(){SetLastError(value);} } guard;
     auto& r=state();
     if(r.verified && return_address==r.base+0x3FE816 && !sc6::research::combat_resource_preparation.load() && !r.active.load())sc6::research::match_dataset::frame(r.base,argument);
+    if(r.verified && return_address==r.base+0x3FE816){
+        const auto* transition_guard=sc6::research::round_transition_boundary_guard.load(std::memory_order_acquire);
+        if(transition_guard && !transition_guard->before_step(transition_guard->context)){
+            // Do not skip a battle call and then execute its native delegates.
+            // Retain the entire caller chain; the report worker remains alive.
+            if(continuation)*continuation=0;
+            contain_outer_failure();
+            for(;;)Sleep(1000);
+        }
+    }
     // Persistent boundary service runs before the recording gate and outside r.lock.
     if(r.verified){uint32_t frame{};if(copy(&frame,r.base+0x470D0C4,4))sc6::research::lease_service::dispatch(frame);sc6::research::generated_observer::observe_frame();}
     if(auto* preparation=sc6::research::combat_resource_preparation.load(std::memory_order_acquire)){
@@ -1147,6 +1175,7 @@ void recorder_init() {
     std::filesystem::create_directories(r.directory);
     r.verified=hash_matches();status(r.verified?"ready; hook inactive until offline arm":"unsupported executable; recorder disabled");
     if(r.verified){
+        if(sc6::automatic_play::enabled)sc6::research::loading_readiness_observer::install(r.base);
         // Pinned pass-through entry hook supplies boundaries even without recording.
         const unsigned char expected[]={0x4c,0x8b,0xdc,0x49,0x89,0x5b,0x10,0x49,0x89,0x6b,0x18};
         auto target=reinterpret_cast<void*>(r.base+0x2DBC60);
@@ -1208,27 +1237,17 @@ static std::unique_ptr<sc6::research::NativeArmingDispatch> continuous_request;
 static std::uint64_t continuous_request_nonce{};
 unsigned continuous_start_state_impl(){return continuous_request?1u+static_cast<unsigned>(continuous_request->state()):0u;}
 unsigned continuous_start_stage_impl(){return continuous_request?continuous_request->stage():0;}
-bool queue_continuous_start_impl(const ContinuousStartRequest& request){
- if(sc6::research::match_dataset::recording.load())return false;
+bool continuous_hooks_ready_impl(){
+ using namespace sc6::research;
+ auto& r=state();return r.battle_after_hooked && native_post_battle_hook_base.load()==r.base &&
+ native_outer_hook_base.load()==r.base && native_raw_input_hook_base.load()==r.base &&
+ native_filter_hook_base.load()==r.base && native_confirmed_recorder_hook_base.load()==r.base;
+}
+bool prepare_continuous_hooks_impl(){
+ using namespace sc6::research;
  auto& r=state();AcquireSRWLockExclusive(&r.lock);bool result=false;
  try {result=[&]{
-     using namespace sc6::research;
-     if(automatic_play::enabled && continuous_request && automatic_play::released.load()==continuous_request_nonce){
-         // Published callback storage remains valid for process lifetime.
-         (void)continuous_request.release();continuous_request_nonce=0;
-     }
-     if(continuous_request || !request.private_match_confirmed || !request.build || !request.ticket ||
-        !r.verified || !r.hooked || !SC6Original || !r.observation || r.observation->nonce!=request.local_nonce ||
-        r.observation->reserved!=sc6::observation::owned_mode || r.observation->count || r.observation->status!=1)return false;
-     const auto now=GetTickCount64();CombatPeerContext::Snapshot peer;NativeClockDiscovery::Observation clock;
-     if(!combat_peer_context.read(now,peer) || peer.peer!=request.steam_peer || peer.local_nonce!=request.local_nonce ||
-        peer.remote_nonce!=request.remote_nonce || peer.local_slot!=request.local_slot ||
-        !native_clock_hook::discovery.read(now,clock) || clock.base!=r.base || clock.clock.local_mask!=request.local_slot ||
-        clock.clock.identity!=request.clock_identity || clock.clock.frame>=request.clock_frame || now>UINT64_MAX-10000)return false;
-     auto* resources=combat_resource_preparation.load(std::memory_order_acquire);
-     const auto round=round_event::snapshot();
-     if(!resources || !resources->ready.load() || resources->failed.load() || resources->retired.load() ||
-        resources->owner_thread.load()!=clock.thread || !round.round || !round.generation)return false;
+     if(!r.verified || !r.hooked || !SC6Original)return false;
      if(!r.battle_after_hooked){
          const unsigned char expected[]={0x48,0x8D,0x8B,0x30,0x0A,0x00,0x00};
          unsigned char actual[sizeof(expected)]{};auto* target=reinterpret_cast<void*>(r.base+0x3FE816);
@@ -1274,6 +1293,41 @@ bool queue_continuous_start_impl(const ContinuousStartRequest& request){
          native_confirmed_recorder_hook_base.store(r.base,std::memory_order_release);
      }
      if(native_confirmed_recorder_hook_base.load()!=r.base)return false;
+     return continuous_hooks_ready_impl();
+ }();}catch(...){result=false;}
+ ReleaseSRWLockExclusive(&r.lock);return result;
+}
+bool retry_continuous_start_impl(){
+ if(!continuous_request)return true;
+ if(!continuous_request->withdraw_unstarted())return false;
+ // A hook may already have loaded the callback. Keep its cancelled shell alive.
+ (void)continuous_request.release();continuous_request_nonce=0;return true;
+}
+unsigned continuous_start_rejection_impl(){return continuous_request?continuous_request->rejection():0;}
+unsigned continuous_start_observed_frame_impl(){return continuous_request?continuous_request->observed_frame():0;}
+bool queue_continuous_start_impl(const ContinuousStartRequest& request){
+ if(sc6::research::match_dataset::recording.load())return false;
+ auto& r=state();AcquireSRWLockExclusive(&r.lock);bool result=false;
+ try {result=[&]{
+     using namespace sc6::research;
+     if(automatic_play::enabled && continuous_request && automatic_play::released.load()==continuous_request_nonce){
+         // Published callback storage remains valid for process lifetime.
+         (void)continuous_request.release();continuous_request_nonce=0;
+     }
+     if(continuous_request || !request.private_match_confirmed || !request.build || !request.ticket ||
+        !r.verified || !r.hooked || !SC6Original || !r.observation || r.observation->nonce!=request.local_nonce ||
+        r.observation->reserved!=sc6::observation::owned_mode || r.observation->count || r.observation->status!=1)return false;
+     const auto now=GetTickCount64();CombatPeerContext::Snapshot peer;NativeClockDiscovery::Observation clock;
+     if(!combat_peer_context.read(now,peer) || peer.peer!=request.steam_peer || peer.local_nonce!=request.local_nonce ||
+        peer.remote_nonce!=request.remote_nonce || peer.local_slot!=request.local_slot ||
+        !native_clock_hook::discovery.read(now,clock) || clock.base!=r.base || clock.clock.local_mask!=request.local_slot ||
+        clock.clock.identity!=request.clock_identity || (!request.first_fight && clock.clock.frame>=request.clock_frame) || now>UINT64_MAX-60000)return false;
+     auto* resources=combat_resource_preparation.load(std::memory_order_acquire);
+     const auto round=round_event::snapshot();
+     if(!resources || !resources->ready.load() || resources->failed.load() || resources->retired.load() ||
+        resources->owner_thread.load()!=clock.thread || !round.round || !round.generation ||
+        round.round!=request.round || round.counter!=request.event || round.generation!=request.generation)return false;
+     if(!continuous_hooks_ready_impl())return false;
      NativeCombatSession::Config config;config.general_restore=true;config.prediction_enabled=request.prediction_enabled;
      config.base=r.base;config.caller=r.base+0x3FE816;config.clock_object=clock.object;
      config.original=reinterpret_cast<SingleUpdateCall::Routine>(SC6Original);
@@ -1285,7 +1339,8 @@ bool queue_continuous_start_impl(const ContinuousStartRequest& request){
          request.battle_frame,request.local_slot,0,3,observation::capacity};
      config.image_verified=config.bilateral_private=config.boundaries_owned=config.verified_void_entry=true;
      // No arbitrary character/profile approval is inferred from the handshake.
-     auto queued=std::make_unique<NativeArmingDispatch>(config,ReplayDependencySource{},*r.observation,request.steam_peer,now+10000);
+     auto queued=std::make_unique<NativeArmingDispatch>(config,ReplayDependencySource{},*r.observation,request.steam_peer,now+(request.first_fight?60000u:10000u));
+     if(request.first_fight && !queued->first_fight())return false;
      if(!queued->source_on_owner(resources,[](void* p){return static_cast<CombatResourcePreparation<>*>(p)->source_on_owner();}) ||
         !queued->production_rearm(*resources) || !queued->queue())return false;
      continuous_request_nonce=request.local_nonce;continuous_request=std::move(queued);return true;
@@ -1306,9 +1361,14 @@ void recorder_poll() {
     prepare_owned_replay=prepare_owned_replay_impl;
     prepare_combat_recording=prepare_combat_recording_impl;
     abort_combat_recording=abort_combat_recording_impl;
+    prepare_continuous_hooks=prepare_continuous_hooks_impl;
+    retry_continuous_start=retry_continuous_start_impl;
+    continuous_start_rejection=continuous_start_rejection_impl;
+    continuous_start_observed_frame=continuous_start_observed_frame_impl;
     queue_continuous_start=queue_continuous_start_impl;
     continuous_start_state=continuous_start_state_impl;
     continuous_start_stage=continuous_start_stage_impl;
+    continuous_start_report=[](std::ostream& out){if(continuous_request)continuous_request->report(out);};
     auto& r=state();auto now=GetTickCount64();if(now-r.lastPoll<250)return;r.lastPoll=now;
     if(r.verified)sc6::research::match_dataset::poll(r.directory,!r.active.load() && !r.restore_failed && !sc6::research::combat_resource_preparation.load() && !sc6::research::combat_routes.load() && !sc6::research::exclusive_battle_route.load());
     if(r.verified)sc6::research::effect_observer::poll(r.base,r.directory);

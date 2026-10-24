@@ -17,6 +17,7 @@ struct CombatRuntimeStatus {
     void* context{};
     void (*drain)(void*,std::ostream&,std::ostream&){};
     std::atomic<bool> stop_requested{},active{},restart_required{},history_retired{};
+    std::atomic<unsigned> input_delay_frames{UINT32_MAX};
     std::atomic<unsigned> reason{},adapter_failure{},adapter_exception{};
     std::atomic<uint64_t> updates{},activated_at{};
     bool first_update_expired(uint64_t now)const{
@@ -43,6 +44,8 @@ struct CombatRuntimeStatus {
     std::array<std::array<std::array<std::atomic<uint64_t>,7>,16>,2> camera_slot_meta{};
     std::array<std::array<std::atomic<uint32_t>,CameraSlotEvidence::words>,2> camera_slot_payload{};
     std::array<std::atomic<unsigned>,2> camera_slot_retained{};
+    std::array<std::array<std::atomic<uint64_t>,5>,2> camera_reference_header{};
+    std::array<std::array<std::array<std::atomic<uint64_t>,6>,17>,2> camera_references{};
     std::atomic<bool> restore_timer_evidence_valid{};
     std::array<std::atomic<uint32_t>,NativeRestoreDiagnostic::timer_word_count> restore_timer_words{};
     void request_stop(){stop_requested.store(true,std::memory_order_release);}
@@ -112,7 +115,13 @@ struct CombatRuntimeStatus {
         summary<<"continuous_camera_slots_schema=1\ncontinuous_camera_slots_selected="<<camera_slot_selected.load()<<'\n';
         constexpr const char* slot_header_names[]={"enabled","valid","failure","count","manager","table"};
         constexpr const char* slot_names[]={"type","first_record","end_record","offset","bytes","pool","active"};
+        summary<<"continuous_camera_references_schema=1\n";
+        constexpr const char* reference_header_names[]={"parsed","owner","arena","p1","p2"};
+        constexpr const char* reference_names[]={"record","target","index","offset","resource","owned"};
         for(unsigned sample=0;sample<2;++sample){
+            for(unsigned field=0;field<5;++field)summary<<"continuous_camera_references_"<<sample<<'_'<<reference_header_names[field]<<'='<<camera_reference_header[sample][field].load()<<'\n';
+            for(unsigned slot=0;slot<17;++slot)if(camera_reference_header[sample][0].load() && camera_references[sample][slot][0].load()!=UINT32_MAX)
+                for(unsigned field=0;field<6;++field)summary<<"continuous_camera_references_"<<sample<<'_'<<slot<<'_'<<reference_names[field]<<'='<<camera_references[sample][slot][field].load()<<'\n';
             for(unsigned field=0;field<6;++field)summary<<"continuous_camera_slots_"<<sample<<'_'<<slot_header_names[field]<<'='<<camera_slot_header[sample][field].load()<<'\n';
             for(unsigned slot=0;slot<16 && slot<camera_slot_header[sample][3].load();++slot)for(unsigned field=0;field<7;++field)
                 summary<<"continuous_camera_slots_"<<sample<<'_'<<slot<<'_'<<slot_names[field]<<'='<<camera_slot_meta[sample][slot][field].load()<<'\n';

@@ -6,9 +6,11 @@
 #include "SteamObserver.hpp"
 #include "SteamHandshake.hpp"
 #include "AutomaticSteam.hpp"
+#include "ConnectionSound.hpp"
 
 class SC6RollbackMod final : public RC::CppUserModBase {
     sc6::StatusOverlay overlay;
+    sc6::ConnectionSound connection_sound;
 public:
     SC6RollbackMod() {
         ModName = STR("SC6Rollback");
@@ -25,6 +27,7 @@ public:
             sc6::automatic_play::enabled=std::filesystem::exists(mod/L"automatic-play.enabled");
             if(sc6::automatic_play::enabled)std::filesystem::create_directories(mod/L"logs");
             sc6::recorder_init(); overlay.start();
+            connection_sound.start((mod/L"connection.mp3").wstring());
         } catch (...) { RC::Output::send<RC::LogLevel::Error>(STR("[SC6Rollback] recorder initialization failed\n")); }
     }
 
@@ -34,6 +37,7 @@ public:
         try { sc6::steam_handshake::poll(); } catch (...) { sc6::steam_handshake::stopped=true; }
         try { sc6::automatic_steam::poll(); } catch (...) { sc6::automatic_steam::disabled=true;sc6::automatic_steam::last_received=0;sc6::automatic_steam::status="error_default_networking"; }
         const bool ping_peer=sc6::automatic_steam::compatible(GetTickCount64());
+        connection_sound.update(ping_peer?sc6::automatic_steam::peer:0);
         sc6::automatic_play::requested_peer=ping_peer?sc6::automatic_steam::peer:0;
         sc6::overlay_ping.configure(ping_peer?sc6::steam_observer::observed:nullptr,
             ping_peer?sc6::automatic_steam::peer:0,sc6::automatic_steam::protocol.local_nonce,sc6::automatic_steam::protocol.remote_nonce);

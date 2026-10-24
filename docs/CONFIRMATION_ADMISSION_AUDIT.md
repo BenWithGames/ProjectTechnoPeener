@@ -1,0 +1,15 @@
+# Confirmation admission audit — 2026-10-23
+
+Read-only native investigation. No runtime behavior or installed build changed.
+
+Fresh Ghidra headless export: workspace `work/ghidra-sc6-focus/confirmation-admission-20261023`, script SC6OuterInputLifetime.java, log `build-native/confirmation-admission-ghidra.log`. All six focused functions decompiled; project changes discarded.
+
+Outer update RVA 3FE520 forms player inputs sequentially through 3FCD10, then calls the battle virtual callback at +0x68. 3FCD10 preserves the prior raw word, obtains the next raw word, computes pressed edges `(previous ^ current) & current`, and applies suppression/button masks. Updating raw history between consumers is therefore not a safe generic admission opportunity. Rebuilding input fields after formation would need a separate proof covering those native side effects and previous-input storage.
+
+Current code already drains at clock service (including native wait), again before reservation, on prediction-limit recheck/recovery, in RawPredictionRoute::append before the first filter, after both filters through before_step, immediately before scheduler execution through before_execute, and after the completed update through after_step. RawPredictionRoute deliberately defers while a frame is incomplete. The transport thread only queues immutable confirmations; it must not mutate the scheduler or native state.
+
+Match 2274f26f3032eb009d551fd36f787234, friend's final-round report: receive-to-drain mean 13.2536 ms, drain-to-scheduler mean 0.000865 ms, publication-to-send-begin mean 0.020588 ms. Completed-update drain consumed 163 receipts; final pre-execution drain consumed zero. These are final-round aggregates, not whole-match averages. Receipt frontier was -2 for 986 unique inputs; the local report was predominantly -1. This frontier compares input-publication indices, not simulation lead or one-way network delay.
+
+The dedicated receiver already polls on a high-resolution one-millisecond timer, wakes on local publication, and receives before and after sends. The 13 ms measurement starts after transport receipt and cannot be attributed directly to that timer. No evidence supports promising that another arbitrary drain removes 13 ms or reduces corrections. An earlier drain that merely stores truth before the same next simulation boundary can improve the metric without changing visible correction depth.
+
+Next useful evidence: correlate unique receipt QPC, first eligible owner boundary, input-formation start/completion, scheduler admission and correction frame/depth. Distinguish arrivals during incomplete input formation, correction execution, and the interval outside owner callbacks. This determines whether moving an existing safe boundary can change the actual input used, versus only advancing bookkeeping. Preserve single-owner admission, exact replay, round identity and completed-revision acknowledgment; do not add waits, worker-thread simulation, or change delay/prediction limits on the basis of this audit.

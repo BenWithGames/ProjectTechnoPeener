@@ -1,4 +1,5 @@
 #pragma once
+#include "InputDelayBuildPolicy.hpp"
 #include "NativeSchedulerStorage.hpp"
 #include "NativeStartupTiming.hpp"
 #include "BoundedRollbackSession.hpp"
@@ -16,6 +17,7 @@
 #include "PostBattleContinuation.hpp"
 #include "PostBattleHookGate.hpp"
 #include "NativeOuterCompletion.hpp"
+#include "NativeMissedUpdateBoundary.hpp"
 #include "NativeFilterAccess.hpp"
 #include "RawPredictionCoordinator.hpp"
 #include "RawPredictionTransport.hpp"
@@ -44,10 +46,11 @@ public:
             c.caller>=c.base && c.caller-c.base<0x4900000 && c.clock_object && c.clock_frame!=UINT32_MAX &&
             k.same_round(k) && c.image_verified && c.bilateral_private && c.boundaries_owned && c.verified_void_entry &&
             validator.begin(o) && o.sender==k.session && o.recipient==k.peer && o.round==k.round &&
-            o.event==k.event && o.first_frame==k.frame && o.slot==k.slot && o.delay==0 &&
+            o.event==k.event && o.first_frame==k.frame && o.slot==k.slot && o.delay<=2 &&
             o.rollback==3 && o.records==observation::capacity;
     }
 private:
+    unsigned agreed_peer_delay_{};
     using History=NativeRollingHistory<4>;
     using Storage=NativeSchedulerStorage<>;
     using Session=BoundedRollbackSession<CombatFrameInput,Storage::Snapshot>;
@@ -67,6 +70,7 @@ private:
     RawPredictionRoute<> raw_;
     RawInputHistoryView raw_view_;
     RawPredictionCoordinator<Session> raw_coordinator_;
+    std::atomic<uint64_t> late_receipt_checks_{},late_receipt_drains_{};
     NativeFilterFramePreparation<NativeFilterAccess> filters_;
     NativeConfirmedInputRecorder<> recorder_;
     bool filters_bound_{},input_routes_retired_{};
@@ -79,6 +83,10 @@ private:
     std::array<std::atomic<uint64_t>,44> backend_diagnostics_{};
     std::atomic<bool> backend_diagnostic_ready_{};
     std::array<std::atomic<uint64_t>,10> capture_diagnostics_{};
+    std::array<std::atomic<uint64_t>,SnapshotPreflightDiagnostic::word_count> preflight_diagnostics_{};
+    std::array<std::atomic<uint64_t>,4> restore_attempt_diagnostics_{};
+    std::array<std::atomic<uint64_t>,8> rewind_diagnostics_{};
+    std::array<std::atomic<uint64_t>,10> retirement_diagnostics_{};
     unsigned backend_site_{};
     void backend_diagnostics(){
         if(backend_diagnostic_ready_.load())return;
@@ -100,6 +108,11 @@ private:
         for(unsigned i=0;i<backend_diagnostics_.size();++i)backend_diagnostics_[i]=values[i];
         if constexpr(requires {history_.capture_diagnostic;})
             for(unsigned i=0;i<capture_diagnostics_.size();++i)capture_diagnostics_[i]=history_.capture_diagnostic[i];
+        if constexpr(requires {history_.capture_preflight;})
+            for(unsigned i=0;i<preflight_diagnostics_.size();++i)preflight_diagnostics_[i]=history_.capture_preflight.words[i];
+        for(unsigned i=0;i<restore_attempt_diagnostics_.size();++i)restore_attempt_diagnostics_[i]=storage_.restore_attempt_diagnostic[i];
+        for(unsigned i=0;i<rewind_diagnostics_.size();++i)rewind_diagnostics_[i]=history_.rewind_diagnostic[i];
+        for(unsigned i=0;i<retirement_diagnostics_.size();++i)retirement_diagnostics_[i]=history_.retirement_diagnostic()[i];
         backend_diagnostic_ready_.store(true,std::memory_order_release);
     }
     NativeBattleBoundaryReader<> reader_;
@@ -168,9 +181,9 @@ private:
         // Freeze the first publication across stalls; filter/replay reuse it.
         if(config_.prediction_enabled && sample.frame>=config_.clock_frame){
             const auto index=sample.frame-config_.clock_frame;
-            if(index==raw_.delivery().head() && raw_.outgoing_count()==index){
-                uint32_t fresh{};
-                if(!clock_.dispatch().access().fresh_local(sample.frame,fresh) || !raw_.publish_local(k.thread,index,fresh))return reject(9);
+            if(index==raw_.delivery().head() && raw_.needs_local(index)){
+                uint32_t fresh{};uint64_t sampled{},sample_end{};
+                if(!clock_.dispatch().access().fresh_local(sample.frame,fresh,&sampled,&sample_end) || !raw_.publish_local(k.thread,index,fresh,sampled,sample_end))return reject(9);
             }
         }
         // 3FDFA0 reason 2 is missing confirmed horizon; reason 3 is pacing.
@@ -185,6 +198,29 @@ private:
         __try {return outer && *reinterpret_cast<uintptr_t*>(outer+0x478)==clock;}
         __except(EXCEPTION_EXECUTE_HANDLER){return false;}
     }
+    std::array<std::atomic<uint64_t>,7> recovery_outer_rejections_{};
+    bool recover_missed_update(uintptr_t outer){
+        if(GetCurrentThreadId()!=config_.identity.thread || !config_.prediction_enabled || !clock_.dispatch().recovery_pending() ||
+            !published_ || pending_token_ || !ready())return true;
+        if(status.stop_requested.load(std::memory_order_acquire))return true;
+        const auto reason=NativeMissedUpdateBoundary::inspect(outer,config_.clock_object);
+        if(reason!=NativeMissedUpdateBoundary::ready){++recovery_outer_rejections_[reason];return true;}
+        return clock_.dispatch().recover(config_.clock_object);
+    }
+    std::atomic<uint64_t> exit_candidates_{},exit_resumed_{},exit_committed_{};
+    std::array<std::atomic<uint64_t>,10> exit_evidence_{};
+    std::array<std::atomic<uint64_t>,8> exit_transition_{};
+    std::atomic<uint64_t> pre_result_settlements_{};
+    void record_exit(const RoundFightReadiness& fight,unsigned offset){
+        exit_evidence_[offset]=fight.status;exit_evidence_[offset+1]=fight.vtable;
+        exit_evidence_[offset+2]=fight.handler;exit_evidence_[offset+3]=fight.native_playback;
+        exit_evidence_[offset+4]=fight.round_result;
+        const auto players=RoundFightReadiness::PlayerResults::read(config_.base);
+        const auto extra=offset?4u:0u;
+        exit_transition_[extra]=fight.pending_state;
+        exit_transition_[extra+1]=players.valid;exit_transition_[extra+2]=players.first;
+        exit_transition_[extra+3]=players.second;
+    }
     PostBattleHookGate::Result post_battle(uintptr_t outer,uintptr_t input_header){
         using R=PostBattleHookGate::Result;
         if(!outer_clock(outer,config_.clock_object))return R::permit;
@@ -192,11 +228,32 @@ private:
         if(!published_ || !ready() || pending_token_)return R::failed;
         const auto& k=config_.identity;
         const auto fight=RoundFightReadiness::read(config_.base,k.round,k.generation,adapter_.expected_frame());
-        if(fight.permits(k.round,k.generation,adapter_.expected_frame(),k.thread))return R::permit;
+        if(fight.permits(k.round,k.generation,adapter_.expected_frame(),k.thread)){
+            const auto players=RoundFightReadiness::PlayerResults::read(config_.base);
+            if(!players.valid)return R::failed;
+            // 2D9CD0 invokes Normal's 386530 transition before the next player
+            // update. Settle its speculative result inputs before that commit.
+            // Already-confirmed results need no wait; native code still decides.
+            if(!players.may_adjudicate() || session_.settled())return R::permit;
+            ++pre_result_settlements_;
+        }
         if(!fight.status)return R::failed;
         CombatFrameInput endpoint;std::array<std::byte,40> bytes{};
         if(!FullStateProbe::input_bytes(input_header,bytes) || !RecordedInput::valid_envelope(bytes))return R::failed;
         std::memcpy(endpoint.envelope.data(),bytes.data(),bytes.size());
+        ++exit_candidates_;record_exit(fight,0);
+        // A predicted result is not a committed round boundary. Settlement can
+        // restore/replay the final inputs and remove that result. Re-read before
+        // retiring routes or claiming the outer continuation for retirement.
+        if(wait_before_post_battle(endpoint)!=PostBattleSettlement::Result::ready)return R::failed;
+        const auto settled_fight=RoundFightReadiness::read(config_.base,k.round,k.generation,adapter_.expected_frame());
+        record_exit(settled_fight,5);
+        if(settled_fight.permits(k.round,k.generation,adapter_.expected_frame(),k.thread)){
+            if(!clock_.reservation().quiescent() || raw_.retired() || input_routes_retired_ ||
+               !post_battle_.resume(session_,k.session,k.round,k.thread,adapter_.expected_frame()))return R::failed;
+            ++exit_resumed_;return R::permit;
+        }
+        if(!settled_fight.status)return R::failed;
         pending_outer_=outer;
         pending_token_=native_outer_completion.claim(k.thread,outer,this,[](void* p,const NativeOuterCompletion::Receipt& receipt){
             auto& self=*static_cast<NativeCombatSession*>(p);
@@ -206,15 +263,19 @@ private:
             }catch(...){self.terminate(CombatRuntimeStatus::exception);throw;}
         });
         status.native_outer_token=pending_token_;
-        if(!pending_token_ || wait_before_post_battle(endpoint)!=PostBattleSettlement::Result::ready || !retire_confirmations()){
+        if(!pending_token_ || !raw_.request_handoff(k.thread) || !retire_confirmations()){
             terminate(CombatRuntimeStatus::round_boundary);return R::failed;
         }
-        return R::permit;
+        ++exit_committed_;return R::permit;
     }
 public:
     CombatRuntimeStatus status;
-    NativeCombatSession(const Config& config,ReplayDependencySource source,NativeCombatSession* previous=nullptr)
-        :config_(config),source_(source),storage_(history_,source_,config.base,config.identity,config.approved_profile,
+    static bool prepare_workspace(uintptr_t base){return Storage::prepare_workspace(base);}
+    NativeCombatSession(const Config& config,ReplayDependencySource source,NativeCombatSession* previous=nullptr,History* prepared_history=nullptr)
+        :config_(config),source_(source),history_(previous && previous->retired() && previous->status.history_retired.load() &&
+            previous->status.native_outer_committed.load() && !previous->status.restart_required.load() &&
+            previous->config_.identity.session==config.identity.session && previous->config_.identity.thread==config.identity.thread
+            ?&previous->history_:(!previous?prepared_history:nullptr)),storage_(history_,source_,config.base,config.identity,config.approved_profile,
              previous?previous->storage_.take_retired_workspace(previous->retired() && previous->status.history_retired.load() &&
                  previous->status.native_outer_committed.load() && !previous->status.restart_required.load() &&
                  previous->config_.identity.session==config.identity.session && previous->config_.identity.thread==config.identity.thread):nullptr),
@@ -229,8 +290,8 @@ public:
              const bool ok=self.filters_.complete(frame,native) && self.raw_coordinator_.before_step(self.config_.identity.thread);
              if(ok && frame>=self.config_.identity.frame){
                  const auto index=frame-self.config_.identity.frame;
-                 if(const auto* input=self.raw_.delivery().frame(index))
-                     self.clock_.dispatch().access().input_consumed(self.config_.clock_frame+index,input->raw[self.config_.identity.slot-1],self.config_.prediction_enabled);
+                 if(const auto* input=self.raw_.delivery().frame(index);input && index>=self.raw_.input_delay())
+                     self.clock_.dispatch().access().input_consumed(self.config_.clock_frame+index-self.raw_.input_delay(),input->raw[self.config_.identity.slot-1],self.config_.prediction_enabled);
              }
              return ok;
          }},recorder_route_{config.clock_object,this,[](void* p,uintptr_t){
@@ -257,6 +318,9 @@ public:
         NativeStartupScope startup_measure(NativeStartupTiming::session_bind,config_.identity.round);
         if(!config_.general_restore || !NativeBoundarySnapshot::general_restore_implemented)return false;
         if(attempted_)return false;attempted_=true;
+        // Missed-update recovery retries at outer entry without sleeping.
+        routes_.recovery_context=this;
+        routes_.recover=[](void* p,uintptr_t outer){return static_cast<NativeCombatSession*>(p)->recover_missed_update(outer);};
         if(previous_ && !previous_->routes_.retired())return false;
         const auto& c=config_;const auto& k=c.identity;
         if(!owned_transport_attachment.ready(k.session) || shared.reserved!=observation::owned_mode || !valid_config(c) || !c.base || !c.original || reinterpret_cast<uintptr_t>(c.original)==c.base+0x2DBC60 ||
@@ -265,12 +329,15 @@ public:
         if(!session_.attach_journal(journal_) || !reader_.bind(c.base,c.caller,k,c.image_verified) ||
             !(previous_?publication_.bind_after(previous_->publication_,shared,k.session,k.round,k.event,k.frame):
                 publication_.bind(shared,k.session,k.round,k.event,k.frame,true)) ||
-            !raw_.bind(k.session,k.peer,k.round,k.event,k.frame,k.slot,k.thread,{},previous_?&previous_->raw_:nullptr) ||
+            !raw_.bind(k.session,k.peer,k.round,k.event,k.frame,k.slot,k.thread,{},previous_?&previous_->raw_:nullptr,0) ||
             !raw_view_.bind(raw_.delivery(),k.session,k.round,k.event,k.frame,k.thread) ||
             !adapter_.attach_raw_history(raw_view_,k.session,k.round,k.event) ||
             !raw_coordinator_.bind(k.session,k.round,k.thread,3-k.slot) ||
-            !clock_.attach_confirmations(this,[](void* p){auto& s=*static_cast<NativeCombatSession*>(p);return s.raw_coordinator_.drain(s.config_.identity.thread);}) ||
-            !clock_.attach_prediction(this,[](void* p,const NativeClockAccess<>::State& state,bool waiting){return static_cast<NativeCombatSession*>(p)->prediction_gate(state,waiting);}) ||
+            !clock_.attach_confirmations(this,[](void* p){auto& s=*static_cast<NativeCombatSession*>(p);return s.raw_coordinator_.drain(s.config_.identity.thread);},
+                [](void* p){auto& s=*static_cast<NativeCombatSession*>(p);++s.late_receipt_checks_;
+                    if(!s.raw_.pending_receipts())return true;
+                    ++s.late_receipt_drains_;return s.raw_coordinator_.drain(s.config_.identity.thread);}) ||
+            !clock_.attach_prediction(this,[](void* p,const NativeClockAccess<>::State& state,bool waiting){return static_cast<NativeCombatSession*>(p)->prediction_gate(state,waiting);},config_.prediction_enabled) ||
             !clock_.bind(c.base,c.clock_object,k.thread,c.image_verified,c.bilateral_private,c.boundaries_owned,
                 k.session,k.round,c.clock_identity,c.clock_frame,k.frame))return false;
         if(!driver_.attach_publication(this,[](void* p,const Driver::Boundary& b){
@@ -288,7 +355,10 @@ public:
                 if(self.storage_.restore_diagnostic.values[NativeRestoreDiagnostic::invoked])self.status.restored=true;
                 if(self.publication_.complete()){self.completed_=true;self.clock_.stop();}
                 return true;
-            }) || !driver_.bind(k.session,k.round,&reader_,NativeBattleBoundaryReader<>::callback<Driver::Boundary>,
+            }) || !driver_.bind(k.session,k.round,this,[](void* context,uintptr_t argument,uintptr_t caller,Driver::Boundary& out){
+                auto& self=*static_cast<NativeCombatSession*>(context);
+                return self.reader_.read_for_execution(argument,caller,out,self.raw_coordinator_,self.config_.identity.thread);
+            },
                 c.bilateral_private,true,c.verified_void_entry)){clock_.stop();return false;}
         prepared_=true;return true;
     }
@@ -309,8 +379,7 @@ public:
         const auto result=post_battle_.poll(session_,adapter_,[this]{return raw_coordinator_.drain(config_.identity.thread);},endpoint,
             config_.identity.session,config_.identity.round,GetCurrentThreadId(),frame,clock_.reservation().quiescent());
         if(result!=Result::restart_required &&
-           (!raw_.request_handoff(config_.identity.thread) ||
-            !raw_.acknowledge(config_.identity.thread,raw_.delivery().revision(),raw_.delivery().head()) || !publish_raw())){
+           (!raw_.acknowledge(config_.identity.thread,raw_.delivery().revision(),raw_.delivery().head()) || !publish_raw())){
             terminate(CombatRuntimeStatus::backend_failure);return Result::restart_required;
         }
         // 0 means never attempted; 1 waiting, 2 ready, 3 restart required.
@@ -404,9 +473,11 @@ public:
         combat_routes.store(nullptr,std::memory_order_release);
         for(auto* old=this;old;old=old->previous_){
             if(!old->retired() || !old->status.history_retired.load() || old->status.restart_required.load() ||
-               !old->history_.discard_released_storage() || !old->storage_.discard_retired_workspace())return false;
+               !old->history_.discard_released_storage() || (old!=this && !old->storage_.discard_retired_workspace()))return false;
         }
-        return true;
+        // All round histories and donors passed cleanup before caching the last
+        // detached workspace. Failed matches never reach this transfer.
+        return storage_.discard_retired_workspace(true);
     }
     // Call at a quiescent owner-thread boundary BEFORE the first reserved clock
     // call, with both peers agreeing to this exact test. Caller retains *this.
@@ -419,7 +490,7 @@ public:
            !recorder_.bind(config_.base,config_.clock_object,key.thread,config_.clock_identity,config_.clock_frame))return false;
         if(!owned_transport_attachment.ready(key.session) || published_ || !ready() || GetCurrentThreadId()!=key.thread || offer.sender!=key.session || offer.recipient!=key.peer ||
             offer.round!=key.round || offer.event!=key.event || offer.first_frame!=key.frame || offer.slot!=key.slot ||
-            offer.delay!=0 || offer.rollback!=3 || offer.records!=observation::capacity ||
+            offer.delay>2 || offer.rollback!=3 || offer.records!=observation::capacity ||
             !native_clock_hook::installed || native_clock_hook::installed_base!=config_.base ||
             native_clock_hook::route.load() || exclusive_battle_route.load() || scheduler_input_sink.load())return false;
         if(const auto hold=native_clock_hook::start_hold.load(std::memory_order_acquire);
@@ -428,7 +499,10 @@ public:
             !clock_.dispatch().at_boundary(config_.clock_identity,config_.clock_frame))return false;
         const auto fight=RoundFightReadiness::read(config_.base,key.round,key.generation,key.frame);
         if(!fight.permits(key.round,key.generation,key.frame,key.thread))return false;
-        if(!agreement.activation_ready() || !agreement.consume(offer))return false;
+        if(!agreement.activation_ready() || !sc6::InputDelayBuildPolicy::accepts(config_.prediction_enabled,config_.prediction_enabled?agreement.agreed_delay():0) || !agreement.consume(offer))return false;
+        agreed_peer_delay_=agreement.peer_delay();
+        if(!raw_.select_agreed_delay(key.thread,config_.prediction_enabled?agreement.agreed_delay():0))return false;
+        status.input_delay_frames=raw_.input_delay();
         published_=publish_combat_routes(routes_,previous_?&previous_->routes_:nullptr);
         if(published_){
             const NativeFilterPreparationRoute* empty_filter=nullptr;
@@ -454,17 +528,42 @@ public:
     void report(std::ostream& events,std::ostream& summary){
         summary<<"continuous_archive_full="<<publication_.archive_full()<<"\ncontinuous_archive_omitted="<<publication_.archive_omitted()<<'\n';
         storage_.timing.write(summary);
+        summary<<"continuous_snapshot_pool_reused="<<history_.storage_reused()<<'\n'
+            <<"continuous_snapshot_pool_reuse_rejection="<<history_.reuse_diagnostic()[0]<<'\n'
+            <<"continuous_snapshot_pool_reuse_slot="<<history_.reuse_diagnostic()[1]<<'\n';
         summary<<"continuous_workspace_reused="<<storage_.workspace_reused()<<'\n';
+        clock_.dispatch().access().write_prediction_resume(summary);
+        clock_.dispatch().write_recovery(summary);
+        for(unsigned i=1;i<recovery_outer_rejections_.size();++i)summary<<"missed_update_outer_reject_"<<i<<'='<<recovery_outer_rejections_[i].load()<<'\n';
+        summary<<"continuous_pre_execute_receipt_checks="<<raw_coordinator_.pre_execute_checks()
+            <<"\ncontinuous_pre_execute_receipts="<<raw_coordinator_.pre_execute_drained()<<'\n';
+        summary<<"continuous_exit_recheck_schema=2\ncontinuous_exit_candidates="<<exit_candidates_.load()
+            <<"\ncontinuous_exit_resumed="<<exit_resumed_.load()<<"\ncontinuous_exit_committed="<<exit_committed_.load()<<'\n';
+        for(unsigned i=0;i<exit_evidence_.size();++i)summary<<"continuous_exit_state_"<<i<<'='<<exit_evidence_[i].load()<<'\n';
+        summary<<"continuous_pre_result_settlements="<<pre_result_settlements_.load()<<'\n';
+        for(unsigned i=0;i<exit_transition_.size();++i)summary<<"continuous_exit_transition_"<<i<<'='<<exit_transition_[i].load()<<'\n';
         summary<<"continuous_prediction_gate_schema=1\n";
         for(unsigned i=1;i<prediction_gate_rejections_.size();++i)summary<<"continuous_prediction_gate_reject_"<<i<<'='<<prediction_gate_rejections_[i].load()<<'\n';
         for(unsigned i=0;i<prediction_gate_last_.size();++i)summary<<"continuous_prediction_gate_last_"<<i<<'='<<prediction_gate_last_[i].load()<<'\n';
 
         summary<<"input_latency_prediction_enabled="<<config_.prediction_enabled<<"\ninput_latency_baseline_is_unmodified_game=0\n";
+        summary<<"input_delay_frames="<<raw_.input_delay()<<"\ninput_delay_neutral_prefix_frames="<<raw_.input_delay()<<"\nprediction_limit_frames=3\n";
+        summary<<"input_delay_adaptive="<<sc6::InputDelayBuildPolicy::adaptive<<"\ninput_delay_test_fixed_frames="<<sc6::InputDelayBuildPolicy::fixed_frames<<"\ninput_delay_local_proposal="<<config_.offer.delay<<"\ninput_delay_max_frames=2\n";
+        summary<<"input_delay_peer_proposal="<<agreed_peer_delay_<<'\n';
         clock_.dispatch().access().write_input_latency(summary,config_.prediction_enabled);
         native_startup_timing.write(summary);
         summary<<"continuous_workspace_reuse=1\ncontinuous_workspace_timing_is_reset=1\n";
-        report_.drain(journal_,events);report_.write(summary);
+        summary<<"continuous_capture_final_buffer_scan_reused=1\ncontinuous_effect_binding_storage_reuse=1\ncontinuous_ownership_buffer_reads="<<history_.ownership_buffer_reads.load()
+            <<"\ncontinuous_ownership_buffer_reuses="<<history_.ownership_buffer_reuses.load()<<'\n';
+        report_.drain(journal_,events);raw_.input_timeline.drain(events);raw_.input_timeline.report(summary);report_.write(summary);
         raw_.confirmation_age.write(summary);
+        raw_.write_receipt_frontier(summary);
+        raw_.receipt_grace.write(summary);
+        summary<<"receipt_grace_attempts="<<clock_.grace_attempts()<<"\nreceipt_grace_recovered_admissions="<<clock_.grace_recovered()<<'\n';
+        summary<<"continuous_late_receipt_checks="<<late_receipt_checks_.load()<<"\ncontinuous_late_receipt_drains="<<late_receipt_drains_.load()<<'\n';
+        summary<<"continuous_completed_receipt_schema=1\ncontinuous_completed_receipt_checks="<<raw_coordinator_.completed_checks()
+            <<"\ncontinuous_completed_receipts_drained="<<raw_coordinator_.completed_drained()
+            <<"\ncontinuous_completed_confirmations_submitted="<<raw_coordinator_.completed_submitted()<<'\n';
         summary<<"continuous_raw_duplicate_coalescing=1\ncontinuous_raw_coalesced="<<raw_.coalesced()
             <<"\ncontinuous_raw_queue_full="<<raw_.queue_full()<<'\n';
         summary<<"continuous_confirmation_round_retired="<<raw_.retired()
@@ -477,10 +576,37 @@ public:
             "recorder_appended","recorder_already_published","recorder_flushes","drained","duplicates","late_confirmations","applied",
             "pending_clock_services","pending_clock_elapsed_ms","pending_clock_max_ms","early_publications","early_rechecks"};
         for(unsigned i=0;i<raw_diagnostics_.size();++i)summary<<"continuous_raw_"<<names[i]<<'='<<raw_diagnostics_[i].load()<<'\n';
+        summary<<"continuous_retirement_diagnostic_schema=1\n";
+        if(backend_diagnostic_ready_.load(std::memory_order_acquire)){
+            const char* attempt[]={"stage","target","live","serial"};
+            const char* rewind[]={"stage","target","count","first","slot","birth_cursor","failed","pending"};
+            const char* retire[]={"reason","frame","slot","borrowed","poisoned","snapshot_fault","exception","probe_fault","loaded","stream_failures"};
+            for(unsigned i=0;i<restore_attempt_diagnostics_.size();++i)summary<<"continuous_restore_attempt_"<<attempt[i]<<'='<<restore_attempt_diagnostics_[i].load()<<'\n';
+            for(unsigned i=0;i<rewind_diagnostics_.size();++i)summary<<"continuous_rewind_"<<rewind[i]<<'='<<rewind_diagnostics_[i].load()<<'\n';
+            for(unsigned i=0;i<retirement_diagnostics_.size();++i)summary<<"continuous_retirement_"<<retire[i]<<'='<<retirement_diagnostics_[i].load()<<'\n';
+        }
         summary<<"continuous_capture_schema=1\n";
         constexpr const char* capture_names[]={"stage","frame","oldest","count","native_stage","exception","fault","valid","observed_frame","saved"};
         if(backend_diagnostic_ready_.load(std::memory_order_acquire))
             for(unsigned i=0;i<capture_diagnostics_.size();++i)summary<<"continuous_capture_"<<capture_names[i]<<'='<<capture_diagnostics_[i].load()<<'\n';
+        summary<<"continuous_preflight_schema=2\n";
+        constexpr const char* preflight_names[]={"phase","line","rejected","exception","read_address","observations","module","object"};
+        if(backend_diagnostic_ready_.load(std::memory_order_acquire)){
+            for(unsigned i=0;i<8;++i)summary<<"continuous_preflight_"<<preflight_names[i]<<'='<<preflight_diagnostics_[i].load()<<'\n';
+            constexpr const char* attachment_names[]={"count","capacity","live","expired","entry","object","reason","vtable"};
+            static_assert(std::size(attachment_names)==SnapshotPreflightDiagnostic::attachment_fields);
+            for(unsigned side=0;side<2;++side)for(unsigned field=0;field<SnapshotPreflightDiagnostic::attachment_fields;++field)
+                summary<<"continuous_preflight_attachment_"<<side<<'_'<<attachment_names[field]<<'='
+                    <<preflight_diagnostics_[SnapshotPreflightDiagnostic::attachment_begin+side*SnapshotPreflightDiagnostic::attachment_fields+field].load()<<'\n';
+            const auto count=preflight_diagnostics_[5].load();
+            const auto begin=count>SnapshotPreflightDiagnostic::capacity?count-SnapshotPreflightDiagnostic::capacity:0;
+            for(auto n=begin;n<count;++n){
+                summary<<"continuous_preflight_observation_"<<n<<'=';
+                auto k=8+(n%SnapshotPreflightDiagnostic::capacity)*5;
+                for(unsigned j=0;j<5;++j)summary<<(j?",":"")<<preflight_diagnostics_[k+j].load();
+                summary<<'\n';
+            }
+        }
         summary<<"continuous_backend_diagnostic_schema=1\ncontinuous_backend_diagnostic_ready="<<backend_diagnostic_ready_.load(std::memory_order_acquire)<<'\n';
         constexpr const char* backend_names[]={"site","prepared","published","transport_ready","driver_stopped","storage_failed","driver_failure",
             "bridge_failure","dispatch_failure","clock_failure","clock_exception","clock_stage",
@@ -516,6 +642,8 @@ public:
         const auto& slots=*slot_source;
         status.camera_slot_selected=slots.selected;
         for(unsigned sample=0;sample<2;++sample){
+            for(unsigned field=0;field<5;++field)status.camera_reference_header[sample][field]=slots.reference_header[sample][field];
+            for(unsigned slot=0;slot<17;++slot)for(unsigned field=0;field<6;++field)status.camera_references[sample][slot][field]=slots.references[sample][slot][field];
             for(unsigned field=0;field<6;++field)status.camera_slot_header[sample][field]=slots.header[sample][field];
             for(unsigned slot=0;slot<16;++slot)for(unsigned field=0;field<7;++field)status.camera_slot_meta[sample][slot][field]=slots.slots[sample][slot][field];
             for(unsigned word=0;word<CameraSlotEvidence::words;++word)status.camera_slot_payload[sample][word]=slots.payload[sample][word];

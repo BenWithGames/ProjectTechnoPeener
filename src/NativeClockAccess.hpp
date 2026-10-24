@@ -31,9 +31,10 @@ public:
         uint32_t identity{},frame{},local_cursor{},all_cursor{},lead{};
         unsigned slots{},local_mask{},all_mask{},remote_mask{},mode{},phase{};
         unsigned wait_reason{},wait_count{},published{};
+        bool operator==(const State&) const=default;
     };
     enum class Result {unbound,ready,native_wait,withheld,advanced,restart_required};
-    enum class Failure {none,identity,layout,phase,order,exception,service_advanced,advance_count};
+    enum class Failure {none,identity,layout,phase,order,exception,service_advanced,advance_count,prediction_resume};
 private:
     mutable NativeInputLatency latency_;
     std::unique_ptr<NativeInputLatency> fresh_latency_=std::make_unique<NativeInputLatency>();
@@ -53,6 +54,8 @@ private:
     State serviced_state_{};
     State wait_state_{};
     State observed_state_{};
+    State withheld_state_{};
+    bool reopenable_{};
     unsigned stage_{};
     Failure failure_{};
     unsigned exception_{};
@@ -98,6 +101,29 @@ private:
         }
         __except(EXCEPTION_EXECUTE_HANDLER){exception_=GetExceptionCode();return fail(Failure::exception);}
     }
+    // 3E9EE0 consumes 4425, updates the network pause bit and notifies the
+    // native wait owner. Prediction must release that side effect as well as
+    // advancing the clock, otherwise an approved battle update remains paused.
+    // Reuse the native clear path; retain its wait history for future admission.
+    std::atomic<uint64_t> prediction_resumes_{},pending_resumes_{},budget_resumes_{},resume_failures_{};
+    bool resume_prediction(bool pending,bool budget=false) noexcept {
+        __try {
+            if(wait_state_.wait_reason!=0 && wait_state_.wait_reason!=2)return true;
+            if(!wait_state_.wait_reason && !wait_state_.wait_count)return true;
+            if(*reinterpret_cast<const uint8_t*>(object_+0x4425)!=0)return fail(Failure::prediction_resume);
+            const auto count=*reinterpret_cast<const uint32_t*>(object_+0x3A8);
+            Calls::waiting(base_,object_); // zero consumed reason: clear network pause only
+            const auto cleared=*reinterpret_cast<const uint32_t*>(object_+0x3A8);
+            *reinterpret_cast<uint32_t*>(object_+0x3A8)=count;
+            State after{};
+            if(cleared || !read(after) || after.identity!=serviced_state_.identity ||
+               after.frame!=serviced_state_.frame || after.phase!=2){
+                ++resume_failures_;return fail(Failure::prediction_resume);
+            }
+            ++prediction_resumes_;if(pending)++pending_resumes_;if(budget)++budget_resumes_;
+            return true;
+        } __except(EXCEPTION_EXECUTE_HANDLER){++resume_failures_;exception_=GetExceptionCode();return fail(Failure::exception);}
+    }
     bool invoke_advance() noexcept {
         __try {Calls::advance(base_,object_);return true;}
         __except(EXCEPTION_EXECUTE_HANDLER){exception_=GetExceptionCode();return fail(Failure::exception);}
@@ -134,6 +160,7 @@ public:
         identity_=state.identity;bound_=true;return true;
     }
     Result service(){
+        reopenable_=false;
         if(failed_)return Result::restart_required;
         if(!bound_)return Result::unbound;
         if(serviced_){fail(Failure::order);return Result::restart_required;}
@@ -160,7 +187,8 @@ public:
     }
     // Close EVERY successful service cycle, even when withholding admission.
     // Thus a prediction-budget wait does not stop subsequent network servicing.
-    Result finish(bool scheduler_admits,bool prediction_authorized=false){
+    Result finish(bool scheduler_admits,bool prediction_authorized=false,bool pending_prediction=false,bool budget_wait=false){
+        reopenable_=false;
         if(failed_)return Result::restart_required;
         if(!bound_)return Result::unbound;
         if(!serviced_){fail(Failure::order);return Result::restart_required;}
@@ -168,6 +196,14 @@ public:
         stage_=4;if(!validate(before))return Result::restart_required;
         serviced_=false;
         if(before.frame!=serviced_state_.frame){fail(Failure::advance_count);return Result::restart_required;}
+        // A validated prediction-limit stall withholds the combat delta; it need
+        // not leave the engine-wide network pause latched into the next tick.
+        // No permission to advance is granted by budget_wait. Native reasons
+        // other than 0/2 retain their pause and all unrelated pause bits survive.
+        const bool budget_only=budget_wait && !scheduler_admits && !pending_prediction;
+        if(((scheduler_admits && prediction_authorized) || pending_prediction || budget_only) &&
+           !resume_prediction(pending_prediction,budget_only))return Result::restart_required;
+        if(!scheduler_admits && !pending_prediction){withheld_state_=before;reopenable_=true;}
         if(native_wait_ && !prediction_authorized){latency_.decision(true,false,wait_state_.wait_reason,NativeInputLatency::now());fresh_latency_->decision(true,false,wait_state_.wait_reason,NativeInputLatency::now());return Result::native_wait;}
         if(!scheduler_admits){latency_.decision(native_wait_,false,wait_state_.wait_reason,NativeInputLatency::now());fresh_latency_->decision(native_wait_,false,wait_state_.wait_reason,NativeInputLatency::now());return Result::withheld;}
         if(before.frame==static_cast<uint32_t>(INT32_MAX)){fail(Failure::advance_count);return Result::restart_required;}
@@ -177,21 +213,42 @@ public:
         latency_.decision(native_wait_,true,wait_state_.wait_reason,NativeInputLatency::now());fresh_latency_->decision(native_wait_,true,wait_state_.wait_reason,NativeInputLatency::now());
         return Result::advanced;
     }
+    // One nonblocking retry BEFORE the outer caller consumes its clock delta.
+    // Never service/sample again, increment twice, or reuse a changed native state.
+    Result reopen_withheld(){
+        if(failed_)return Result::restart_required;
+        if(!bound_)return Result::unbound;
+        if(!reopenable_ || serviced_)return Result::withheld;
+        reopenable_=false;
+        if(GetCurrentThreadId()!=owner_){fail(Failure::identity);return Result::restart_required;}
+        State current{};
+        if(!read(current))return Result::restart_required;
+        if(current!=withheld_state_ || current.identity!=identity_ || current.phase!=2)return Result::withheld;
+        serviced_=true;
+        return Result::ready;
+    }
     // 3FDF30 samples 3B8/3BC during this service, before native future-ring publication.
     // Read only; never rewrite native cursors, rings, or native confirmations.
-    bool fresh_local(uint32_t frame,uint32_t& raw)const noexcept {
+    bool fresh_local(uint32_t frame,uint32_t& raw,uint64_t* begin=nullptr,uint64_t* end=nullptr)const noexcept {
         if(!bound_ || failed_ || !serviced_ || GetCurrentThreadId()!=owner_ || serviced_state_.frame!=frame || !service_begin_)return false;
         __try {
             if(*reinterpret_cast<const uint32_t*>(object_+0x3A0)!=identity_ ||
                *reinterpret_cast<const uint32_t*>(object_+0x3A4)!=frame ||
                *reinterpret_cast<const uint8_t*>(object_+0x4424)!=2)return false;
             raw=*reinterpret_cast<const uint32_t*>(object_+0x3B8+(serviced_state_.local_mask==1?0:4));
-            fresh_latency_->publication(frame,raw,service_begin_,service_end_);return true;
+            fresh_latency_->publication(frame,raw,service_begin_,service_end_);
+            if(begin)*begin=service_begin_;if(end)*end=service_end_;return true;
         }__except(EXCEPTION_EXECUTE_HANDLER){return false;}
     }
     void input_consumed(uint32_t frame,uint32_t raw,bool fresh=false)const{(fresh?*fresh_latency_:latency_).consumed(frame,raw,NativeInputLatency::now());}
     void write_input_latency(std::ostream& out,bool fresh=false)const{out<<"input_latency_fresh_local="<<fresh<<'\n';(fresh?*fresh_latency_:latency_).write(out);}
     const State& last_serviced_state()const{return serviced_state_;}
+    void write_prediction_resume(std::ostream& out)const{
+        out<<"prediction_native_pause_schema=1\nprediction_native_pause_releases="<<prediction_resumes_.load()
+           <<"\nprediction_native_pause_pending_releases="<<pending_resumes_.load()
+           <<"\nprediction_native_pause_budget_releases="<<budget_resumes_.load()
+           <<"\nprediction_native_pause_failures="<<resume_failures_.load()<<'\n';
+    }
     const State& last_wait_state()const{return wait_state_;}
     const State& last_observed_state()const{return observed_state_;}
     unsigned stage()const{return stage_;}

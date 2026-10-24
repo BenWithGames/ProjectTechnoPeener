@@ -4,15 +4,15 @@
 namespace sc6::research {
 // Simulation-thread storage for the combat adapter. Capture callbacks must bind
 // their owned dependencies before returning success. This does not authorize load.
-template<unsigned Capacity=4> class NativeRollingHistory {
+template<unsigned Capacity=4,class Boundary=CompactNativeBoundarySnapshot> class NativeRollingHistory {
     static_assert(Capacity>=4);
-    using Pool=NativeSnapshotPool<Capacity>;
+    using Pool=NativeSnapshotPool<Capacity,Boundary>;
     Pool pool_;
     std::array<typename Pool::Handle,Capacity> handles_{};
     std::array<RollbackBoundaryKey,Capacity> keys_{};
     struct Guard {uintptr_t module{},root{},control{};std::array<uintptr_t,2> descriptors{};GeneratedBufferFingerprint buffer;};
     std::array<Guard,Capacity> guards_{};
-    static bool valid_guard(const Guard& g)noexcept{
+    static bool valid_guard(const Guard& g,GeneratedBufferValidationBatch<Capacity>* batch=nullptr)noexcept{
         if(!g.module || !g.root || !g.control || !g.buffer.valid)return false;
         __try {
             if(*reinterpret_cast<uintptr_t*>(g.module+0x470D0D0)!=g.descriptors[0] || *reinterpret_cast<uintptr_t*>(g.module+0x470D0F8)!=g.descriptors[1])return false;
@@ -21,7 +21,7 @@ template<unsigned Capacity=4> class NativeRollingHistory {
             if(*reinterpret_cast<uintptr_t*>(g.root+8)!=g.buffer.buffer || *reinterpret_cast<uintptr_t*>(g.root+0x430)!=g.buffer.buffer ||
                *reinterpret_cast<uintptr_t*>(g.root+0x438)!=g.control)return false;
         }__except(EXCEPTION_EXECUTE_HANDLER){return false;}
-        return g.buffer.matches(GeneratedBufferFingerprint::read(g.buffer.buffer,g.buffer.size));
+        return batch?batch->matches(g.buffer):g.buffer.matches(GeneratedBufferFingerprint::read(g.buffer.buffer,g.buffer.size));
     }
     unsigned count_{};
     bool failed_{};
@@ -34,26 +34,36 @@ template<unsigned Capacity=4> class NativeRollingHistory {
     bool compact_births(){
         if(!effects_ || !count_)return true;
         unsigned first=UINT_MAX;
-        for(unsigned i=0;i<count_;++i)if(!pool_.visit(handles_[i],[&](NativeBoundarySnapshot& s){
+        for(unsigned i=0;i<count_;++i)if(!pool_.visit(handles_[i],[&](Boundary& s){
             if(!s.effects || s.effects->owner!=effects_ || !s.effects->valid)return false;
             first=(std::min)(first,s.effects->birth_cursor);return true;
         }))return false;
         bool compacted=false;
         if(!effects_->compact_birth_history(first,count_,compacted))return false;
         if(!compacted)return true; // Busy optional maintenance: preserve every cursor.
-        for(unsigned i=0;i<count_;++i)if(!pool_.visit(handles_[i],[&](NativeBoundarySnapshot& s){
+        for(unsigned i=0;i<count_;++i)if(!pool_.visit(handles_[i],[&](Boundary& s){
             s.effects->birth_cursor-=first;return true;
         }))return false;
         return true;
     }
 public:
+    std::atomic<uint64_t> ownership_buffer_reads{},ownership_buffer_reuses{};
+    explicit NativeRollingHistory(NativeRollingHistory* previous=nullptr)
+        :pool_(previous && previous->failed_?&previous->pool_:nullptr){}
+    const auto& reuse_diagnostic()const{return pool_.reuse_diagnostic;}
+    bool storage_reused()const{return pool_.storage_reused;}
     // Owner-thread evidence, copied to report atomics before teardown.
     std::array<uint64_t,10> capture_diagnostic{};
+    SnapshotPreflightDiagnostic capture_preflight;
+    std::array<uint64_t,8> rewind_diagnostic{};
+    const auto& retirement_diagnostic()const{return pool_.retirement_diagnostic;}
+    const auto& discard_diagnostic()const{return pool_.discard_diagnostic;}
     CameraSlotEvidence capture_slot_evidence;
     unsigned count()const{return count_;}
     bool failed()const{return failed_;}
     bool discard_released_storage(){return failed_ && pool_.discard_drained_storage();}
     bool capture_owned(const RollbackBoundaryKey& key,unsigned oldest_required,uintptr_t base,uintptr_t argument,ReplayDependencySource& source,bool approved_profile=false,bool general_restore=false){
+        capture_preflight.words={};
         capture_diagnostic={1,key.frame,oldest_required,count_,0,0,0,0,0,0};
         if(failed_ || !key.same_round(key) || key.thread!=GetCurrentThreadId() || !base || !source.available())return false;
         capture_diagnostic[0]=2;
@@ -74,15 +84,16 @@ public:
             const auto fingerprint=GeneratedBufferFingerprint::read(source.generated->buffer,source.generated->size);
             if(!fingerprint.valid)return false;
             capture_diagnostic[0]=7;
-            const bool captured=pool.visit(handle,[&](NativeBoundarySnapshot& snapshot){
+            const bool captured=pool.visit(handle,[&](Boundary& snapshot){
                 if(general_restore && effects_){
-                    snapshot.effects=std::make_unique<NativeEffectSession::Binding>();
+                    if(!snapshot.prepare_effect_binding())return false;
                     capture_diagnostic[0]=8;
                     if(!effects_->capture(*snapshot.effects))return false;
                     snapshot.data->external_wind_lifecycle=true;
                 }
                 capture_diagnostic[0]=9;
                 const bool saved=(general_restore?snapshot.capture_general(base,argument):snapshot.capture_supported(base,argument,approved_profile)) && snapshot.data->before_keys[0]==boundary.frame;
+                if constexpr(requires {snapshot.preflight_diagnostic;})capture_preflight=snapshot.preflight_diagnostic;
                 capture_diagnostic[4]=snapshot.capture_stage;
                 capture_diagnostic[5]=snapshot.exception;
                 capture_diagnostic[6]=snapshot.fault;
@@ -102,7 +113,8 @@ public:
             capture_diagnostic[0]=14;if(before!=after)return false;
             capture_diagnostic[0]=15;if(!references.covers(before[0],before[1]))return false;
             capture_diagnostic[0]=16;
-            if(!fingerprint.matches(GeneratedBufferFingerprint::read(source.generated->buffer,source.generated->size)))return false;
+            // Final valid_guard hashes after binding; preserve identity here without a duplicate scan.
+            if(source.generated->buffer!=fingerprint.buffer || source.generated->size!=fingerprint.size)return false;
             capture_diagnostic[0]=12;
             if(!references.bind(pool,handle))return false;
             capture_diagnostic[0]=17;if(!source.generated->bind(pool,handle))return false;
@@ -139,7 +151,7 @@ public:
         guards_[count_]={};handles_[count_]=*h;keys_[count_++]=key;
         bool ok=false;
         try {ok=capture(pool_,*h,key);} catch(...){failed_=true;return false;}
-        if(!ok || !pool_.visit(*h,[](NativeBoundarySnapshot& s){return s.valid && !s.fault;})){failed_=true;return false;}
+        if(!ok || !pool_.visit(*h,[](Boundary& s){return s.valid && !s.fault;})){failed_=true;return false;}
         capture_diagnostic[0]=0;
         replay_next_.reset();
         return true;
@@ -148,25 +160,29 @@ public:
     // Keep all references alive until it returns; only then retire the old
     // predicted suffix so replay can replace it with corrected captures.
     template<class Restore> bool rewind_for_replay(const RollbackBoundaryKey& key,Restore restore){
+        rewind_diagnostic={1,key.frame,count_,count_,UINT_MAX,0,failed_,bool(replay_next_)};
         if(failed_ || replay_next_ || key.thread!=GetCurrentThreadId())return false;
         unsigned first=count_;
         for(unsigned i=0;i<count_;++i)if(keys_[i].same_round(key) && keys_[i].frame==key.frame){first=i;break;}
+        rewind_diagnostic[0]=2;rewind_diagnostic[3]=first;
         if(first==count_)return false;
-        unsigned birth_cursor=0;
-        if(effects_ && !pool_.visit(handles_[first],[&](NativeBoundarySnapshot& s){
+        unsigned birth_cursor=0;rewind_diagnostic[0]=3;
+        if(effects_ && !pool_.visit(handles_[first],[&](Boundary& s){
             if(!s.effects || s.effects->owner!=effects_ || !s.effects->valid)return false;
             birth_cursor=s.effects->birth_cursor;return true;
         }))return false;
+        rewind_diagnostic[5]=birth_cursor;rewind_diagnostic[0]=4;
         bool restored=false;
         try {restored=pool_.visit(handles_[first],restore);}catch(...){failed_=true;return false;}
         if(!restored){failed_=true;return false;}
         while(count_>first){
-            const unsigned i=count_-1;
+            const unsigned i=count_-1;rewind_diagnostic[0]=5;rewind_diagnostic[4]=i;
             if(!pool_.retire(handles_[i])){failed_=true;return false;}
             handles_[i]={};keys_[i]={};guards_[i]={};--count_;
         }
+        rewind_diagnostic[0]=6;rewind_diagnostic[2]=count_;
         if(effects_ && !effects_->branch_birth_history(birth_cursor,count_)){failed_=true;return false;}
-        replay_next_=key;return true;
+        replay_next_=key;rewind_diagnostic[0]=0;return true;
     }
     template<class Visitor> bool visit(const RollbackBoundaryKey& key,Visitor visitor){
         if(failed_ || key.thread!=GetCurrentThreadId())return false;
@@ -177,16 +193,24 @@ public:
         reason=NativeBoundarySnapshot::Rejection::frame;
         if(!first.same_round(next) || first.frame==UINT32_MAX || next.frame!=first.frame+1)return false;
         reason=NativeBoundarySnapshot::Rejection::invalid_capture;
-        return visit(first,[&](NativeBoundarySnapshot& a){
-            return visit(next,[&](NativeBoundarySnapshot& b){reason=a.structural_readiness(b);return true;});
+        return visit(first,[&](Boundary& a){
+            return visit(next,[&](Boundary& b){reason=a.structural_readiness(b);return true;});
         });
     }
-    bool validate_owned(const RollbackBoundaryKey& key){
+    bool validate_owned(const RollbackBoundaryKey& key,GeneratedBufferValidationBatch<Capacity>* batch=nullptr){
         if(failed_ || key.thread!=GetCurrentThreadId())return false;
-        for(unsigned i=0;i<count_;++i)if(keys_[i].same_round(key) && keys_[i].frame==key.frame)return valid_guard(guards_[i]) && pool_.visit(handles_[i],[&](NativeBoundarySnapshot& snapshot){
+        for(unsigned i=0;i<count_;++i)if(keys_[i].same_round(key) && keys_[i].frame==key.frame)return valid_guard(guards_[i],batch) && pool_.visit(handles_[i],[&](Boundary& snapshot){
             return !effects_ || (snapshot.effects && snapshot.effects->owner==effects_ && effects_->validate(*snapshot.effects));
         });
         return false;
+    }
+    bool validate_owned_batch(const RollbackBoundaryKey* keys,unsigned size){
+        if(!keys || !size || size>Capacity)return false;
+        GeneratedBufferValidationBatch<Capacity> batch;
+        bool ok=true;
+        for(unsigned i=0;i<size && ok;++i)ok=keys[i].same_round(keys[0]) && validate_owned(keys[i],&batch);
+        ownership_buffer_reads+=batch.reads;ownership_buffer_reuses+=batch.reuses;
+        return ok;
     }
     // Explicit owner-thread teardown, including a failed capture. No recovery
     // to stock simulation is implied by releasing the references.
@@ -198,3 +222,4 @@ public:
     }
 };
 }
+

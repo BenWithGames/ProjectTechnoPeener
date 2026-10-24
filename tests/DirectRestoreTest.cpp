@@ -6,13 +6,18 @@ using namespace sc6::research;
 struct History {
     std::array<std::unique_ptr<NativeBoundarySnapshot>,4> states;
     bool owned{true};
+    unsigned batches{};
     History(){for(auto& s:states){s=std::make_unique<NativeBoundarySnapshot>(NativeBoundarySnapshot::Mode::general_combat);s->module=1;}}
     bool validate_owned(const RollbackBoundaryKey&){return owned;}
+    bool validate_owned_batch(const RollbackBoundaryKey* keys,unsigned count){
+        ++batches;for(unsigned i=0;i<count;++i)if(!validate_owned(keys[i]))return false;return true;
+    }
     template<class F> bool visit(const RollbackBoundaryKey& k,F f){return k.frame>=100 && k.frame<=103 && f(*states[k.frame-100]);}
 };
 struct Work {
     inline static unsigned preflights{},loads{},prepares{},discards{},recycles{},reject_preflight{99};
     inline static bool admit{true},load_ok{true};
+    inline static bool* invalidate_after_load{};
     DirectLoadCompatibility::Diagnostic direct_diagnostic{};
     NativeBoundarySnapshot::Rejection rejection{};
     bool loaded{};
@@ -20,21 +25,25 @@ struct Work {
     bool prepare_direct(const NativeBoundarySnapshot&,const NativeBoundarySnapshot&,unsigned span){assert(span>=2 && span<=3);++prepares;if(!admit)direct_diagnostic.reason=6;return admit;}
     bool discard_unloaded_candidate(){assert(!loaded);++discards;return true;}
     bool prepare_captured(const NativeBoundarySnapshot&,const NativeBoundarySnapshot&,bool,bool,bool){return true;}
-    bool restore_captured(const NativeBoundarySnapshot&,uintptr_t,uintptr_t){++loads;loaded=load_ok;return load_ok;}
+    bool restore_captured(const NativeBoundarySnapshot&,uintptr_t,uintptr_t){++loads;loaded=load_ok;if(invalidate_after_load)*invalidate_after_load=false;return load_ok;}
     bool detached_load_reusable(){return loaded;}
     bool recycle_detached_load(){assert(loaded);loaded=false;++recycles;return true;}
-    static void reset(){preflights=loads=prepares=discards=recycles=0;reject_preflight=99;admit=load_ok=true;}
+    static void reset(){preflights=loads=prepares=discards=recycles=0;reject_preflight=99;admit=load_ok=true;invalidate_after_load=nullptr;}
 };
 int main(){
     for(unsigned depth:{2u,3u}){
         History h;RollbackBoundaryKey a{1,2,3,4,5,100,1,GetCurrentThreadId()},b=a;b.frame+=depth;
         Work::reset();NativeHistoryRestore<Work> direct;
         assert(direct.run(h,a,b,1) && direct.direct_used && Work::loads==1 && Work::preflights==depth);
+        assert(h.batches==2);
         assert(direct.native_load_attempts==1 && direct.prepare_for_reuse() && Work::recycles==1);
         assert(direct.run(h,a,b,1) && Work::loads==2);
         Work::reset();Work::admit=false;NativeHistoryRestore<Work> fallback;
         assert(fallback.run(h,a,b,1) && !fallback.direct_used && Work::discards==1 && Work::loads==depth);
         assert(fallback.direct_guard_reason==6 && fallback.prepare_for_reuse() && Work::recycles==depth);
+        Work::reset();Work::admit=false;Work::invalidate_after_load=&h.owned;NativeHistoryRestore<Work> invalidated;
+        assert(!invalidated.run(h,a,b,1) && Work::loads==1); // Fresh batch after every native mutation.
+        h.owned=true;
         Work::reset();Work::load_ok=false;NativeHistoryRestore<Work> stopped;
         assert(!stopped.run(h,a,b,1) && stopped.direct_used && Work::loads==1 && Work::discards==0 && !stopped.prepare_for_reuse());
         for(unsigned hop=0;hop<depth;++hop){Work::reset();Work::reject_preflight=hop;NativeHistoryRestore<Work> rejected;

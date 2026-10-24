@@ -1,14 +1,20 @@
 #pragma once
 #include "IdleTrajectoryAudit.hpp"
 #include "NativeEffectSession.hpp"
+#include "CompactBoundaryState.hpp"
 namespace sc6::research {
 // A single boundary, independent of a pre-recorded reference trajectory.
 // Capture on the owning simulation thread. Capture itself never invokes native loading.
-struct NativeBoundarySnapshot {
+struct NativeBoundaryTypes {
+    enum class Mode {idle,throw_move,charge,attack,edge,reversal,direction_observation,a_observation,combat_capture_only,general_combat};
+    enum class Rejection {none,invalid_capture,module,mode,thread,used_probe,frame,players,shape,rings,rng,transforms,camera,inputs,reader,sources,combat,root_wind,charge};
+};
+template<class State=FullStateProbe> struct NativeBoundarySnapshotStorage : NativeBoundaryTypes {
+    using StateType=State;
     // General-state loading is implemented, but individual windows must pass
     // structural/ownership/preflight checks; this is not universal coverage.
     static constexpr bool general_restore_implemented=true;
-    enum class Mode {idle,throw_move,charge,attack,edge,reversal,direction_observation,a_observation,combat_capture_only,general_combat};
+    using Mode=NativeBoundaryTypes::Mode;
     // This is fixture routing, not a generic move detector. The caller must
     // identify an approved character/profile before enabling non-idle routes.
     static Mode supported_mode(unsigned p1_input,unsigned p2_input,unsigned p1_move,unsigned p2_move,
@@ -26,108 +32,133 @@ struct NativeBoundarySnapshot {
         mode=value;data->throw_requested=value==Mode::throw_move;data->charge_requested=value==Mode::charge;
         data->attack_requested=value==Mode::attack;data->edge_requested=value==Mode::edge;data->reversal_requested=value==Mode::reversal;
     }
-    bool capture_supported(uintptr_t base,uintptr_t argument,bool approved_profile=false) noexcept {
+    bool capture_supported(uintptr_t module_base,uintptr_t argument,bool approved_profile=false) noexcept {
         if(attempted)return false;
         __try {
-            select_mode(supported_mode(*reinterpret_cast<uint16_t*>(base+0x4717840),*reinterpret_cast<uint16_t*>(base+0x47AEC30),
-                *reinterpret_cast<uint16_t*>(base+0x475A04A),*reinterpret_cast<uint16_t*>(base+0x47F143A),
-                *reinterpret_cast<float*>(base+0x48462F4),*reinterpret_cast<int*>(base+0x4846458),
-                *reinterpret_cast<unsigned char*>(base+0x48462D0),approved_profile && FullStateProbe::charge_aux_active(base),approved_profile));
+            select_mode(supported_mode(*reinterpret_cast<uint16_t*>(module_base+0x4717840),*reinterpret_cast<uint16_t*>(module_base+0x47AEC30),
+                *reinterpret_cast<uint16_t*>(module_base+0x475A04A),*reinterpret_cast<uint16_t*>(module_base+0x47F143A),
+                *reinterpret_cast<float*>(module_base+0x48462F4),*reinterpret_cast<int*>(module_base+0x4846458),
+                *reinterpret_cast<unsigned char*>(module_base+0x48462D0),approved_profile && FullStateProbe::charge_aux_active(module_base),approved_profile));
         }__except(EXCEPTION_EXECUTE_HANDLER){fault=true;exception=GetExceptionCode();return false;}
-        return capture(base,argument);
+        return capture(module_base,argument);
     }
-    bool capture_general(uintptr_t base,uintptr_t argument,FullStateProbe::Routine writer=nullptr,FullStateProbe::Preflight check=nullptr) noexcept {
+    bool capture_general(uintptr_t module_base,uintptr_t argument,FullStateProbe::Routine writer=nullptr,FullStateProbe::Preflight check=nullptr) noexcept {
         if(attempted)return false;
-        select_mode(Mode::general_combat);return capture(base,argument,writer,check);
+        select_mode(Mode::general_combat);return capture(module_base,argument,writer,check);
     }
-    std::unique_ptr<FullStateProbe> data=std::make_unique<FullStateProbe>();
+    std::unique_ptr<State> data=std::make_unique<State>();
     std::unique_ptr<NativeEffectSession::Binding> effects;
+    // Detached storage only. Its native token must have retired before reuse.
+    std::unique_ptr<NativeEffectSession::Binding> spare_effects;
+    bool prepare_effect_binding(){
+        if(effects)return false;
+        if(spare_effects){
+            if(spare_effects->snapshot.generation || spare_effects->valid)return false;
+            effects=std::move(spare_effects);
+        }else effects=std::make_unique<NativeEffectSession::Binding>();
+        effects->owner=nullptr;effects->birth_window=0;effects->birth_cursor=0;
+        return true;
+    }
+    bool recycle_effect_binding(){
+        if(!effects)return true;
+        if(spare_effects || effects->snapshot.generation || effects->valid)return false;
+        effects->owner=nullptr;
+        spare_effects=std::move(effects);return true;
+    }
     bool release_effects(){return !effects || !effects->owner || effects->owner->release(*effects);}
     unsigned direction_bits{0x400},direction_slot{1};
+    SnapshotPreflightDiagnostic preflight_diagnostic;
     unsigned capture_stage{};bool mode_values_valid{};std::array<unsigned,6> mode_values{};
     Mode mode;uintptr_t module{};DWORD thread{};bool attempted{},valid{},fault{};unsigned exception{};
-    explicit NativeBoundarySnapshot(Mode value):mode(value){
+    explicit NativeBoundarySnapshotStorage(Mode value):mode(value){
         data->throw_requested=value==Mode::throw_move;data->charge_requested=value==Mode::charge;
         data->attack_requested=value==Mode::attack;data->edge_requested=value==Mode::edge;
         data->reversal_requested=value==Mode::reversal;
     }
     // Internal storage reuse: allocation is retained by the owning workspace.
-    NativeBoundarySnapshot(Mode value,std::unique_ptr<FullStateProbe> storage) noexcept
+    NativeBoundarySnapshotStorage(Mode value,std::unique_ptr<State> storage) noexcept
         :data(std::move(storage)),mode(value){
         data->throw_requested=value==Mode::throw_move;data->charge_requested=value==Mode::charge;
         data->attack_requested=value==Mode::attack;data->edge_requested=value==Mode::edge;
         data->reversal_requested=value==Mode::reversal;
     }
-    static bool direction_state(uintptr_t base,unsigned bits=0x400,unsigned slot=1){
-        return FullStateProbe::direction_state(base,bits,slot);
+    static bool direction_state(uintptr_t module_base,unsigned bits=0x400,unsigned slot=1){
+        return FullStateProbe::direction_state(module_base,bits,slot);
     }
-    static bool a_state(uintptr_t base){
-        return *reinterpret_cast<std::uint16_t*>(base+0x4717840)==1 &&
-            *reinterpret_cast<std::uint16_t*>(base+0x47AEC30)==0 &&
-            *reinterpret_cast<std::uint16_t*>(base+0x475A04A)==264 &&
-            *reinterpret_cast<std::uint16_t*>(base+0x47F143A)==65535 &&
-            *reinterpret_cast<float*>(base+0x48462F4)==1.0f &&
-            *reinterpret_cast<unsigned char*>(base+0x48462D0)==0;
+    static bool a_state(uintptr_t module_base){
+        return *reinterpret_cast<std::uint16_t*>(module_base+0x4717840)==1 &&
+            *reinterpret_cast<std::uint16_t*>(module_base+0x47AEC30)==0 &&
+            *reinterpret_cast<std::uint16_t*>(module_base+0x475A04A)==264 &&
+            *reinterpret_cast<std::uint16_t*>(module_base+0x47F143A)==65535 &&
+            *reinterpret_cast<float*>(module_base+0x48462F4)==1.0f &&
+            *reinterpret_cast<unsigned char*>(module_base+0x48462D0)==0;
     }
-    __declspec(noinline) bool capture(uintptr_t base,uintptr_t argument,FullStateProbe::Routine writer=nullptr,FullStateProbe::Preflight check=nullptr) noexcept {
-        if(attempted)return false;attempted=true;module=base;thread=GetCurrentThreadId();
-        if(!writer)writer=reinterpret_cast<FullStateProbe::Routine>(base+0x3841E0);
+    __declspec(noinline) bool capture(uintptr_t module_base,uintptr_t argument,FullStateProbe::Routine writer=nullptr,FullStateProbe::Preflight check=nullptr) noexcept {
+        if(attempted)return false;attempted=true;module=module_base;thread=GetCurrentThreadId();
+        if(!writer)writer=reinterpret_cast<FullStateProbe::Routine>(module_base+0x3841E0);
         if(!check)check=FullStateProbe::preflight;
         std::uint64_t bookkeeping{};bool saved_bookkeeping=false;
         __try {
             auto& q=*data;
-            capture_stage=1;if(!check(base)){fault=true;__leave;}
+            capture_stage=1;
+            preflight_diagnostic.words={};preflight_diagnostic.words[6]=module_base;
+            const bool preflight_ok=check==FullStateProbe::preflight?
+                FullStateProbe::preflight_detailed(module_base,&preflight_diagnostic):check(module_base);
+            if(!preflight_ok){
+                if(check!=FullStateProbe::preflight){preflight_diagnostic.phase(4);preflight_diagnostic.reject(__LINE__);}
+                fault=true;__leave;
+            }
             capture_stage=2;
             // General combat capture retains all serializer, identity and
             // before/after integrity checks. It does not claim that the old
             // move-specific loader can restore the resulting snapshot.
             const bool state_ready=mode==Mode::combat_capture_only || mode==Mode::general_combat ||
-                (mode==Mode::a_observation?a_state(base):mode==Mode::direction_observation?direction_state(base,direction_bits,direction_slot):mode==Mode::idle?FullStateProbe::idle(base):q.combat_state(base));
+                (mode==Mode::a_observation?a_state(module_base):mode==Mode::direction_observation?direction_state(module_base,direction_bits,direction_slot):mode==Mode::idle?FullStateProbe::idle(module_base):q.combat_state(module_base));
             if(!state_ready || mode==Mode::combat_capture_only || mode==Mode::general_combat){
-                mode_values[0]=*reinterpret_cast<std::uint16_t*>(base+0x4717840);
-                mode_values[1]=*reinterpret_cast<std::uint16_t*>(base+0x47AEC30);
-                mode_values[2]=*reinterpret_cast<std::uint16_t*>(base+0x475A04A);
-                mode_values[3]=*reinterpret_cast<std::uint16_t*>(base+0x47F143A);
-                std::memcpy(&mode_values[4],reinterpret_cast<void*>(base+0x48462F4),4);
-                mode_values[5]=*reinterpret_cast<unsigned char*>(base+0x48462D0);
+                mode_values[0]=*reinterpret_cast<std::uint16_t*>(module_base+0x4717840);
+                mode_values[1]=*reinterpret_cast<std::uint16_t*>(module_base+0x47AEC30);
+                mode_values[2]=*reinterpret_cast<std::uint16_t*>(module_base+0x475A04A);
+                mode_values[3]=*reinterpret_cast<std::uint16_t*>(module_base+0x47F143A);
+                std::memcpy(&mode_values[4],reinterpret_cast<void*>(module_base+0x48462F4),4);
+                mode_values[5]=*reinterpret_cast<unsigned char*>(module_base+0x48462D0);
                 mode_values_valid=true;
                 if(!state_ready){fault=true;__leave;}
             }
             capture_stage=3;if(!FullStateProbe::input_bytes(argument,q.delayed_inputs)){fault=true;__leave;}
-            capture_stage=4;if(!q.rings[0].capture(base)){fault=true;__leave;}
-            capture_stage=5;q.measure(base,0);FullStateProbe::keys(base,q.before_keys.data(),q.before_players);
-            bookkeeping=FullStateProbe::ptr(base+0x470E870);saved_bookkeeping=true;
-            capture_stage=6;writer(&q.saved.stream);q.measure(base,1);
+            capture_stage=4;if(!q.rings[0].capture(module_base)){fault=true;__leave;}
+            capture_stage=5;q.measure(module_base,0);FullStateProbe::keys(module_base,q.before_keys.data(),q.before_players);
+            bookkeeping=FullStateProbe::ptr(module_base+0x470E870);saved_bookkeeping=true;
+            capture_stage=6;writer(&q.saved.stream);q.measure(module_base,1);
             capture_stage=7;if(!q.saved.seal()){fault=true;__leave;}
             capture_stage=8;if(!IdleTrajectoryAudit::same_measurement(q.measurements[0],q.measurements[1])){fault=true;__leave;}
-            capture_stage=9;if(!q.rings[1].capture(base)){fault=true;__leave;}
+            capture_stage=9;if(!q.rings[1].capture(module_base)){fault=true;__leave;}
             capture_stage=10;if(!q.rings[0].same(q.rings[1])){fault=true;__leave;}
-            capture_stage=11;if(!q.capture_blend(base,0)){fault=true;__leave;}
-            if(mode==Mode::general_combat && writer==reinterpret_cast<FullStateProbe::Routine>(base+0x3841E0)){
-                capture_stage=17;if(!q.camera_slots[0].capture(q.saved,base)){fault=true;__leave;}}
-            capture_stage=12;if(!q.cameras[0].capture(q.saved,base)){fault=true;__leave;}
+            capture_stage=11;if(!q.capture_blend(module_base,0)){fault=true;__leave;}
+            if(mode==Mode::general_combat && writer==reinterpret_cast<FullStateProbe::Routine>(module_base+0x3841E0)){
+                capture_stage=17;if(!q.camera_slots[0].capture(q.saved,module_base,q.before_players)){fault=true;__leave;}}
+            capture_stage=12;if(!NativeRollbackTiming::measure(NativeRollbackTiming::capture_camera,[&]{return q.cameras[0].capture(q.saved,module_base);})){fault=true;__leave;}
             q.selector_enabled=selector_lifetime::installed && mode==Mode::general_combat;
             if(q.selector_enabled){capture_stage=16;if(!q.selectors[0].capture(q.before_players,q.selector_diagnostic)){fault=true;__leave;}}
             capture_stage=13;
-            std::array<std::uint32_t,std::size(FullStateProbe::key_rvas)> keys{};uintptr_t players[2]{};
-            FullStateProbe::keys(base,keys.data(),players);
-            if(keys!=q.before_keys || std::memcmp(players,q.before_players,sizeof(players))){fault=true;__leave;}
+            std::array<std::uint32_t,std::size(FullStateProbe::key_rvas)> keys{};uintptr_t boundary_players[2]{};
+            FullStateProbe::keys(module_base,keys.data(),boundary_players);
+            if(keys!=q.before_keys || std::memcmp(boundary_players,q.before_players,sizeof(boundary_players))){fault=true;__leave;}
             valid=true;
-        }__except(EXCEPTION_EXECUTE_HANDLER){exception=GetExceptionCode();fault=true;}
-        if(saved_bookkeeping){__try{if(!fault)capture_stage=14;*reinterpret_cast<std::uint64_t*>(base+0x470E870)=bookkeeping;}
-            __except(EXCEPTION_EXECUTE_HANDLER){exception=GetExceptionCode();fault=true;}}
+        }__except(EXCEPTION_EXECUTE_HANDLER){exception=GetExceptionCode();if(capture_stage==1)preflight_diagnostic.exception(exception);fault=true;}
+        if(saved_bookkeeping){__try{if(!fault)capture_stage=14;*reinterpret_cast<std::uint64_t*>(module_base+0x470E870)=bookkeeping;}
+            __except(EXCEPTION_EXECUTE_HANDLER){exception=GetExceptionCode();if(capture_stage==1)preflight_diagnostic.exception(exception);fault=true;}}
         valid=valid && !fault;if(valid)capture_stage=15;return valid;
     }
     // Current is captured at restore time, not supplied as a correct predicted
     // outcome. The original bounded topology/input/RNG guards remain mandatory.
-    enum class Rejection {none,invalid_capture,module,mode,thread,used_probe,frame,players,shape,rings,rng,transforms,camera,inputs,reader,sources,combat,root_wind,charge};
+    using Rejection=NativeBoundaryTypes::Rejection;
     static const char* rejection_name(Rejection r){
         constexpr const char* names[]={"none","invalid_capture","module","mode","thread","used_probe","frame_adjacency","player_identity","stream_shape","ring_rotation","rng_changed","transform_topology","camera_identity","input_changed","reader_copy","serializer_source","combat_readiness","root_wind","charge_readiness"};
         return names[static_cast<unsigned>(r)];
     }
     // Pure structural assessment is available for combat captures too. Passing
     // it does not authorize loading or relax move/input-specific readiness.
-    Rejection structural_readiness(const NativeBoundarySnapshot& current,TransformSnapshot::TopologyDiagnostic* topology=nullptr,IdleTrajectoryAudit::ShapeDiagnostic* shape=nullptr,unsigned span=1)const{
+    template<class Other> Rejection structural_readiness(const NativeBoundarySnapshotStorage<Other>& current,TransformSnapshot::TopologyDiagnostic* topology=nullptr,IdleTrajectoryAudit::ShapeDiagnostic* shape=nullptr,unsigned span=1, std::array<unsigned,FullRestoreStream::transfer_limit>* prepared_mapping=nullptr, CameraSnapshot* prepared_camera=nullptr)const{
         if(topology)*topology={};
         if(!valid || fault || !current.valid || current.fault)return Rejection::invalid_capture;
         if(module!=current.module)return Rejection::module;
@@ -141,7 +172,13 @@ struct NativeBoundarySnapshot {
         if(a.camera_slots[0].enabled!=b.camera_slots[0].enabled)return Rejection::shape;
         const bool strict_shape=IdleTrajectoryAudit::same_shape(a.saved,b.saved,shape);
         if(a.camera_slots[0].enabled){std::array<unsigned,FullRestoreStream::transfer_limit> mapping;
-            if(!a.camera_slots[0].map(a.saved,b.camera_slots[0],b.saved,mapping))return Rejection::shape;
+            CameraSlots::MapDiagnostic mapped;
+            if(!a.camera_slots[0].map(a.saved,b.camera_slots[0],b.saved,prepared_mapping?*prepared_mapping:mapping,&mapped)){
+                if(shape){shape->values[IdleTrajectoryAudit::ShapeDiagnostic::map_reason]=mapped.reason;
+                    shape->values[IdleTrajectoryAudit::ShapeDiagnostic::map_saved_record]=mapped.saved;
+                    shape->values[IdleTrajectoryAudit::ShapeDiagnostic::map_next_record]=mapped.next;}
+                return Rejection::shape;
+            }
         }else if(!strict_shape)return Rejection::shape;
         if(!b.rings[0].rotated_from(a.rings[0],span))return Rejection::rings;
         if(!a.measurements[0].rng || a.measurements[0].rng>=2147483647 ||
@@ -149,11 +186,12 @@ struct NativeBoundarySnapshot {
         if(!a.transforms[0].same_topology(b.transforms[0],topology))return Rejection::transforms;
         CameraSnapshot aligned;
         const CameraSnapshot* next_camera=&b.cameras[0];
-        if(a.camera_slots[0].enabled){if(!a.cameras[0].align_next(b.cameras[0],a.camera_slots[0],b.camera_slots[0],aligned))return Rejection::camera;next_camera=&aligned;}
+        if(a.camera_slots[0].enabled){if(!a.cameras[0].align_next(b.cameras[0],a.camera_slots[0],b.camera_slots[0],prepared_camera?*prepared_camera:aligned))return Rejection::camera;next_camera=prepared_camera?prepared_camera:&aligned;}
         if(!IdleTrajectoryAudit::camera_identity(a.cameras[0],*next_camera))return Rejection::camera;
+        if(prepared_camera && !a.camera_slots[0].enabled)*prepared_camera=b.cameras[0];
         return Rejection::none;
     }
-    bool prepare_adjacent(const NativeBoundarySnapshot& current,FullStateProbe& q,Rejection* reason=nullptr,bool direction_restore=false,bool a_restore=false,bool general_restore=false,unsigned span=1)const {
+    template<class Other> bool prepare_adjacent(const NativeBoundarySnapshotStorage<Other>& current,FullStateProbe& q,Rejection* reason=nullptr,bool direction_restore=false,bool a_restore=false,bool general_restore=false,unsigned span=1)const {
         NativeRollbackTiming::Scope prepare_timing(NativeRollbackTiming::restore_prepare_adjacent);
         auto reject=[&](Rejection r){if(reason)*reason=r;return false;};
         if(reason)*reason=Rejection::none;
@@ -174,7 +212,7 @@ struct NativeBoundarySnapshot {
         const bool combat=mode!=Mode::idle && !direction_pair;
         if(span!=1 && (!general_pair || span<2 || span>3))return reject(Rejection::mode);
         q.restore_span=span;
-        const auto structural=structural_readiness(current,nullptr,nullptr,span);
+        const auto structural=structural_readiness(current,nullptr,nullptr,span,&q.camera_source_map,&q.cameras[1]);
         if(structural!=Rejection::none)return reject(structural);
         // Idle permits only finite normalized auxiliary variation. Buttons and
         // flags (first24bytes) remain exact, including when both inputs match.
@@ -214,14 +252,17 @@ struct NativeBoundarySnapshot {
         q.measurements[2]=b.measurements[0];q.measurements[3]=b.measurements[1];
         q.before_keys=a.before_keys;q.after_keys=b.before_keys;
         std::memcpy(q.before_players,a.before_players,sizeof(q.before_players));std::memcpy(q.after_players,b.before_players,sizeof(q.after_players));
-        q.rings[0]=a.rings[0];q.rings[1]=a.rings[0];q.rings[2]=b.rings[0];q.rings[3]=b.rings[0];
+        // Slots 1 and 3 are serializer-before/after scratch. Their consumers
+        // capture them before reading; adjacent loading uses only 0 and 2.
+        // Do not duplicate 600 KiB of immutable payload into unused scratch.
+        q.rings[0]=a.rings[0];q.rings[2]=b.rings[0];
+        q.rings[1].valid=false;q.rings[3].valid=false;
         q.blends[0]=a.blends[0];q.blends[1]=b.blends[0];
         if(!q.transforms[0].copy_recorded_from(a.transforms[0]) ||
            !q.transforms[1].copy_recorded_from(b.transforms[0]))return reject(Rejection::transforms);
-        q.cameras[0]=a.cameras[0];q.cameras[1]=b.cameras[0];q.delayed_inputs=a.delayed_inputs;
+        // Reuse only the mapping and alignment validated above in this call.
+        q.cameras[0]=a.cameras[0];q.delayed_inputs=a.delayed_inputs;
         q.camera_slots[0]=a.camera_slots[0];q.camera_slots[1]=b.camera_slots[0];
-        if(q.camera_slots[0].enabled && (!q.camera_slots[0].map(a.saved,q.camera_slots[1],b.saved,q.camera_source_map) ||
-            !a.cameras[0].align_next(b.cameras[0],q.camera_slots[0],q.camera_slots[1],q.cameras[1])))return reject(Rejection::camera);
         if(a.selector_enabled!=b.selector_enabled)return reject(Rejection::sources);
         q.selector_enabled=a.selector_enabled;
         if(q.selector_enabled){
@@ -254,4 +295,6 @@ struct NativeBoundarySnapshot {
         q.fault=false;return true;
     }
 };
+using NativeBoundarySnapshot=NativeBoundarySnapshotStorage<>;
+using CompactNativeBoundarySnapshot=NativeBoundarySnapshotStorage<CompactBoundaryState>;
 }

@@ -7,6 +7,7 @@
 #include "NativeStartHold.hpp"
 #include "NativeClockDiscovery.hpp"
 #include "CombatResourcePreparation.hpp"
+#include "AutomaticPlayControl.hpp"
 namespace sc6::research::native_clock_hook {
 using Dispatch=NativeClockDispatch<>;
 inline Dispatch::Original original{};
@@ -18,12 +19,25 @@ inline std::atomic<const StartupPoll*> preparation_poll{};
 inline bool installed{};
 inline uintptr_t installed_base{};
 inline NativeClockDiscovery discovery;
+inline RoundFightReadiness observe_fight(uintptr_t base)noexcept {
+    if(!base)return {};
+    const auto before=round_event::snapshot();unsigned frame{},after_frame{};
+    __try {frame=*reinterpret_cast<const unsigned*>(base+0x470D0C4);}
+    __except(EXCEPTION_EXECUTE_HANDLER){return {};}
+    const auto fight=RoundFightReadiness::read(base,before.round,before.generation,frame);
+    __try {after_frame=*reinterpret_cast<const unsigned*>(base+0x470D0C4);}
+    __except(EXCEPTION_EXECUTE_HANDLER){return {};}
+    const auto after=round_event::snapshot();
+    if(frame!=after_frame || before.round!=after.round || before.generation!=after.generation || before.counter!=after.counter)return {};
+    return fight;
+}
 inline void bridge(uintptr_t object) {
     ++NativeOuterTiming::clock_counts.calls;
     const auto now=GetTickCount64();
     // Owner-thread consumers use this entry's inspection, even when a reader
     // prevents publication to the optional cross-thread discovery cache.
-    const auto observed=installed_base?discovery.observe(installed_base,object,now):NativeClockDiscovery::Observation{};
+    const auto fight=automatic_play::enabled && !combat_routes.load(std::memory_order_acquire)?observe_fight(installed_base):RoundFightReadiness{};
+    const auto observed=installed_base?discovery.observe(installed_base,object,now,fight):NativeClockDiscovery::Observation{};
     if(auto* resources=combat_resource_preparation.load(std::memory_order_acquire)){
         if(resources->replay_restart())return;
         resources->clock_entry(observed,object,now);

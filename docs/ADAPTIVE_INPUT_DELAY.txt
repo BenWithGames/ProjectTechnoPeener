@@ -1,0 +1,34 @@
+Adaptive input delay (supersedes earlier fixed-delay and worst-of-three notes)
+
+Each PC proposes 0, 1 or 2 frames at safe round preparation. Both authenticated
+offers are immutable and acknowledged, with both native holds confirmed before
+activation. Both PCs select max(local proposal, peer proposal). Inputs still send
+immediately and are consumed at sample frame + agreed delay. Delay is immutable
+until the next round; the prediction limit remains three frames.
+
+The dedicated ping worker measures five raw RTTs every three seconds. Selection
+uses the fourth-smallest sample (nearest-rank 80th percentile), so one isolated
+outlier cannot keep delay high indefinitely. Two elevated samples still count.
+The maximum selection value from the two latest complete bursts selects the band.
+A decrease therefore needs two complete supporting bursts; increases apply on
+the next proposal. This is a jitter/responsiveness tradeoff, not a guarantee that
+an excluded isolated spike cannot cause a correction or prediction-limit stall.
+
+Thresholds stay unchanged: below 25 ms = 0f; 25 through 70 ms inclusive = 1f;
+above 70 ms = 2f. Both PCs must support a decrease. The displayed ping remains
+the minimum adjusted RTT; it is not the selection statistic. Thus 65 ms shown
+on the overlay can still correctly coexist with 2f if repeated samples or the
+other PC's measurements exceed 70 ms.
+
+Missing/incomplete bursts, invalid chronology and unavailable peer evidence use
+2f. At observation, the supporting burst must be within six seconds. A proposal
+expires when the latest burst is over six seconds old or its predecessor over
+nine seconds old; this allows the next three-second burst to be in flight without
+an expiry flicker. No added startup wait or mid-combat delay changes are made.
+
+Reports retain worst raw RTT and add adaptive_delay_selection_us,
+adaptive_delay_complete_recent and adaptive_delay_evidence_reason (0 valid,
+1 insufficient history, 2 incomplete/invalid burst, 3 invalid/stale chronology).
+The proposal also checks freshness at read time. Per-round reports retain local
+proposal, peer proposal and agreed delay. Existing verification, ownership cleanup,
+synchronized startup, intro preparation and all round safety checks are retained.

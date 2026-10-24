@@ -15,66 +15,12 @@ if ($LASTEXITCODE -ne 0 -or $revision -ne 'd935b5b23bac03b65c14ae38382b02007204c
 $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
 $vs = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
 if (!$vs) { throw 'MSVC x64 tools not found.' }
-& (Join-Path $PSScriptRoot 'Test-DelayedInput.ps1')
-& (Join-Path $PSScriptRoot 'Test-OfflineRollback.ps1')
-& (Join-Path $PSScriptRoot 'Test-BoundedRollback.ps1')
-& (Join-Path $PSScriptRoot 'Test-OuterStackContinuation.ps1')
-& (Join-Path $PSScriptRoot 'Test-OuterStackContinuation.ps1') -Optimized
-& (Join-Path $PSScriptRoot 'Test-CombatUpdateAdapter.ps1')
-& (Join-Path $PSScriptRoot 'Test-InputLatency.ps1')
-& (Join-Path $PSScriptRoot 'Test-NativeOuterTiming.ps1')
-& (Join-Path $PSScriptRoot 'Test-ConstraintSlots.ps1')
-& (Join-Path $PSScriptRoot 'Test-StreamShape.ps1')
-& (Join-Path $PSScriptRoot 'Test-CameraSlots.ps1')
-& (Join-Path $PSScriptRoot 'Test-RestoreTimingDetail.ps1')
-& (Join-Path $PSScriptRoot 'Test-NativeClockAccess.ps1')
-& (Join-Path $PSScriptRoot 'Test-NativePredictionFrontier.ps1')
-& (Join-Path $PSScriptRoot 'Test-NativeInputWords.ps1')
-& (Join-Path $PSScriptRoot 'Test-NativeRawInputLookup.ps1')
-& (Join-Path $PSScriptRoot 'Test-RawPredictionRoute.ps1')
-& (Join-Path $PSScriptRoot 'Test-FreshRawSender.ps1')
-& (Join-Path $PSScriptRoot 'Test-RearmPeerAdmission.ps1')
-& (Join-Path $PSScriptRoot 'Test-LiveRawIntegration.ps1')
-& (Join-Path $PSScriptRoot 'Test-NativeFilterPreparation.ps1')
-& (Join-Path $PSScriptRoot 'Test-EffectLifetime.ps1')
-& (Join-Path $PSScriptRoot 'Test-MatchDataset.ps1')
-& (Join-Path $PSScriptRoot 'Test-EffectObserver.ps1')
-& (Join-Path $PSScriptRoot 'Test-NativeSnapshotPool.ps1')
-& (Join-Path $PSScriptRoot 'Test-NativeRestoreReuse.ps1')
-& (Join-Path $PSScriptRoot 'Test-NativeRollbackWindow.ps1')
-& (Join-Path $PSScriptRoot 'Test-DirectRestore.ps1')
-& (Join-Path $PSScriptRoot 'Test-NativeSnapshotReader.ps1')
-& (Join-Path $PSScriptRoot 'Test-Recorder.ps1')
-& (Join-Path $PSScriptRoot 'Test-Recorder.ps1') -Optimized
-& (Join-Path $PSScriptRoot 'Test-SaveStream.ps1')
-& (Join-Path $PSScriptRoot 'Test-SharedRestore.ps1')
-& (Join-Path $PSScriptRoot 'Test-FullRestore.ps1')
-& (Join-Path $PSScriptRoot 'Test-SteamObserver.ps1')
-& (Join-Path $PSScriptRoot 'Test-AutomaticSteam.ps1')
-& (Join-Path $PSScriptRoot 'Test-SteamHandshake.ps1')
-& (Join-Path $PSScriptRoot 'Test-SteamInputExchange.ps1')
-& (Join-Path $PSScriptRoot 'Test-SteamPing.ps1')
-& (Join-Path $PSScriptRoot 'Test-OverlayPing.ps1')
-& (Join-Path $PSScriptRoot 'Test-AutomaticPlay.ps1')
-& (Join-Path $PSScriptRoot 'Test-SingleUpdateCall.ps1')
-& (Join-Path $PSScriptRoot 'Test-RngCallerBridge.ps1')
-& (Join-Path $PSScriptRoot 'Test-CameraCalc.ps1')
-& (Join-Path $PSScriptRoot 'Test-SelectorSnapshot.ps1')
-& (Join-Path $PSScriptRoot 'Test-ActiveAnimationGroup.ps1')
-& (Join-Path $PSScriptRoot 'Test-RestorePerformance.ps1')
-& (Join-Path $PSScriptRoot 'Test-EffectClock.ps1')
-& (Join-Path $PSScriptRoot 'Test-EffectBirthJournal.ps1')
-& (Join-Path $PSScriptRoot 'Test-CaptureStorage.ps1')
-& (Join-Path $PSScriptRoot 'Test-SharedRngBridge.ps1')
-& (Join-Path $PSScriptRoot 'Test-InlineRng.ps1')
-& (Join-Path $PSScriptRoot 'Test-TimerLookup.ps1')
-& (Join-Path $PSScriptRoot 'Test-ScopedResourceClear.ps1')
-& (Join-Path $PSScriptRoot 'Test-AnimationCopy.ps1')
-& (Join-Path $PSScriptRoot 'Test-LiveShadowPrediction.ps1')
-& (Join-Path $PSScriptRoot 'Test-NetworkInputComposer.ps1')
-& (Join-Path $PSScriptRoot 'Test-LiveInputComposition.ps1')
-& (Join-Path $PSScriptRoot 'Test-NetworkGameHandoff.ps1')
-& (Join-Path $PSScriptRoot 'Test-RoundBoundaryIdentity.ps1')
+& (Join-Path $PSScriptRoot 'Test-NativeSuite.ps1')
+
+$updateBuild=Get-Date -Format 'yyyyMMddHHmmss'
+$updateLabel=$updateBuild.Substring(0,8)+'-'+$updateBuild.Substring(8)
+@('#pragma once','namespace sc6::updater {',('inline constexpr wchar_t build[]=L"'+$updateBuild+'";'),('inline constexpr wchar_t version[]=L"'+$updateLabel+'";'),'}') | Set-Content -LiteralPath (Join-Path $project 'src\UpdateBuild.hpp') -Encoding ascii
+
 $build = Join-Path $project 'build-native'
 $dllDir = Join-Path $project 'package\Mods\SC6Rollback\dlls'
 New-Item -ItemType Directory -Force -Path $build,$dllDir | Out-Null
@@ -111,7 +57,7 @@ Invoke-DeveloperCommands @(
     "dumpbin /exports `"$dllDir\main.dll`""
 )
 Write-Host 'DLL staged locally. This does not install or launch the game.'
-
-
+$runtimeHashes=@{'SoulcaliburVI.exe'='F8904E4B04BCA3B47BC52A683F6190365D2EB89EE8F44F8072759E9C5E04A553';'UE4SS.dll'=(Get-FileHash -LiteralPath (Join-Path $project 'package\UE4SS.dll')).Hash;'dwmapi.dll'=(Get-FileHash -LiteralPath (Join-Path $project 'package\dwmapi.dll')).Hash}
+@{schema=1;build=$updateBuild;runtime=$runtimeHashes;dllSHA256=(Get-FileHash -LiteralPath (Join-Path $dllDir 'main.dll')).Hash} | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $project 'package\Mods\SC6Rollback\UpdateVersion.json') -Encoding UTF8
 
 

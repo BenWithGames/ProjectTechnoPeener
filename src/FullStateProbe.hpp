@@ -1,4 +1,5 @@
 #pragma once
+#include "PostloadReadiness.hpp"
 #include "NativeRollbackTiming.hpp"
 #include "FullRestoreStream.hpp"
 #include "NativeLoadRoute.hpp"
@@ -9,9 +10,11 @@
 #include "CameraSlots.hpp"
 #include "ThrowCameraFlag.hpp"
 #include "CombatBlend.hpp"
+#include "AnimationControllerSnapshot.hpp"
 #include "SelectorSnapshot.hpp"
 #include "ActiveAnimationGroup.hpp"
 #include "ExactBytes.hpp"
+#include "CallbackAttachmentGuard.hpp"
 #include <memory>
 #include <type_traits>
 namespace sc6::research {
@@ -21,9 +24,21 @@ struct FullStateProbe {
     // Only callers that have completed ownership drain and reuse guards may call.
     void reset_for_reuse() noexcept;
     bool copy_recorded_from(const FullStateProbe& source) noexcept;
+    // Private endpoint evidence for NativeAdjacentRestore's history-only path.
+    // Native reader preparation still consumes the complete archived snapshot.
+    template<class Snapshot> bool copy_restore_endpoint_from(const Snapshot& source,bool copy_transforms=true) noexcept {
+        for(const auto& t:source.transforms)if(t.count>t.records.size())return false;
+        for(const auto& span:source.storage_spans())if(span.published>span.capacity)return false;
+        if(copy_transforms){if(!transforms[0].copy_recorded_from(source.transforms[0]))return false;}
+        else {transforms[0].count=0;transforms[0].valid=false;}
+        before_keys=source.before_keys;
+        std::memcpy(before_players,source.before_players,sizeof(before_players));
+        delayed_inputs=source.delayed_inputs;rings[0]=source.rings[0];
+        blends[0]=source.blends[0];cameras[0]=source.cameras[0];return true;
+    }
     struct StorageSpan {size_t offset{},capacity{},published{};};
     // Sorted byte ranges whose unused capacity is never input to native loading.
-    std::array<StorageSpan,22> storage_spans() const noexcept;
+    std::array<StorageSpan,38> storage_spans() const noexcept;
     unsigned restore_span{1}; // Explicit bounded target-to-live distance; fixture default remains adjacent.
     bool external_wind_lifecycle{};
     bool selector_enabled{};
@@ -32,10 +47,11 @@ struct FullStateProbe {
     bool selector_restored{},selector_endpoint_verified{};
     ActiveAnimationGroup::Diagnostic active_group_diagnostic;
     bool defer_inactive_animation_weights{};
-    struct BlendPairDiagnostic {unsigned reason{},side{},offset{UINT32_MAX},changed{},saved{},next{};uintptr_t saved_owner{},next_owner{},table_saved{},table_next{},wrapper_saved{},wrapper_next{},resource_saved{},resource_next{};uint64_t mask_saved{},mask_next{};unsigned index_saved{},index_next{};} blend_pair_diagnostic;
+    struct BlendPairDiagnostic {unsigned reason{},side{},offset{UINT32_MAX},changed{},saved{},next{};uintptr_t saved_owner{},next_owner{},table_saved{},table_next{},wrapper_saved{},wrapper_next{},resource_saved{},resource_next{};uint64_t mask_saved{},mask_next{};unsigned index_saved{},index_next{},scalar_saved{},scalar_next{};} blend_pair_diagnostic;
     struct BlendPairEvidence {bool valid{};std::array<std::byte,1372> saved{},next{};} blend_pair_evidence;
     FullRestoreStream saved,after_save;
     std::array<CameraSlots,2> camera_slots{};
+    std::array<uint64_t,5> camera_reference_check{};
     std::array<unsigned,FullRestoreStream::transfer_limit> camera_source_map{};
     unsigned source_index(unsigned i)const{return camera_slots[0].enabled?camera_source_map[i]:i;}
     std::array<CameraSnapshot,6> cameras{};
@@ -143,8 +159,7 @@ struct FullStateProbe {
         }
     }
     static constexpr const char* measurement_names[]={"before_save","after_save","after_load","after_post_save","after_preservation","restored_before_save","restored_after_save"};
-    void measure(uintptr_t b,unsigned phase_index){
-        auto& m=measurements[phase_index];
+    static void measure_into(uintptr_t b,Measurement& m){
         m.rng=*reinterpret_cast<std::uint32_t*>(b+0x485EB28);
         for(unsigned i=0;i<2;++i){
             auto p=ptr(b+0x470DE90+i*8);m.players[i]=p;
@@ -153,6 +168,10 @@ struct FullStateProbe {
             std::memcpy(m.fields[i].data()+128,reinterpret_cast<void*>(p+0x971E8),96);
         }
         m.valid=true;
+    }
+    void measure(uintptr_t b,unsigned phase_index){
+        auto& m=measurements[phase_index];
+        measure_into(b,m);
         if(blend_timer_count<blend_timer_history.size())read_blend_timers(blend_timer_history[blend_timer_count++],m,phase_index);
         else ++blend_timer_dropped;
     }
@@ -220,6 +239,8 @@ struct FullStateProbe {
             }
         }
         if(blend_timer_restore_requested && !timer_live_ready())return false;
+        if(blends[0].controller.valid){controller_diagnostic.phase=3;
+            if(!blends[0].controller.ready(blends[1].controller,controller_diagnostic))return false;}
         preserve_applied=true;
         for(unsigned side=0;side<2;++side){
             auto player=source.players[side];
@@ -233,6 +254,8 @@ struct FullStateProbe {
                 std::memcpy(reinterpret_cast<void*>(source.players[side]+0x971E8+off),source.fields[side].data()+128+off,4);
         *reinterpret_cast<std::uint32_t*>(b+0x485EB28)=source.rng;
         if(blend_timer_restore_requested && !restore_blend_timers())return false;
+        if(blends[0].controller.valid){controller_diagnostic.phase=4;
+            if(!blends[0].controller.restore(blends[1].controller,controller_diagnostic))return false;}
         measure(b,4);auto& result=measurements[4];
         preserve_verified=result.rng==source.rng;
         for(unsigned side=0;side<2;++side){
@@ -261,67 +284,83 @@ struct FullStateProbe {
         if(*reinterpret_cast<int*>(item+16)!=serial || (*reinterpret_cast<unsigned*>(item+8)&0x30000000))return 0;
         return ptr(item);
     }
-    static bool callbacks(uintptr_t b){
-        auto interface=ptr(b+0x470D188);
-        if(!method(interface,0xC0,b,0x400760))return false;
+    static bool callbacks_detailed(uintptr_t b,SnapshotPreflightDiagnostic* diagnostic){
+        SnapshotPreflightTrace trace(diagnostic,2);
+
+        trace.location(__LINE__);auto interface=trace.ptr(b+0x470D188);
+        trace.location(__LINE__);if(!trace.method(interface,0xC0,b,0x400760))return trace.reject(__LINE__);
         auto delegate=interface+0xA18;
-        if(*reinterpret_cast<int*>(delegate+0x50)!=4)return false;
-        auto list=ptr(delegate+0x40);if(!list)list=delegate;
+        trace.location(__LINE__);if(trace.read<int>(delegate+0x50)!=4)return trace.reject(__LINE__);
+        trace.location(__LINE__);auto list=trace.ptr(delegate+0x40);if(!list)list=delegate;
         constexpr unsigned targets[]={0x3C6050,0x3C6050,0x5112A0,0x3C6020};
         for(unsigned i=0;i<4;++i){
-            auto entry=list+i*0x40,object=ptr(entry+0x20);if(!object)object=entry;
-            if(*reinterpret_cast<int*>(entry+0x30)<=0 || !method(object,0x68,b,0x3EF060) || ptr(object+0x10)!=b+targets[i])return false;
-            auto target=weak(b,object+8);if(!target)return false;
+            trace.location(__LINE__);auto entry=list+i*0x40,object=trace.ptr(entry+0x20);if(!object)object=entry;
+            trace.location(__LINE__);if(trace.read<int>(entry+0x30)<=0 || !trace.method(object,0x68,b,0x3EF060) || trace.ptr(object+0x10)!=b+targets[i])return trace.reject(__LINE__);
+            trace.location(__LINE__);auto index=trace.read<int>(object+8),serial=trace.read<int>(object+12);
+            trace.location(__LINE__);auto count=trace.read<int>(b+0x42A115C);
+            if(!serial || index<0 || index>=count)return trace.reject(__LINE__);
+            trace.location(__LINE__);auto item=trace.ptr(b+0x42A1150)+static_cast<uintptr_t>(index)*24;
+            trace.location(__LINE__);if(trace.read<int>(item+16)!=serial || (trace.read<unsigned>(item+8)&0x30000000))return trace.reject(__LINE__);
+            trace.location(__LINE__);auto target=trace.ptr(item);if(!target)return trace.reject(__LINE__);
             if(i<2){
-                if(ptr(target)!=b+0x3268078 || *reinterpret_cast<unsigned*>(target+0x3A0)!=i ||
-                   *reinterpret_cast<int*>(target+0x528)!=0)return false;
+                trace.location(__LINE__);if(trace.ptr(target)!=b+0x3268078 || trace.read<unsigned>(target+0x3A0)!=i)return trace.reject(__LINE__);
+                if(!CallbackAttachmentGuard::validate(b,target,i,trace))return false;
                 constexpr unsigned slots[]={0x5F8,0x600,0x680,0x698};
                 constexpr unsigned methods[]={0x3BF540,0x3BF8A0,0x3BE3A0,0x3BE670};
-                for(unsigned j=0;j<4;++j)if(!method(target,slots[j],b,methods[j]))return false;
-                auto n=*reinterpret_cast<int*>(target+0x3B8);if(n<1 || n>64)return false;
-                auto components=ptr(target+0x3B0);if(!components)return false;
-                for(int j=0;j<n;++j){auto c=ptr(components+j*8);
-                    if(!method(c,0x308,b,0x1D5DBE0) || !method(c,0x3A8,b,0x1DACA60))return false;
+                trace.location(__LINE__);for(unsigned j=0;j<4;++j)if(!trace.method(target,slots[j],b,methods[j]))return trace.reject(__LINE__);
+                trace.location(__LINE__);auto n=trace.read<int>(target+0x3B8);if(n<1 || n>64)return trace.reject(__LINE__);
+                trace.location(__LINE__);auto components=trace.ptr(target+0x3B0);if(!components)return trace.reject(__LINE__);
+                trace.location(__LINE__);for(int j=0;j<n;++j){auto c=trace.ptr(components+j*8);
+                    trace.location(__LINE__);if(!trace.method(c,0x308,b,0x1D5DBE0) || !trace.method(c,0x3A8,b,0x1DACA60))return trace.reject(__LINE__);
                 }
-            }else if(ptr(target)!=b+(i==2?0x32C3210:0x326A6C8))return false;
+            }else if(trace.ptr(target)!=b+(i==2?0x32C3210:0x326A6C8))return trace.reject(__LINE__);
         }
         return true;
-    }
-    static bool preflight(uintptr_t b){
-        if(!SaveProbe::preflight(b) || !callbacks(b))return false;
+        }
+    static bool callbacks(uintptr_t b){return callbacks_detailed(b,nullptr);}
+    static bool preflight_detailed(uintptr_t b,SnapshotPreflightDiagnostic* diagnostic){
+        SnapshotPreflightTrace trace(diagnostic,0);
+
+        if(!SaveProbe::preflight_detailed(b,diagnostic) || !callbacks_detailed(b,diagnostic))return false;
+        if(diagnostic)diagnostic->phase(3);
         for(unsigned p=0;p<2;++p){
-            auto player=ptr(b+0x470DE90+p*8);
+            trace.location(__LINE__);auto player=trace.ptr(b+0x470DE90+p*8);
             for(unsigned off:{0x400u,0x420u,0x440u}){
-                auto node=ptr(player+0x44078+off);unsigned n=0;
+                trace.location(__LINE__);auto node=trace.ptr(player+0x44078+off);AnimationListGuard guard;
                 while(node){
-                    if(++n>64)return false;
-                    bool ok=(method(node,0x30,b,0x30EA70) && method(node,0x38,b,0x30EAE0)) ||
-                            (method(node,0x30,b,0x30EB50) && method(node,0x38,b,0x30EBA0));
-                    if(!ok)return false;node=ptr(node+0x18);
+                    auto result=guard.visit(node);
+                    if(result!=AnimationListGuard::Result::accepted){
+                        if(diagnostic)diagnostic->record(result==AnimationListGuard::Result::cycle?5:4,node,guard.count,AnimationListGuard::limit,off);
+                        return trace.reject(__LINE__);
+                    }
+                    trace.location(__LINE__);bool ok=(trace.method(node,0x30,b,0x30EA70) && trace.method(node,0x38,b,0x30EAE0)) ||
+                            (trace.method(node,0x30,b,0x30EB50) && trace.method(node,0x38,b,0x30EBA0));
+                    trace.location(__LINE__);if(!ok)return trace.reject(__LINE__);node=trace.ptr(node+0x18);
                 }
             }
         }
-        auto manager=ptr(b+0x470DF28);
-        if(!method(manager,0,b,0x31F700))return false;
-        if(ptr(manager+8)){
-            auto table=ptr(manager+0x90);
+        trace.location(__LINE__);auto manager=trace.ptr(b+0x470DF28);
+        trace.location(__LINE__);if(!trace.method(manager,0,b,0x31F700))return trace.reject(__LINE__);
+        trace.location(__LINE__);if(trace.ptr(manager+8)){
+            trace.location(__LINE__);auto table=trace.ptr(manager+0x90);
             constexpr unsigned pairs[][4]={{0x318860,0x3188A0,0x318640,0x2D2BC0},{0x33FBC0,0x33FF40,0x31A2B0,0x2D2BC0},
                 {0x31C190,0x31C1E0,0x31BC50,0x2D2BC0},{0x340ED0,0x340F70,0x3402C0,0x340C50},
                 {0x317BD0,0x317C70,0x3179E0,0x317BC0},{0x341110,0x3411A0,0x341010,0x340C50}};
-            for(unsigned i=0;i<16;++i){auto object=ptr(table+0x270+i*8);if(!object)continue;
-                if(object!=ptr(manager+0x10+i*8) || !method(object,0xC8,b,0x33E640))return false;
+            trace.location(__LINE__);for(unsigned i=0;i<16;++i){auto object=trace.ptr(table+0x270+i*8);if(!object)continue;
+                trace.location(__LINE__);if(object!=trace.ptr(manager+0x10+i*8) || !trace.method(object,0xC8,b,0x33E640))return trace.reject(__LINE__);
                 bool ok=false;
-                for(auto& x:pairs)if(method(object,0x100,b,x[0]) && method(object,0x108,b,x[1]) && method(object,0xD0,b,x[2]) && method(object,0xD8,b,x[3]))ok=true;
-                if(!ok)return false;
+                trace.location(__LINE__);for(auto& x:pairs)if(trace.method(object,0x100,b,x[0]) && trace.method(object,0x108,b,x[1]) && trace.method(object,0xD0,b,x[2]) && trace.method(object,0xD8,b,x[3]))ok=true;
+                if(!ok)return trace.reject(__LINE__);
             }
         }
-        auto aux=ptr(manager+0xA0);
-        if(aux)for(unsigned i=0;i<17;++i){auto object=ptr(aux+0x10+i*8);if(!object)continue;
-            if(!((method(object,0x20,b,0x2D2BB0) && method(object,0x28,b,0x2D2BB0)) ||
-                 (method(object,0x20,b,0x32AC00) && method(object,0x28,b,0x32ACE0))))return false;
+        trace.location(__LINE__);auto aux=trace.ptr(manager+0xA0);
+        trace.location(__LINE__);if(aux)for(unsigned i=0;i<17;++i){auto object=trace.ptr(aux+0x10+i*8);if(!object)continue;
+            trace.location(__LINE__);if(!((trace.method(object,0x20,b,0x2D2BB0) && trace.method(object,0x28,b,0x2D2BB0)) ||
+                 (trace.method(object,0x20,b,0x32AC00) && trace.method(object,0x28,b,0x32ACE0))))return trace.reject(__LINE__);
         }
         return true;
-    }
+        }
+    static bool preflight(uintptr_t b){return preflight_detailed(b,nullptr);}
     bool combat_requested()const{return general_combat_requested || throw_requested || charge_requested || attack_requested || edge_requested || reversal_requested;}
     static bool charge_aux_active(uintptr_t b)noexcept{
         __try {
@@ -472,12 +511,16 @@ struct FullStateProbe {
     }
     bool combat_replay_requested{},combat_postload_ready{},combat_groups_restored{},combat_root_wind_restored{},combat_comparison_attempted{};
     unsigned combat_postload_pass_mask{};
+    PostloadReadiness postload_readiness;
+    std::array<uint64_t,6> reset_table_diagnostic{}; // reason, side, sample, expected, actual, player
     CombatBlend::LoadedDiagnostic combat_loaded_blend;
     bool combat_preflight_attempted{};
     // Report the exact rejected predicate without relaxing blend readiness.
     bool combat_blend_ready(){
         blend_pair_diagnostic={};blend_pair_evidence={};
         auto& d=blend_pair_diagnostic;
+        if(blends[0].controller.valid || blends[1].controller.valid){controller_diagnostic.phase=1;
+            if(!blends[0].controller.compatible(blends[1].controller,controller_diagnostic)){d.reason=10;return false;}}
         if(!blends[0].valid || !blends[1].valid){d.reason=1;d.saved=blends[0].valid;d.next=blends[1].valid;return false;}
         for(unsigned side=0;side<2;++side)if(blends[0].owners[side]!=blends[1].owners[side]){
             d.reason=2;d.side=side;d.saved_owner=blends[0].owners[side];d.next_owner=blends[1].owners[side];return false;
@@ -485,19 +528,24 @@ struct FullStateProbe {
         for(unsigned side=0;side<2;++side){
             const auto& a=blends[0].bytes[side];const auto& b=blends[1].bytes[side];CombatBlend::Diagnostic detail;
             // Archived-only preflight must not consult a newer live wrapper.
-            const uintptr_t table=side==1 && blends[0].tables[side]==blends[1].tables[side] &&
+            const uintptr_t table=blends[0].tables[side]==blends[1].tables[side] &&
                 blends[0].resources[side]>=0x10000 && blends[0].resources[side]==blends[1].resources[side]?
                 blends[0].tables[side]:0;
+            uintptr_t selected{};
+            const auto& dep=blends[0].selected_dependencies[side];
+            const auto player=blends[0].owners[side]>=0x29120?blends[0].owners[side]-0x29120:0;
+            if(general_combat_requested && player>=0x10000 && dep==blends[1].selected_dependencies[side] &&
+               dep[0]>=0x10000 && dep[1]==player && dep[2]==player)selected=dep[3];
             const bool accepted=side==0 && charge_requested?
                 (measurements[0].valid && CombatBlend::charge_adjacent(a,b,measurements[0].fields[0].data()+128)):
-                CombatBlend::adjacent(a,b,side==0 && throw_requested,&detail,general_combat_requested,table);
+                CombatBlend::adjacent(a,b,side==0 && throw_requested,&detail,general_combat_requested,table,selected);
             if(accepted)continue;
             d.reason=side==0 && charge_requested?8:detail.reason;d.side=side;d.offset=detail.offset;d.saved=detail.saved;d.next=detail.next;
             d.saved_owner=blends[0].owners[side];d.next_owner=blends[1].owners[side];
             if(d.offset>=140 && d.offset<1372){const auto block=(d.offset-140)/176;const auto* x=a.data()+140+block*176;const auto* y=b.data()+140+block*176;
                 d.table_saved=CombatBlend::wide(x+8);d.table_next=CombatBlend::wide(y+8);
                 d.mask_saved=CombatBlend::wide(x+24);d.mask_next=CombatBlend::wide(y+24);
-                d.index_saved=CombatBlend::word(x+16);d.index_next=CombatBlend::word(y+16);}
+                d.index_saved=CombatBlend::word(x+16);d.index_next=CombatBlend::word(y+16);d.scalar_saved=CombatBlend::word(x+20);d.scalar_next=CombatBlend::word(y+20);}
             d.wrapper_saved=blends[0].tables[side];d.wrapper_next=blends[1].tables[side];
             d.resource_saved=blends[0].resources[side];d.resource_next=blends[1].resources[side];
             std::copy_n(a.begin(),1372,blend_pair_evidence.saved.begin());std::copy_n(b.begin(),1372,blend_pair_evidence.next.begin());blend_pair_evidence.valid=true;
@@ -531,15 +579,24 @@ struct FullStateProbe {
     }
     FullRestoreStream replay,restored;
     RingSnapshot restored_rings,restored_after_rings;
+    AnimationControllerSnapshot::Diagnostic controller_diagnostic;
     struct BlendCheckpoint {
+        AnimationControllerSnapshot controller;
         uintptr_t owners[2]{};
         uintptr_t tables[2]{},resources[2]{};
+        // Native animation resource, its player, selected controller player/table.
+        std::array<std::array<uintptr_t,4>,2> selected_dependencies{};
         std::array<std::array<std::byte,1380>,2> bytes{};
         bool valid{};
     };
     std::array<BlendCheckpoint,10> blends{};
     std::array<std::array<std::array<unsigned,2>,2>,10> blend_branch_inputs{};
     std::array<TransformSnapshot,10> transforms{};
+    // Only synchronous checkpoints 7..9 may borrow an earlier unchanged capture.
+    // Indices, not pointers: scratch reset/copy cannot retain another probe's storage.
+    std::array<unsigned,10> transform_checkpoint_index{0,1,2,3,4,5,6,7,8,9};
+    TransformSnapshot& transform_checkpoint(unsigned i){return transforms[transform_checkpoint_index[i]];}
+    const TransformSnapshot& transform_checkpoint(unsigned i)const{return transforms[transform_checkpoint_index[i]];}
     static constexpr const char* blend_names[]={"original_a","original_b","restored","restored_after_save","replay","weights_corrected","blocks_corrected","wind_corrected","sway_corrected","constraints_corrected"};
     bool wind_restore_verified{},sway_restore_verified{},constraint_restore_verified{};
     TransformSnapshot::WindDiagnostic wind_diagnostic,wind_preflight_diagnostic;
@@ -556,27 +613,58 @@ struct FullStateProbe {
             return true;
         }
     } blend_block_diagnostic;
-    std::array<uintptr_t,2> combat_reset_tables{},combat_reset_resources{};
+    std::array<uintptr_t,2> combat_reset_tables{},combat_reset_resources{},combat_selected_tables{};
     bool verify_combat_reset_tables(uintptr_t b) noexcept {
-        combat_reset_tables={};combat_reset_resources={};
+        combat_reset_tables={};combat_reset_resources={};combat_selected_tables={};reset_table_diagnostic={};
+        auto& d=reset_table_diagnostic;
         __try {
             if(!general_combat_requested)return true;
             for(unsigned side=0;side<2;++side){
-                auto player=ptr(b+0x470DE90+side*8),owner=blends[0].owners[side];
-                if(player<0x10000 || player>UINTPTR_MAX-0x97200 || ptr(player+0x971F8)!=owner)return false;
+                d[0]=1;d[1]=side;d[2]=UINT_MAX;
+                auto player=ptr(b+0x470DE90+side*8),owner=blends[0].owners[side];d[5]=player;
+                if(player<0x10000 || player>UINTPTR_MAX-0x97200)return false;
+                d[0]=2;d[3]=owner;d[4]=ptr(player+0x971F8);if(d[4]!=owner)return false;
                 uintptr_t table{},resource{};
                 for(unsigned m:{0u,1u,2u}){
-                    if(!measurements[m].valid || measurements[m].players[side]!=player || blends[m].owners[side]!=owner)return false;
+                    d[2]=m;d[0]=3;d[3]=1;d[4]=measurements[m].valid;if(!d[4])return false;
+                    d[0]=4;d[3]=player;d[4]=measurements[m].players[side];if(d[4]!=d[3])return false;
+                    d[0]=5;d[3]=owner;d[4]=blends[m].owners[side];if(d[4]!=d[3])return false;
                     const auto* wrapper=measurements[m].fields[side].data()+128;
-                    if(CombatBlend::wide(wrapper+16)!=owner)return false;
+                    d[0]=6;d[3]=owner;d[4]=CombatBlend::wide(wrapper+16);if(d[4]!=d[3])return false;
                     if(!m){table=CombatBlend::wide(wrapper);resource=CombatBlend::wide(wrapper+8);}
-                    else if(CombatBlend::wide(wrapper)!=table || CombatBlend::wide(wrapper+8)!=resource)return false;
+                    else {
+                        d[0]=7;d[3]=table;d[4]=CombatBlend::wide(wrapper);if(d[4]!=d[3])return false;
+                        d[0]=8;d[3]=resource;d[4]=CombatBlend::wide(wrapper+8);if(d[4]!=d[3])return false;
+                    }
                 }
-                if(ptr(player+0x971E8)!=table || ptr(player+0x971F0)!=resource)return false;
+                d[2]=UINT_MAX;d[0]=9;d[3]=table;d[4]=ptr(player+0x971E8);if(d[4]!=d[3])return false;
+                d[0]=10;d[3]=resource;d[4]=ptr(player+0x971F0);if(d[4]!=d[3])return false;
                 combat_reset_tables[side]=table;combat_reset_resources[side]=resource;
+                const auto offset=140+5*176;
+                const auto saved_table=CombatBlend::wide(blends[0].bytes[side].data()+offset+8);
+                const auto loaded=CombatBlend::wide(blends[2].bytes[side].data()+offset+8);
+                const auto next_table=CombatBlend::wide(blends[1].bytes[side].data()+offset+8);
+                const auto candidate=saved_table?saved_table:next_table;
+                const bool activation=CombatBlend::active_selected_pair(5,blends[0].bytes[side].data()+offset,
+                    blends[1].bytes[side].data()+offset,candidate);
+                if(activation || (saved_table && saved_table!=table && loaded!=saved_table)){
+                    d[0]=11;d[3]=saved_table;d[4]=loaded;
+                    if(loaded!=table || (!activation && next_table!=saved_table))return false;
+                    d[0]=12;d[3]=player+0x29120;d[4]=owner;if(owner!=d[3])return false;
+                    const auto& dep=blends[0].selected_dependencies[side];
+                    d[0]=13;d[3]=player;d[4]=dep[1];if(dep[1]!=player || dep[2]!=player || dep[3]!=candidate)return false;
+                    for(unsigned m:{1u,2u}){d[0]=14;d[2]=m;
+                        if(dep!=blends[m].selected_dependencies[side])return false;
+                    }
+                    d[0]=15;d[2]=UINT_MAX;
+                    for(unsigned k=0;k<4;++k){d[3]=dep[k];d[4]=ptr(player+0x95EC0+k*8);if(d[3]!=d[4])return false;}
+                    d[0]=16;d[3]=dep[0];d[4]=saved_table;
+                    if(!CombatBlend::selected_table_member(dep[0],candidate))return false;
+                    combat_selected_tables[side]=candidate;
+                }
             }
-            return true;
-        }__except(EXCEPTION_EXECUTE_HANDLER){combat_reset_tables={};combat_reset_resources={};return false;}
+            d[0]=0;return true;
+        }__except(EXCEPTION_EXECUTE_HANDLER){d[0]|=0x100;combat_reset_tables={};combat_reset_resources={};combat_selected_tables={};return false;}
     }
     bool preserve_blend_blocks(uintptr_t b) noexcept {
         auto& d=blend_block_diagnostic;d={};d.stage=1;
@@ -696,8 +784,35 @@ struct FullStateProbe {
         }__except(EXCEPTION_EXECUTE_HANDLER){return false;}
     }
     unsigned intermediate_refreshes{},intermediate_fallbacks{},intermediate_last_rejection{};
-    bool capture_blend(uintptr_t b,unsigned checkpoint,unsigned prior_checkpoint=UINT32_MAX) noexcept {
-        auto& out=blends[checkpoint];out.valid=false;
+    unsigned intermediate_reuses{},intermediate_reuse_misses{};
+    template<class Snapshot> static bool capture_boundary_blend(Snapshot& q,uintptr_t b) noexcept {
+        auto& out=q.blends[0];out.valid=false;
+        __try {
+            for(unsigned side=0;side<2;++side){
+                auto player=ptr(b+0x470DE90+side*8);
+                if(player<0x10000)return false;
+                auto owner=ptr(player+0x971F8);
+                if(owner<0x10000 || owner>UINTPTR_MAX-0x22B0)return false;
+                out.owners[side]=owner;
+                out.tables[side]=ptr(player+0x971E8);out.resources[side]=ptr(player+0x971F0);
+                std::memcpy(out.selected_dependencies[side].data(),reinterpret_cast<const void*>(player+0x95EC0),32);
+                q.blend_branch_inputs[0][side]={*reinterpret_cast<unsigned*>(player+0x78),*reinterpret_cast<unsigned*>(player+0x210)};
+                std::memcpy(out.bytes[side].data(),reinterpret_cast<void*>(owner+0x4BC),140);
+                std::memcpy(out.bytes[side].data()+140,reinterpret_cast<void*>(owner+0x1DD8),1232);
+                std::memcpy(out.bytes[side].data()+1372,reinterpret_cast<void*>(owner+0x22A8),8);
+                if(ptr(player+0x971F8)!=owner || ptr(b+0x470DE90+side*8)!=player ||
+                   ptr(player+0x971E8)!=out.tables[side] || ptr(player+0x971F0)!=out.resources[side])return false;
+            }
+            const uintptr_t controller_players[]={ptr(b+0x470DE90),ptr(b+0x470DE98)};
+            if(!out.controller.capture(controller_players,q.controller_diagnostic))return false;
+            if(!q.transforms[0].capture(out.owners,b,true))return false;
+            if(q.external_wind_lifecycle && !q.transforms[0].separate_effects())return false;
+            out.valid=true;return true;
+        }__except(EXCEPTION_EXECUTE_HANDLER){return false;}
+    }
+    bool capture_blend(uintptr_t b,unsigned checkpoint,unsigned prior_checkpoint=UINT32_MAX,bool reuse_unchanged=false) noexcept {
+        if(!checkpoint){transform_checkpoint_index[0]=0;return capture_boundary_blend(*this,b);}
+        auto& out=blends[checkpoint];out.valid=false;transform_checkpoint_index[checkpoint]=checkpoint;
         __try {
             for(unsigned side=0;side<2;++side){
                 auto player=ptr(b+0x470DE90+side*8);
@@ -707,6 +822,7 @@ struct FullStateProbe {
                 if(checkpoint && owner!=blends[0].owners[side])return false;
                 out.owners[side]=owner;
                 out.tables[side]=ptr(player+0x971E8);out.resources[side]=ptr(player+0x971F0);
+                std::memcpy(out.selected_dependencies[side].data(),reinterpret_cast<const void*>(player+0x95EC0),32);
                 blend_branch_inputs[checkpoint][side]={*reinterpret_cast<unsigned*>(player+0x78),*reinterpret_cast<unsigned*>(player+0x210)};
                 std::memcpy(out.bytes[side].data(),reinterpret_cast<void*>(owner+0x4BC),140);
                 std::memcpy(out.bytes[side].data()+140,reinterpret_cast<void*>(owner+0x1DD8),1232);
@@ -714,17 +830,31 @@ struct FullStateProbe {
                 if(ptr(player+0x971F8)!=owner || ptr(b+0x470DE90+side*8)!=player ||
                    ptr(player+0x971E8)!=out.tables[side] || ptr(player+0x971F0)!=out.resources[side])return false;
             }
+            const uintptr_t controller_players[]={ptr(b+0x470DE90),ptr(b+0x470DE98)};
+            if(!out.controller.capture(controller_players,controller_diagnostic))return false;
             bool refreshed=false;
             if(general_combat_requested && external_wind_lifecycle && prior_checkpoint<transforms.size() && prior_checkpoint!=checkpoint){
-                refreshed=transforms[checkpoint].refresh_intermediate(transforms[prior_checkpoint],out.owners,b);
-                if(refreshed)++intermediate_refreshes;
-                else {++intermediate_fallbacks;intermediate_last_rejection=transforms[checkpoint].failure;}
+                const auto prior_index=transform_checkpoint_index[prior_checkpoint];
+                reuse_unchanged=reuse_unchanged && checkpoint>=7 && checkpoint<=9 && prior_checkpoint+1==checkpoint && prior_index<checkpoint;
+                if(reuse_unchanged && blends[prior_checkpoint].valid &&
+                   out.bytes==blends[prior_checkpoint].bytes &&
+                   !std::memcmp(out.owners,blends[prior_checkpoint].owners,sizeof(out.owners)) &&
+                   transforms[prior_index].unchanged_live(out.owners,b)){
+                    refreshed=transforms[prior_index].stable_live_bytes();
+                    if(refreshed){transform_checkpoint_index[checkpoint]=prior_index;++intermediate_reuses;}
+                }
+                if(reuse_unchanged && !refreshed)++intermediate_reuse_misses;
+                if(!refreshed){
+                    refreshed=transforms[checkpoint].refresh_intermediate(transforms[prior_index],out.owners,b);
+                    if(refreshed)++intermediate_refreshes;
+                    else {++intermediate_fallbacks;intermediate_last_rejection=transforms[checkpoint].failure;}
+                }
             }
             if(!refreshed){
                 if(!transforms[checkpoint].capture(out.owners,b,true))return false;
                 if(external_wind_lifecycle && !transforms[checkpoint].separate_effects())return false;
             }
-            if(checkpoint && !transforms[checkpoint].same_topology(transforms[0]))
+            if(checkpoint && !transform_checkpoint(checkpoint).same_topology(transforms[0]))
                 return transforms[checkpoint].reject(9,out.owners[0]);
             out.valid=true;return true;
         }__except(EXCEPTION_EXECUTE_HANDLER){return false;}
@@ -934,6 +1064,8 @@ struct FullStateProbe {
                         (combat_preflight_pass_mask | (recorded_input_replay && delayed_inputs_equal?2u:0u))==combat_preflight_required_mask;
                 }
                 if(blend_timer_restore_requested && (!timer_transition_ready() || !timer_endpoint_ready()))delayed_guard_ok=false;
+                if(blends[0].controller.valid){controller_diagnostic.phase=2;
+                    if(!blends[0].controller.ready(blends[1].controller,controller_diagnostic))delayed_guard_ok=false;}
                 if(!delayed_guard_ok){delayed_failure_line=__LINE__;fault=true;__leave;}
                 if(reader==reinterpret_cast<Routine>(b+0x384540) && !NativeLoadRoute::ready(saved,b,load_route_diagnostic)){
                     delayed_failure_line=__LINE__;fault=true;__leave;
@@ -950,6 +1082,7 @@ struct FullStateProbe {
                 if(camera_slots[0].enabled && !camera_slots[0].restore_empty(camera_slots[1])){delayed_failure_line=__LINE__;fault=true;__leave;}
                 NativeRollbackTiming::measure(NativeRollbackTiming::restore_native_load,[&]{reader(&saved.stream);});restore_completed=saved.consumed();
                 if(camera_slots[0].enabled && !camera_slots[0].live()){delayed_failure_line=__LINE__;fault=true;__leave;}
+                if(camera_slots[0].enabled && !camera_slots[0].references_loaded(saved,camera_reference_check)){delayed_failure_line=__LINE__;fault=true;__leave;}
                 measure(b,2);
                 keys(b,delayed_loaded_keys.data(),delayed_loaded_players);delayed_keys_captured=true;
                 postflight_ok=check(b);
@@ -965,17 +1098,18 @@ struct FullStateProbe {
                     delayed_loaded=true;measure(b,5);
                     if(!NativeRollbackTiming::measure(NativeRollbackTiming::restore_state_capture,[&]{return capture_blend(b,2);})){delayed_failure_line=__LINE__;fault=true;__leave;}
                     if(combat_replay_requested){
-                        combat_postload_pass_mask=0;
-                        combat_postload_ready=verify_combat_reset_tables(b) && CombatBlend::ready(blends[0].bytes,blends[1].bytes,blends[2].bytes,blends[0].owners,throw_requested,general_combat_requested,&combat_loaded_blend,combat_reset_tables.data(),combat_reset_resources.data()) && ((combat_postload_pass_mask|=1),true) &&
-                            transforms[0].combat_groups_ready(transforms[1],transforms[2]) && ((combat_postload_pass_mask|=2),true) &&
-                            NativeRollbackTiming::measure(NativeRollbackTiming::restore_wind,[&]{return transforms[0].restore_root_wind(transforms[1],transforms[2],true);}) && ((combat_postload_pass_mask|=4),true) &&
-                            NativeRollbackTiming::measure(NativeRollbackTiming::restore_wind,[&]{return transforms[0].restore_wind(transforms[1],transforms[2],b,true);}) && ((combat_postload_pass_mask|=8),true) &&
-                            NativeRollbackTiming::measure(NativeRollbackTiming::restore_sway,[&]{return transforms[0].restore_sway(transforms[1],transforms[2],b,true);}) && ((combat_postload_pass_mask|=16),true) &&
-                            NativeRollbackTiming::measure(NativeRollbackTiming::restore_constraints,[&]{return transforms[0].restore_constraints(transforms[1],transforms[2],b,true);}) && ((combat_postload_pass_mask|=32),true) &&
-                            cameras[2].capture(saved,b) && ((combat_postload_pass_mask|=64),true) &&
-                            NativeRollbackTiming::measure(NativeRollbackTiming::restore_camera,[&]{return cameras[0].restore_smoothing(cameras[1],cameras[2],b,false,!general_idle_camera,true,camera_rising_requested(),&camera_diagnostic,general_combat_requested,restore_span);}) && ((combat_postload_pass_mask|=128),true);
+                        combat_postload_pass_mask=0;postload_readiness={};
+                        combat_postload_ready=(postload_readiness.enter(1) && verify_combat_reset_tables(b) && postload_readiness.pass(1)) &&
+                            postload_readiness.enter(2) && CombatBlend::ready(blends[0].bytes,blends[1].bytes,blends[2].bytes,blends[0].owners,throw_requested,general_combat_requested,&combat_loaded_blend,combat_reset_tables.data(),combat_reset_resources.data(),combat_selected_tables.data()) && ((combat_postload_pass_mask|=1),postload_readiness.pass(2)) &&
+                            postload_readiness.enter(3) && transforms[0].combat_groups_ready(transforms[1],transforms[2]) && ((combat_postload_pass_mask|=2),postload_readiness.pass(3)) &&
+                            postload_readiness.enter(4) && NativeRollbackTiming::measure(NativeRollbackTiming::restore_wind,[&]{return transforms[0].restore_root_wind(transforms[1],transforms[2],true);}) && ((combat_postload_pass_mask|=4),postload_readiness.pass(4)) &&
+                            postload_readiness.enter(5) && NativeRollbackTiming::measure(NativeRollbackTiming::restore_wind,[&]{return transforms[0].restore_wind(transforms[1],transforms[2],b,true);}) && ((combat_postload_pass_mask|=8),postload_readiness.pass(5)) &&
+                            postload_readiness.enter(6) && NativeRollbackTiming::measure(NativeRollbackTiming::restore_sway,[&]{return transforms[0].restore_sway(transforms[1],transforms[2],b,true);}) && ((combat_postload_pass_mask|=16),postload_readiness.pass(6)) &&
+                            postload_readiness.enter(7) && NativeRollbackTiming::measure(NativeRollbackTiming::restore_constraints,[&]{return transforms[0].restore_constraints(transforms[1],transforms[2],b,true);}) && ((combat_postload_pass_mask|=32),postload_readiness.pass(7)) &&
+                            postload_readiness.enter(8) && cameras[2].capture(saved,b) && ((combat_postload_pass_mask|=64),postload_readiness.pass(8)) &&
+                            postload_readiness.enter(9) && NativeRollbackTiming::measure(NativeRollbackTiming::restore_camera,[&]{return cameras[0].restore_smoothing(cameras[1],cameras[2],b,false,!general_idle_camera,true,camera_rising_requested(),&camera_diagnostic,general_combat_requested,restore_span);}) && ((combat_postload_pass_mask|=128),postload_readiness.pass(9));
                         if(!combat_postload_ready){delayed_failure_line=__LINE__;fault=true;__leave;}
-                        if(!NativeRollbackTiming::measure(NativeRollbackTiming::restore_blend,[&]{return CombatBlend::restore(blends[0].bytes,blends[1].bytes,blends[2].bytes,blends[0].owners,throw_requested,general_combat_requested,combat_reset_tables.data(),combat_reset_resources.data());})){delayed_failure_line=__LINE__;fault=true;__leave;}
+                        if(!NativeRollbackTiming::measure(NativeRollbackTiming::restore_blend,[&]{return CombatBlend::restore(blends[0].bytes,blends[1].bytes,blends[2].bytes,blends[0].owners,throw_requested,general_combat_requested,combat_reset_tables.data(),combat_reset_resources.data(),combat_selected_tables.data());})){delayed_failure_line=__LINE__;fault=true;__leave;}
                         blend_weights_applied=blend_weights_verified=blend_blocks_applied=blend_blocks_verified=true;
                         combat_groups_restored=transforms[0].restore_combat_groups(transforms[1],transforms[2]);
                         combat_root_wind_restored=combat_groups_restored && NativeRollbackTiming::measure(NativeRollbackTiming::restore_wind,[&]{return transforms[0].restore_root_wind(transforms[1],transforms[2]);});
@@ -985,21 +1119,21 @@ struct FullStateProbe {
                         if(!preserve_blend_blocks(b)){delayed_failure_line=__LINE__;fault=true;__leave;}
                     }
                     wind_restore_verified=NativeRollbackTiming::measure(NativeRollbackTiming::restore_wind,[&]{return transforms[0].restore_wind(transforms[1],transforms[6],b,false,&wind_diagnostic);});
-                    if(!wind_restore_verified || !NativeRollbackTiming::measure(NativeRollbackTiming::restore_state_capture,[&]{return capture_blend(b,7,6);})){delayed_failure_line=__LINE__;fault=true;__leave;}
-                    sway_restore_verified=NativeRollbackTiming::measure(NativeRollbackTiming::restore_sway,[&]{return transforms[0].restore_sway(transforms[1],transforms[7],b);});
-                    if(!sway_restore_verified || !NativeRollbackTiming::measure(NativeRollbackTiming::restore_state_capture,[&]{return capture_blend(b,8,7);})){delayed_failure_line=__LINE__;fault=true;__leave;}
-                    constraint_restore_verified=NativeRollbackTiming::measure(NativeRollbackTiming::restore_constraints,[&]{return transforms[0].restore_constraints(transforms[1],transforms[8],b);});
-                    if(!constraint_restore_verified || !NativeRollbackTiming::measure(NativeRollbackTiming::restore_state_capture,[&]{return capture_blend(b,9,8);})){delayed_failure_line=__LINE__;fault=true;__leave;}
+                    if(!wind_restore_verified || !NativeRollbackTiming::measure(NativeRollbackTiming::restore_state_capture,[&]{return capture_blend(b,7,6,true);})){delayed_failure_line=__LINE__;fault=true;__leave;}
+                    sway_restore_verified=NativeRollbackTiming::measure(NativeRollbackTiming::restore_sway,[&]{return transforms[0].restore_sway(transforms[1],transform_checkpoint(7),b);});
+                    if(!sway_restore_verified || !NativeRollbackTiming::measure(NativeRollbackTiming::restore_state_capture,[&]{return capture_blend(b,8,7,true);})){delayed_failure_line=__LINE__;fault=true;__leave;}
+                    constraint_restore_verified=NativeRollbackTiming::measure(NativeRollbackTiming::restore_constraints,[&]{return transforms[0].restore_constraints(transforms[1],transform_checkpoint(8),b);});
+                    if(!constraint_restore_verified || !NativeRollbackTiming::measure(NativeRollbackTiming::restore_state_capture,[&]{return capture_blend(b,9,8,true);})){delayed_failure_line=__LINE__;fault=true;__leave;}
                     if(general_combat_requested && !ActiveAnimationGroup::restore(saved,before_players,b,active_group_diagnostic)){delayed_failure_line=__LINE__;fault=true;__leave;}
                     if(!restored_rings.capture(b)){delayed_failure_line=__LINE__;fault=true;__leave;}
                     restored_ring_equal=restored_rings.same(rings[0]);
                     NativeRollbackTiming::measure(NativeRollbackTiming::restore_native_resave,[&]{writer(&restored.stream);});measure(b,6);restored_valid=restored.seal();
                     if(restored_valid)cameras[2].capture(restored,b);
-                    if(!NativeRollbackTiming::measure(NativeRollbackTiming::restore_state_capture,[&]{return capture_blend(b,3);})){delayed_failure_line=__LINE__;fault=true;__leave;}
+                    if(!NativeRollbackTiming::measure(NativeRollbackTiming::restore_state_capture,[&]{return capture_blend(b,3,9);})){delayed_failure_line=__LINE__;fault=true;__leave;}
                     restored_after_rings.capture(b);
                     restored_save_unchanged=measurements[5].rng==measurements[6].rng && measurements[5].fields==measurements[6].fields &&
                         !std::memcmp(measurements[5].players,measurements[6].players,sizeof(measurements[5].players)) && restored_rings.same(restored_after_rings);
-                    restored_save_unchanged=restored_save_unchanged && blends[6].bytes==blends[3].bytes;
+                    restored_save_unchanged=restored_save_unchanged && blends[6].bytes==blends[3].bytes && blends[6].controller==blends[3].controller;
                     if(!restored_valid || !restored_save_unchanged){delayed_failure_line=__LINE__;fault=true;__leave;}
                     if(camera_restore_requested){
                         camera_restore_verified=NativeRollbackTiming::measure(NativeRollbackTiming::restore_camera,[&]{return cameras[0].restore_smoothing(cameras[1],cameras[2],b,false,(combat_replay_requested && !general_idle_camera) || direction_restore_requested || a_restore_requested,false,camera_rising_requested() || direction_restore_requested || a_restore_requested,&camera_diagnostic,general_combat_requested,restore_span);});
@@ -1135,7 +1269,8 @@ inline void FullStateProbe::reset_for_reuse() noexcept {
     auto* destination=reinterpret_cast<std::byte*>(this);
     const auto* source=reinterpret_cast<const std::byte*>(&defaults);
     size_t cursor=0;
-    for(const auto& span:defaults.storage_spans()){
+    static const auto reset_spans=defaults.storage_spans();
+    for(const auto& span:reset_spans){
         const auto begin=span.offset;
         std::memcpy(destination+cursor,source+cursor,begin-cursor);
         cursor=begin+span.capacity;
@@ -1165,17 +1300,25 @@ inline bool FullStateProbe::copy_recorded_from(const FullStateProbe& other) noex
     std::memcpy(destination+cursor,source+cursor,sizeof(*this)-cursor);
     return true;
 }
-inline std::array<FullStateProbe::StorageSpan,22> FullStateProbe::storage_spans() const noexcept {
-    std::array<StorageSpan,22> result{};size_t n=0;
+inline std::array<FullStateProbe::StorageSpan,38> FullStateProbe::storage_spans() const noexcept {
+    std::array<StorageSpan,38> result{};size_t n=0;
     const auto* base=reinterpret_cast<const std::byte*>(this);
     auto add=[&](const auto& buffer,size_t published){
         result[n++]={size_t(reinterpret_cast<const std::byte*>(buffer.data())-base),sizeof(buffer),published};
     };
     for(const auto& selector:selectors)for(const auto& e:selector.entries)add(e.table,e.bytes);
-    for(const auto* s:{&saved,&after_save,&replay,&restored})add(s->stream.payload,size_t(s->stream.write_position));
+    for(const auto* s:{&saved,&after_save,&replay,&restored}){
+        add(s->stream.payload,size_t(s->stream.write_position));
+        add(s->lengths,size_t(s->writes)*sizeof(s->lengths[0]));
+        add(s->traces,size_t(s->writes)*sizeof(s->traces[0]));
+    }
+    for(const auto& ring:rings)add(ring.bytes,ring.valid?ring.bytes.size():0);
+    for(const auto* ring:{&restored_rings,&restored_after_rings,&delayed_scratch,&replay_rings})
+        add(ring->bytes,ring->valid?ring->bytes.size():0);
     for(const auto& t:transforms)add(t.records,size_t(t.count)*sizeof(TransformSnapshot::Record));
     std::sort(result.begin(),result.end(),[](const auto& a,const auto& b){return a.offset<b.offset;});
     return result;
 }
 }
+
 

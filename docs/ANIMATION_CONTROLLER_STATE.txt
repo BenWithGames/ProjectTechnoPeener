@@ -1,0 +1,27 @@
+ANIMATION CONTROLLER SNAPSHOT - 2026-10-21
+
+Captures player+95EC0..95F08 for both sides with each blend checkpoint.
+Ghidra: 2F77C0 dispatch, 37C230 selection, 37C2F0 advance, 37C130 clear;
+30A980/30AE80 native serialization omits this controller range.
+
+The first 32 bytes are dependency identities. They are never overwritten.
+The following 40 bytes contain the selected animation controller state and
+its dispatch flags. They are restored bit-for-bit from the saved snapshot.
+Both players must pass identity, selected-table resource membership, and exact
+live endpoint checks before either controller is written. These checks run
+before native loading and again before supplemental restoration.
+
+Snapshot copying carries the controller automatically with BlendCheckpoint.
+Exact restore and replay comparisons now include its full captured state.
+Reports retain existing diagnostics and append controller phase, reason,
+side, offset, expected/actual and restored fields. Raw research dumps include
+144-byte animation-controller checkpoint files (72 bytes per player).
+
+Dependencies changing between snapshots remain rejected: this build does not
+recreate arbitrary resources or relax round, ownership or pointer guards.
+Adaptive delay, low latency, performance optimizations and exact native
+verification remain enabled. No gameplay pass is claimed by local tests.
+
+Local regression: all 80 mutable bytes across two players; all 64 dependency
+bytes; all 144 endpoint bytes; stale live state; invalid resource directory;
+changed player, missing sample and empty inactive controller.

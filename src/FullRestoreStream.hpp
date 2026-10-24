@@ -28,8 +28,8 @@ struct FullRestoreStream {
         if(t->sealed || t->writes==transfer_limit || !n){reject(s,SaveStream::forbidden_operation);return 0;}
         auto result=SaveStream::write(s,data,n);
         if(s->failures){RaiseException(rejection,0,0,nullptr);return 0;}
-        t->traces[t->writes].source=reinterpret_cast<uintptr_t>(data);
-        t->traces[t->writes].writer=reinterpret_cast<uintptr_t>(_ReturnAddress());
+        // Publish a complete record: recycled unpublished metadata may be dirty.
+        t->traces[t->writes]={reinterpret_cast<uintptr_t>(data),0,reinterpret_cast<uintptr_t>(_ReturnAddress()),0};
         t->lengths[t->writes++]=n;return result;
     }
     bool seal(){sealed=!stream.failures && writes && stream.write_position;return sealed;}
@@ -48,7 +48,7 @@ struct FullRestoreStream {
     }
     // Only published bytes/records are observable. Preserve all stream control
     // fields; discard obsolete published metadata when reusing a smaller image.
-    bool copy_recorded_from(const FullRestoreStream& snapshot){
+    bool copy_recorded_from(const FullRestoreStream& snapshot,bool clear_reader_trace=false){
         if(snapshot.writes>transfer_limit || snapshot.reads>snapshot.writes ||
            snapshot.stream.write_position>SaveStream::limit || snapshot.stream.read_position>snapshot.stream.write_position)return false;
         uint64_t total=0;
@@ -62,7 +62,10 @@ struct FullRestoreStream {
         stream.failures=snapshot.stream.failures;stream.transfers=snapshot.stream.transfers;
         stream.first_error=snapshot.stream.first_error;stream.copier=snapshot.stream.copier;
         std::memcpy(lengths.data(),snapshot.lengths.data(),snapshot.writes*sizeof(lengths[0]));
-        std::memcpy(traces.data(),snapshot.traces.data(),snapshot.writes*sizeof(traces[0]));
+        if(clear_reader_trace){
+            for(unsigned i=0;i<snapshot.writes;++i)
+                traces[i]={snapshot.traces[i].source,0,snapshot.traces[i].writer,0};
+        }else std::memcpy(traces.data(),snapshot.traces.data(),snapshot.writes*sizeof(traces[0]));
         for(unsigned i=snapshot.writes;i<old;++i){lengths[i]=0;traces[i]={};}
         writes=snapshot.writes;reads=snapshot.reads;sealed=snapshot.sealed;return true;
     }
@@ -77,15 +80,9 @@ struct FullRestoreStream {
            snapshot.stream.first_error!=SaveStream::none ||
            snapshot.stream.slots!=&table || !snapshot.stream.copier ||
            snapshot.stream.write_position>SaveStream::limit)return false;
-        std::uint64_t total=0;
-        for(unsigned i=0;i<snapshot.writes;++i){
-            auto length=snapshot.lengths[i];
-            if(!length || length>snapshot.stream.write_position-total)return false;
-            total+=length;
-        }
-        if(total!=snapshot.stream.write_position)return false;
-        if(!copy_recorded_from(snapshot))return false;
-        for(unsigned i=0;i<writes;++i){traces[i].destination=0;traces[i].reader=0;}
+        // copy_recorded_from performs the same complete length/total validation
+        // before any writes. Avoid walking every record twice per reader.
+        if(!copy_recorded_from(snapshot,true))return false;
         return true;
     }
     bool consumed()const{return sealed && !stream.failures && reads==writes && stream.read_position==stream.write_position;}

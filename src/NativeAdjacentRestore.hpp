@@ -24,6 +24,8 @@ public:
     uint64_t shape_module{},shape_source_frame{},shape_next_frame{};
     RecordedInput restore_input;
     ImmediateIdleCorrection completion;
+    bool completion_uses_prepared_endpoint{};
+    uint64_t completion_endpoint_bytes_reused{};
     bool native_payload_verified{};
     struct PayloadDiagnostic {
         uint64_t structural{},records{},bytes{},retained{},overflow{},deferred_bytes{};
@@ -131,6 +133,8 @@ public:
             if(!probe->selectors[3].capture(probe->after_players,probe->selector_diagnostic))return fail();
             probe->selector_endpoint_verified=probe->selectors[1].same(probe->selectors[3],probe->selector_diagnostic);
         }
+        if(probe->blends[1].controller.valid){probe->controller_diagnostic.phase=6;
+            probe->blends[1].controller.same(probe->blends[4].controller,probe->controller_diagnostic);}
         replay_comparison_mask=TwoFrameIdleReplay::comparison_mask(*probe,base);
         TwoFrameIdleReplay::native_equal(*probe,base,&replay_native_difference);
         replay_verified=TwoFrameIdleReplay::comparison_ok(*probe,base) && (!probe->selector_enabled || probe->selector_endpoint_verified);
@@ -152,7 +156,7 @@ public:
     }
     // Pure all-hop general validation: no live transform reads. A historical
     // intermediate state is not live until newer hops have been loaded.
-    bool preflight_general(const NativeBoundarySnapshot& a,const NativeBoundarySnapshot& b){
+    template<class Boundary> bool preflight_general(const Boundary& a,const Boundary& b){
         if(attempted || fault)return false;
         if(a.mode!=NativeBoundarySnapshot::Mode::general_combat || b.mode!=a.mode){rejection=NativeBoundarySnapshot::Rejection::mode;return fail();}
         slot_evidence.capture(a.data->camera_slots[0],a.data->saved,b.data->camera_slots[0],b.data->saved);
@@ -177,11 +181,11 @@ public:
         return true;
     }
     DirectLoadCompatibility::Diagnostic direct_diagnostic{};
-    bool prepare_direct(const NativeBoundarySnapshot& source,const NativeBoundarySnapshot& next,unsigned span){
+    template<class Boundary> bool prepare_direct(const Boundary& source,const Boundary& next,unsigned span){
         if(span<2 || span>3 || !source.data || !next.data)return false;
         shape_module=source.module;shape_source_frame=source.data->before_keys[0];shape_next_frame=next.data->before_keys[0];
         if(!DirectLoadCompatibility::ready(source.data->saved,next.data->saved,source.module,source.data->before_players,direct_diagnostic))return false;
-        return prepare_captured(source,next,false,false,true,span);
+        return prepare_captured(source,next,false,false,true,span,true);
     }
     // Only a candidate rejected BEFORE any native mutation can return to the
     // adjacent path. Clear copied streams/flags but retain allocated storage.
@@ -194,7 +198,7 @@ public:
     // Combat routing explicitly distinguishes general states from fixtures.
     // All structural, input, native preflight and post-load checks stay
     // in prepare_adjacent()/finish(); general capture does not authorize load.
-    bool prepare_captured(const NativeBoundarySnapshot& source,const NativeBoundarySnapshot& next,bool direction_restore=false,bool a_restore=false,bool combat_restore=false,unsigned span=1){
+    template<class Boundary> bool prepare_captured(const Boundary& source,const Boundary& next,bool direction_restore=false,bool a_restore=false,bool combat_restore=false,unsigned span=1,bool history_endpoint=false){
         if(attempted || fault)return false;attempted=true;
         slot_evidence.capture(source.data->camera_slots[0],source.data->saved,next.data->camera_slots[0],next.data->saved);
         if(!supported_pair(source.mode,next.mode,direction_restore,a_restore,combat_restore)){rejection=NativeBoundarySnapshot::Rejection::mode;return fail();}
@@ -202,26 +206,38 @@ public:
         if(source.module!=next.module){rejection=NativeBoundarySnapshot::Rejection::module;return fail();}
         current.direction_slot=next.direction_slot;current.direction_bits=next.direction_bits;current.mode=next.mode;current.module=next.module;current.thread=next.thread;current.attempted=next.attempted;
         current.valid=next.valid;current.fault=next.fault;
-        if(!NativeRollbackTiming::measure(NativeRollbackTiming::restore_snapshot_copy,[&]{return current.data->copy_recorded_from(*next.data);}))return fail();
-        if(!source.prepare_adjacent(current,*probe,&rejection,direction_restore,a_restore,source.mode==NativeBoundarySnapshot::Mode::general_combat && combat_restore,span))return fail();
+        if constexpr(!std::is_same_v<typename Boundary::StateType,FullStateProbe>)history_endpoint=true;
+        if(!NativeRollbackTiming::measure(NativeRollbackTiming::restore_snapshot_copy,[&]{
+            if(history_endpoint)return current.data->copy_restore_endpoint_from(*next.data,false);
+            if constexpr(std::is_same_v<typename Boundary::StateType,FullStateProbe>)return current.data->copy_recorded_from(*next.data);
+            else return false;
+        }))return fail();
+        // Borrow only for this synchronous preparation call. Never retain the
+        // archive pointer: history can retire it before the next correction.
+        const bool preparation=history_endpoint?
+            source.prepare_adjacent(next,*probe,&rejection,direction_restore,a_restore,source.mode==NativeBoundarySnapshot::Mode::general_combat && combat_restore,span):
+            source.prepare_adjacent(current,*probe,&rejection,direction_restore,a_restore,source.mode==NativeBoundarySnapshot::Mode::general_combat && combat_restore,span);
+        if(!preparation)return fail();
+        completion_uses_prepared_endpoint=history_endpoint;
+        completion_endpoint_bytes_reused=history_endpoint?uint64_t(probe->transforms[1].count)*sizeof(TransformSnapshot::Record):0;
         prepared=true;return true;
     }
-    bool restore_captured(const NativeBoundarySnapshot& source,uintptr_t base,uintptr_t argument,
+    template<class Boundary> bool restore_captured(const Boundary& source,uintptr_t base,uintptr_t argument,
                           FullStateProbe::Routine writer=nullptr,FullStateProbe::Routine reader=nullptr,
                           FullStateProbe::Preflight check=nullptr) noexcept {
         diagnostic_stage=1;
         if(!prepared || verified || fault || base!=source.module || source.thread!=GetCurrentThreadId())return fail();
         __try {
-            std::array<std::uint32_t,std::size(FullStateProbe::key_rvas)> keys{};uintptr_t players[2]{};
+            std::array<std::uint32_t,std::size(FullStateProbe::key_rvas)> keys{};uintptr_t boundary_players[2]{};
             diagnostic_stage=2;
-            FullStateProbe::keys(base,keys.data(),players);
-            if(keys!=current.data->before_keys || std::memcmp(players,current.data->before_players,sizeof(players)) ||
+            FullStateProbe::keys(base,keys.data(),boundary_players);
+            if(keys!=current.data->before_keys || std::memcmp(boundary_players,current.data->before_players,sizeof(boundary_players)) ||
                !probe->delayed_scratch.capture(base) || !current.data->rings[0].same(probe->delayed_scratch))return fail();
         }__except(EXCEPTION_EXECUTE_HANDLER){return fail();}
         return finish(source,base,argument,writer,reader,check);
     }
 private:
-    bool finish(const NativeBoundarySnapshot& source,uintptr_t base,uintptr_t argument,
+    template<class Boundary> bool finish(const Boundary& source,uintptr_t base,uintptr_t argument,
                 FullStateProbe::Routine writer,FullStateProbe::Routine reader,FullStateProbe::Preflight check) noexcept {
         diagnostic_stage=3;
         if(!prepared && !source.prepare_adjacent(current,*probe,&rejection))return fail();
@@ -247,7 +263,8 @@ private:
         native_payload_verified=NativeRollbackTiming::measure(NativeRollbackTiming::restore_payload_compare,[&]{return native_equal(saved,p,base,&payload_diagnostic);});
         if(!native_payload_verified)return fail();
         diagnostic_stage=7;
-        if(!NativeRollbackTiming::measure(NativeRollbackTiming::restore_completion,[&]{return completion.apply(saved,*current.data,p,base);}))return fail();
+        if(!NativeRollbackTiming::measure(NativeRollbackTiming::restore_completion,[&]{return completion.apply(saved,*current.data,p,base,
+            completion_uses_prepared_endpoint?&p.transforms[1]:nullptr);}))return fail();
         if(p.selector_enabled){
             NativeRollbackTiming::Scope selector_timing(NativeRollbackTiming::restore_selector);
             if(!p.selectors[0].restore(p.selector_diagnostic) || !p.selectors[2].capture(p.before_players,p.selector_diagnostic))return fail();
@@ -259,9 +276,12 @@ private:
         if(!p.capture_blend(base,3) || !p.cameras[4].capture(p.restored,base) ||
            !p.restored_after_rings.capture(base) || !saved.rings[0].same(p.restored_after_rings))return fail();
         diagnostic_stage=9;
+        if(saved.blends[0].controller.valid){p.controller_diagnostic.phase=5;
+            if(!saved.blends[0].controller.same(p.blends[3].controller,p.controller_diagnostic))return fail();}
         verified=p.restored_valid && p.restored_save_unchanged && p.preserve_verified && p.outer_correction_verified &&
             native_payload_verified && p.restored_ring_equal &&
             p.blends[3].valid && p.blends[3].bytes==saved.blends[0].bytes &&
+            saved.blends[0].controller==p.blends[3].controller &&
             !std::memcmp(p.blends[3].owners,saved.blends[0].owners,sizeof(p.blends[3].owners)) &&
             TwoFrameIdleReplay::transforms_equal(saved.transforms[0],p.transforms[3]) &&
             TwoFrameIdleReplay::cameras_equal(saved.cameras[0],p.cameras[4]);
@@ -296,7 +316,7 @@ public:
     // overwrites them from +2030 before enabling/evaluating the group; 2F5E60
     // skips the zero mask. This exception applies only before replay, never
     // to the endpoint comparator. All other bytes remain exact.
-    static bool inactive_derived_group(const FullStateProbe& a,const FullStateProbe& b,uintptr_t base,unsigned index,uint64_t offset){
+    template<class Snapshot> static bool inactive_derived_group(const Snapshot& a,const FullStateProbe& b,uintptr_t base,unsigned index,uint64_t offset){
         const auto& x=a.saved;const auto& y=b.restored;
         if(!b.defer_inactive_animation_weights || !b.general_combat_requested || !b.restore_completed ||
            x.lengths[index]!=0x11F0 || x.traces[index].writer!=base+0x30AA96 ||
@@ -313,9 +333,9 @@ public:
                 // The player prefix is native record +90, length 3510.
                 if(stream.traces[i].source==player+0x90 && n==0x3510 && stream.traces[i].writer==base+0x30A9CE){
                     const auto* p=stream.stream.payload.data()+at;
-                    int16_t animation{};std::memcpy(&animation,p+0x2020-0x90,2);
+                    int16_t animation_index{};std::memcpy(&animation_index,p+0x2020-0x90,2);
                     weight=CombatBlend::word(p+0x2030-0x90);
-                    return animation>=0 && weight>0 && weight<0x358637BDu;
+                    return animation_index>=0 && weight>0 && weight<0x358637BDu;
                 }
                 at+=n;
             }
@@ -325,7 +345,7 @@ public:
         for(unsigned j=0;j<15;++j)if(CombatBlend::word(before+0x1120+j*4)!=old || CombatBlend::word(loaded+0x1120+j*4))return false;
         return true;
     }
-    static bool native_equal(const FullStateProbe& a,const FullStateProbe& b,uintptr_t base,PayloadDiagnostic* diagnostic=nullptr){
+    template<class Snapshot> static bool native_equal(const Snapshot& a,const FullStateProbe& b,uintptr_t base,PayloadDiagnostic* diagnostic=nullptr){
         PayloadDiagnostic local{};auto& d=diagnostic?*diagnostic:local;d={};
         const auto& x=a.saved;const auto& y=b.restored;
         if(!IdleTrajectoryAudit::same_shape(x,y) || x.stream.write_position!=y.stream.write_position){d.structural=1;return false;}

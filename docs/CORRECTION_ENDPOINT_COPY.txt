@@ -1,0 +1,33 @@
+Correction endpoint-copy optimization (2026-10-21)
+
+Evidence:
+- Existing paired timing audit: friend restore_snapshot_copy mean 470.9 us,
+  restore_prepare_adjacent 638.8 us, workspace 718.7 us; inclusive scopes must
+  not be summed as exclusive costs. work/latest-performance-audit.json.
+- Fresh read-only Ghidra SC6ReplayCopyAudit decompilation of RVAs 3841E0 and
+  384540: work/ghidra-sc6-focus/correction-metadata-audit. Native load calls
+  stream read slot +0x30 and dispatches nested object readers. This supports
+  retaining complete private reader payloads, callbacks, and native ordering;
+  it does not authorize dropping native updates or verification.
+- C++ call-site audit: after prepare_adjacent, NativeAdjacentRestore uses its
+  endpoint copy only for before_keys/players, delayed_inputs, rings[0],
+  transforms[0], blends[0], cameras[0]. ImmediateIdleCorrection::apply accesses
+  precisely those endpoint fields. NativeHistoryRestore diagnostics remain
+  in probe, slot/shape/topology evidence and payload/completion diagnostics.
+
+Changes:
+- History/direct restore copies that endpoint subset, while preparing the full
+  native reader synchronously from the owned immutable archived endpoint.
+  No archived pointer survives that call. Generic fixture path retains full copy.
+- Preserve all existing copy count/capacity validation, ownership rechecks,
+  adjacent structural preflights, source guards, native loading, exact endpoint
+  verification, cleanup and round safety. No input delay/prediction limit change.
+- Remove duplicate length-sum scan in prepare_reader_from; copy_recorded_from
+  still validates every length and total before modifying destination.
+- Cache the fixed reset-span plan instead of recomputing/sorting per reset.
+
+Synthetic benchmark (same PC, alternating order, 600 transform records and two
+100000-byte stream payloads, 3000 calls per batch): full copy 55.079 us vs
+endpoint subset 8.12847 us. Not live game evidence or a total-speedup estimate.
+Use existing restore_snapshot_copy / restore_prepare_adjacent / workspace,
+correction depth and outer-update timings to assess the next live run.

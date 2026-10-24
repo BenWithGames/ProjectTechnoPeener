@@ -22,15 +22,45 @@ struct CombatBlend {
         return true;
     }
     struct Diagnostic {unsigned reason{},offset{UINT32_MAX},saved{},next{};};
+    // 303230 leaves +14 intact when clearing the link; 2F9012 resets it.
+    // The saved scalar is restored exactly after native load.
     // A null inactive link and the owning wrapper's table are native states
     // (303230 / 2F8FA0). Never authorize a different allocation or active slot.
     static bool inactive_table_pair(unsigned block,const std::byte* a,const std::byte* b,uintptr_t table) noexcept {
         return block==5 && table>=0x10000 &&
             (wide(a+8)==0 || wide(a+8)==table) && (wide(b+8)==0 || wide(b+8)==table) &&
-            !word(a+16) && !word(b+16) && !word(a+20) && !word(b+20) &&
+            !word(a+16) && !word(b+16) &&
             !wide(a+24) && !wide(b+24);
     }
-    static bool adjacent(const Bytes& a,const Bytes& b,bool throw_p1=false,Diagnostic* diagnostic=nullptr,bool general=false,uintptr_t verified_table=0) noexcept {
+    // 37C230 installs the controller's selected table and full mask; 37C130
+    // can clear the link without clearing that mask. Dependency proof is supplied
+    // by the caller, and post-load membership/live checks remain mandatory.
+    // 37C230 installs the selected table at index zero and fills all 35 weights;
+    // 37C2F0 can advance its freshly reset timer to 1.0 in the same update.
+    // Only this inactive-to-active boundary is added; dependency membership and
+    // exact controller restoration remain the caller's mandatory checks.
+    static bool selected_activation_pair(unsigned block,const std::byte* a,const std::byte* b,uintptr_t selected) noexcept {
+        constexpr uint64_t mask=(uint64_t{1}<<35)-1;
+        return block==5 && selected>=0x10000 && !wide(a+8) && wide(b+8)==selected &&
+            !word(a+16) && !word(b+16) && !word(a+20) &&
+            (word(b+20)==0 || word(b+20)==0x3F800000u) &&
+            !wide(a+24) && wide(b+24)==mask;
+    }
+    static bool active_selected_pair(unsigned block,const std::byte* a,const std::byte* b,uintptr_t selected) noexcept {
+        if(selected_activation_pair(block,a,b,selected))return true;
+        constexpr uint64_t mask=(uint64_t{1}<<35)-1;
+        return block==5 && selected>=0x10000 &&
+            ((wide(a+8)==0 && wide(b+8)==selected) || (wide(b+8)==0 && wide(a+8)==selected)) &&
+            !word(a+16) && !word(b+16) &&
+            // 37C2F0 completion clears table/index/scalar after advancing the
+            // selected animation. Activation still requires both scalars zero.
+            // Accept only a finite nonnegative saved timer and a reset next timer.
+            ((!word(a+20) && !word(b+20)) ||
+             (wide(a+8)==selected && !wide(b+8) &&
+              word(a+20)<0x7F800000u && !word(b+20))) &&
+            wide(a+24)==mask && wide(b+24)==mask;
+    }
+    static bool adjacent(const Bytes& a,const Bytes& b,bool throw_p1=false,Diagnostic* diagnostic=nullptr,bool general=false,uintptr_t verified_table=0,uintptr_t selected_table=0) noexcept {
         if(diagnostic)*diagnostic={};
         const auto reject=[&](unsigned reason,unsigned offset,unsigned saved,unsigned next){if(diagnostic)*diagnostic={reason,offset,saved,next};return false;};
         for(unsigned i=0;i<35;++i){
@@ -40,10 +70,11 @@ struct CombatBlend {
         }
         for(unsigned j=0;j<7;++j){auto x=a.data()+140+j*176;auto y=b.data()+140+j*176;
             bool quartet=throw_p1 && j==0 && quartet_transition(x,y);
-            const bool table_pair=general && inactive_table_pair(j,x,y,verified_table);
+            const bool table_pair=general && (inactive_table_pair(j,x,y,verified_table) || active_selected_pair(j,x,y,selected_table));
             // Keep every other weight and all pointers stable.
             for(unsigned k=0;k<176;++k)
                 if(!(k>=16 && k<20) && !(k>=24 && k<32) &&
+                   !(general && j==5 && k>=20 && k<24) &&
                    !(quartet && quartet_byte(k)) && !(table_pair && k>=8 && k<16) && !(general && k>=32 && k<172) && x[k]!=y[k])return reject(6,140+j*176+k,std::to_integer<unsigned>(x[k]),std::to_integer<unsigned>(y[k]));
             if(general)for(unsigned k=32;k<172;k+=4)
                 if((word(x+k)&0x7F800000u)==0x7F800000u || (word(y+k)&0x7F800000u)==0x7F800000u)return reject(9,140+j*176+k,word(x+k),word(y+k));
@@ -81,35 +112,78 @@ struct CombatBlend {
         // All other bytes still use the original strict adjacency checks.
         return adjacent(a,checked);
     }
-    struct LoadedDiagnostic {unsigned reason{},side{},block{},offset{};uint64_t saved{},next{},loaded{};unsigned pointer_valid{};uint64_t pointer_saved{},pointer_next{},pointer_loaded{};};
+    struct LoadedDiagnostic {unsigned reason{},side{},block{},offset{};uint64_t saved{},next{},loaded{};unsigned pointer_valid{};uint64_t pointer_saved{},pointer_next{},pointer_loaded{};std::array<uint64_t,10> block_state{};};
     static bool fail_loaded(LoadedDiagnostic* d,unsigned reason,unsigned side,unsigned block,unsigned offset,
                             uint64_t saved=0,uint64_t next=0,uint64_t loaded=0) noexcept {
         if(d)*d={reason,side,block,offset,saved,next,loaded};return false;
     }
     static bool fail_block(LoadedDiagnostic* d,unsigned side,unsigned block,unsigned k,
-                           const std::byte* x,const std::byte* y,const std::byte* z) noexcept {
+                           const std::byte* x,const std::byte* y,const std::byte* z,uintptr_t verified_table=0) noexcept {
         fail_loaded(d,5,side,block,k,std::to_integer<unsigned>(x[k]),std::to_integer<unsigned>(y[k]),std::to_integer<unsigned>(z[k]));
+        if(d)d->block_state={word(x+16),word(y+16),word(z+16),word(x+20),word(y+20),word(z+20),wide(x+24),wide(y+24),wide(z+24),verified_table};
         if(d && k<16){const auto start=k<8?0:8;d->pointer_valid=1;
             d->pointer_saved=wide(x+start);d->pointer_next=wide(y+start);d->pointer_loaded=wide(z+start);}
         return false;
     }
     // Native 2F8FE0..2F8FE3 assigns the wrapper table without ownership changes.
-    // Only the observed P2 block5 null/inactive reset is reversible here.
+    // Shared native routines have no player-side branch; both sides use this rule.
     static bool rebuilt_inactive(unsigned side,unsigned block,const std::byte* a,const std::byte* b,
                                  const std::byte* c,const uintptr_t* verified_tables) noexcept {
-        return side==1 && verified_tables && inactive_table_pair(block,a,b,verified_tables[side]) &&
+        return side<2 && verified_tables && inactive_table_pair(block,a,b,verified_tables[side]) &&
             wide(c+8)==verified_tables[side] &&
             !word(a+16) && !word(b+16) && !word(c+16) &&
-            !word(a+20) && !word(b+20) && !word(c+20) &&
+            !word(c+20) &&
             !wide(a+24) && !wide(b+24) && !wide(c+24);
     }
+    // 37C230 assigns the controller table (including null), clears index/scalar,
+    // then 2F7570(1.0f) sets all 35 mask bits independently of that pointer.
+    // 2F8FA0 rebuilds the wrapper table and clears the mask during native load.
+    // Limit this exception to the observed null/null activation state; ownership
+    // and wrapper identity are proved by verify_combat_reset_tables beforehand.
+    static bool rebuilt_null_active(unsigned side,unsigned block,const std::byte* a,const std::byte* b,
+                                    const std::byte* c,const uintptr_t* verified_tables) noexcept {
+        constexpr uint64_t full_mask=(uint64_t{1}<<35)-1;
+        return side<2 && block==5 && verified_tables && verified_tables[side]>=0x10000 &&
+            !wide(a+8) && !wide(b+8) && wide(c+8)==verified_tables[side] &&
+            !word(a+16) && !word(b+16) && !word(c+16) &&
+            !word(a+20) && !word(b+20) && !word(c+20) &&
+            wide(a+24)==full_mask && wide(b+24)==full_mask && !wide(c+24);
+    }
+    // 37C570 selects a child of section 2 in the live three-section resource.
+    // Prove membership without accepting an arbitrary readable saved pointer.
+    static bool selected_table_member(uintptr_t resource,uintptr_t table) noexcept {
+        __try {
+            if(resource<0x10000 || resource>UINTPTR_MAX-0x1000000 || table<resource)return false;
+            const auto* root=reinterpret_cast<const std::byte*>(resource);
+            if(word(root)!=3)return false;
+            const auto begin=word(root+12),end=word(root+16);
+            if(begin<20 || end<=begin || end>0x1000000 || end-begin<12)return false;
+            const auto* section=root+begin;const auto count=word(section);
+            if(!count || count>4096 || (uint64_t(count)+2)*4>end-begin)return false;
+            auto prior=word(section+4);
+            if(prior<(count+2)*4 || prior>end-begin)return false;
+            bool found=false;
+            for(unsigned i=0;i<count;++i){const auto next=word(section+8+i*4);
+                if(next<prior || next>end-begin)return false;
+                if(next>prior && resource+begin+prior==table)found=true;
+                prior=next;
+            }
+            return found;
+        }__except(EXCEPTION_EXECUTE_HANDLER){return false;}
+    }
+    static bool rebuilt_selected(unsigned side,unsigned block,const std::byte* a,const std::byte* b,
+                                 const std::byte* c,const uintptr_t* defaults,const uintptr_t* selected) noexcept {
+        return side<2 && block==5 && defaults && selected && defaults[side]>=0x10000 && selected[side]>=0x10000 &&
+            ((wide(a+8)==selected[side] && wide(b+8)==selected[side]) || active_selected_pair(block,a,b,selected[side])) && wide(c+8)==defaults[side] &&
+            !word(c+16) && !word(c+20) && !wide(c+24);
+    }
     static bool ready(const std::array<Bytes,2>& a,const std::array<Bytes,2>& b,
-                      const std::array<Bytes,2>& loaded,const uintptr_t* owners,bool throw_p1=false,bool general=false,LoadedDiagnostic* diagnostic=nullptr,const uintptr_t* verified_tables=nullptr,const uintptr_t* verified_resources=nullptr) noexcept {
+                      const std::array<Bytes,2>& loaded,const uintptr_t* owners,bool throw_p1=false,bool general=false,LoadedDiagnostic* diagnostic=nullptr,const uintptr_t* verified_tables=nullptr,const uintptr_t* verified_resources=nullptr,const uintptr_t* selected_tables=nullptr) noexcept {
         if(diagnostic)*diagnostic={};
         __try {
             for(unsigned side=0;side<2;++side){
                 auto owner=owners[side];
-                if(owner<0x10000 || owner>UINTPTR_MAX-0x22B0 || !adjacent(a[side],b[side],throw_p1 && side==0,nullptr,general,side==1 && verified_tables?verified_tables[side]:0))return fail_loaded(diagnostic,1,side,0,0,owner);
+                if(owner<0x10000 || owner>UINTPTR_MAX-0x22B0 || !adjacent(a[side],b[side],throw_p1 && side==0,nullptr,general,verified_tables?verified_tables[side]:0,selected_tables?selected_tables[side]:0))return fail_loaded(diagnostic,1,side,0,0,owner);
                 if(side && owner<owners[0]+0x22B0 && owners[0]<owner+0x22B0)return fail_loaded(diagnostic,2,side,0,0);
                 auto c=loaded[side].data();
                 for(unsigned k=0;k<1380;++k){
@@ -120,10 +194,17 @@ struct CombatBlend {
                 for(unsigned i=0;i<35;++i)if(word(c+i*4))return fail_loaded(diagnostic,4,side,0,i*4,word(a[side].data()+i*4),word(b[side].data()+i*4),word(c+i*4));
                 for(unsigned j=0;j<7;++j){auto x=a[side].data()+140+j*176;auto y=b[side].data()+140+j*176;auto z=c+140+j*176;
                     bool quartet=throw_p1 && side==0 && j==0 && quartet_transition(x,y);
-                    const bool rebuilt=general && rebuilt_inactive(side,j,x,y,z,verified_tables);
+                    const bool null_active=general && (rebuilt_null_active(side,j,x,y,z,verified_tables) ||
+                        (!wide(x+8) && selected_tables && active_selected_pair(j,x,y,selected_tables[side]) && rebuilt_selected(side,j,x,y,z,verified_tables,selected_tables)));
+                    const bool rebuilt=null_active || (general && (rebuilt_inactive(side,j,x,y,z,verified_tables) || rebuilt_selected(side,j,x,y,z,verified_tables,selected_tables)));
                     for(unsigned k=0;k<176;++k)
                         if(!(k>=16 && k<20) && !(k>=24 && k<32) &&
-                           !(general && k>=32 && k<172) && !(rebuilt && k>=8 && k<16) && z[k]!=(quartet && quartet_byte(k)?y[k]:x[k]))return fail_block(diagnostic,side,j,k,x,y,z);
+                           !(general && j==5 && k>=20 && k<24) &&
+                           !(general && k>=32 && k<172) && !(rebuilt && k>=8 && k<16) && z[k]!=(quartet && quartet_byte(k)?y[k]:x[k]))return fail_block(diagnostic,side,j,k,x,y,z,verified_tables?verified_tables[side]:0);
+                    // Native 2F9012 clears this scalar. Accept only captured or reset
+                    // state, then restore the whole saved word; never relax pointers.
+                    if(general && j==5 && word(z+20)!=0 && word(z+20)!=word(x+20) && word(z+20)!=word(y+20))
+                        return fail_loaded(diagnostic,13,side,j,20,word(x+20),word(y+20),word(z+20));
                     if(general)for(unsigned k=32;k<172;k+=4)
                         if(word(z+k)!=word(x+k) && word(z+k)!=word(y+k))return fail_loaded(diagnostic,6,side,j,k,word(x+k),word(y+k),word(z+k));
                     auto index=word(x+16),current=word(z+16);auto mask=wide(x+24),newmask=wide(z+24);
@@ -144,22 +225,25 @@ struct CombatBlend {
                         if(table<0x10000 || table>UINTPTR_MAX-4)return fail_loaded(diagnostic,9,side,j,8,table);
                         auto count=*reinterpret_cast<const int*>(table);
                         if(count<=0 || index>=unsigned(count) || current>=unsigned(count) || word(y+16)>=unsigned(count))return fail_loaded(diagnostic,10,side,j,16,index,word(y+16),current);
-                    }else if(index || current || word(y+16) || mask || newmask || wide(y+24))return fail_loaded(diagnostic,11,side,j,16,index,word(y+16),current);
+                    }else if(!null_active && (index || current || word(y+16) || mask || newmask || wide(y+24)))return fail_loaded(diagnostic,11,side,j,16,index,word(y+16),current);
                 }
             }
             return true;
         }__except(EXCEPTION_EXECUTE_HANDLER){return fail_loaded(diagnostic,12,0,0,0);}
     }
     static bool restore(const std::array<Bytes,2>& a,const std::array<Bytes,2>& b,
-                        const std::array<Bytes,2>& loaded,const uintptr_t* owners,bool throw_p1=false,bool general=false,const uintptr_t* verified_tables=nullptr,const uintptr_t* verified_resources=nullptr) noexcept {
+                        const std::array<Bytes,2>& loaded,const uintptr_t* owners,bool throw_p1=false,bool general=false,const uintptr_t* verified_tables=nullptr,const uintptr_t* verified_resources=nullptr,const uintptr_t* selected_tables=nullptr) noexcept {
         __try {
-            if(!ready(a,b,loaded,owners,throw_p1,general,nullptr,verified_tables,verified_resources))return false;
+            if(!ready(a,b,loaded,owners,throw_p1,general,nullptr,verified_tables,verified_resources,selected_tables))return false;
             for(unsigned side=0;side<2;++side){
                 std::memcpy(reinterpret_cast<void*>(owners[side]+0x4BC),a[side].data(),140);
                 for(unsigned j=0;j<7;++j){auto x=a[side].data()+140+j*176;auto target=owners[side]+0x1DD8+j*176;
-                    if(general && rebuilt_inactive(side,j,x,b[side].data()+140+j*176,loaded[side].data()+140+j*176,verified_tables))
+                    if(general && (rebuilt_null_active(side,j,x,b[side].data()+140+j*176,loaded[side].data()+140+j*176,verified_tables) ||
+                        rebuilt_inactive(side,j,x,b[side].data()+140+j*176,loaded[side].data()+140+j*176,verified_tables) ||
+                        rebuilt_selected(side,j,x,b[side].data()+140+j*176,loaded[side].data()+140+j*176,verified_tables,selected_tables)))
                         std::memcpy(reinterpret_cast<void*>(target+8),x+8,8);
                     std::memcpy(reinterpret_cast<void*>(target+16),x+16,4);
+                    if(general && j==5)std::memcpy(reinterpret_cast<void*>(target+20),x+20,4);
                     std::memcpy(reinterpret_cast<void*>(target+24),x+24,8);
                     if(general)std::memcpy(reinterpret_cast<void*>(target+32),x+32,140);
                     if(throw_p1 && side==0 && j==0 && quartet_transition(x,b[side].data()+140))

@@ -20,20 +20,32 @@ struct ImmediateIdleCorrection {
     }
     unsigned failure_line{},section{},record{},kind{},difference_offset{UINT32_MAX},saved_word{},live_word{};
     bool reject(unsigned line) noexcept {failure_line=line;return false;}
-    void difference(const std::byte* a,const std::byte* b,unsigned size) noexcept {
+    unsigned records_checked{},unchanged_records{},diagnostic_byte_scans{};
+    bool difference(const std::byte* a,const std::byte* b,unsigned size) noexcept {
         difference_offset=UINT32_MAX;saved_word=live_word=0;
+        // Most records are identical. Use the exact vectorized comparison once;
+        // retain the original byte/word evidence only for a differing record.
+        if(!std::memcmp(a,b,size))return false;
+        ++diagnostic_byte_scans;
         for(unsigned j=0;j<size;++j)if(a[j]!=b[j]){difference_offset=j;const auto n=(size-j<4?size-j:4);std::memcpy(&saved_word,a+j,n);std::memcpy(&live_word,b+j,n);break;}
+        return true;
     }
-    bool apply(const FullStateProbe& a,const FullStateProbe& b,const FullStateProbe& c,uintptr_t base) noexcept {
+    template<class Snapshot> bool apply(const Snapshot& a,const FullStateProbe& b,const FullStateProbe& c,uintptr_t base,
+               const TransformSnapshot* prepared_next=nullptr) noexcept {
         count=0;verified=false;failure_line=0;section=1;record=kind=0;difference_offset=UINT32_MAX;saved_word=live_word=0;
+        records_checked=unchanged_records=diagnostic_byte_scans=0;
         __try {
-            const auto& x=a.transforms[0];const auto& y=b.transforms[0];const auto& z=c.transforms[3];
+            // Synchronous borrow from the same restorer's owned prepared copy.
+            // No archive pointer is retained, and every topology/live check remains.
+            if(prepared_next && (b.transforms[0].valid || b.transforms[0].count))return reject(__LINE__);
+            const auto& x=a.transforms[0];const auto& y=prepared_next?*prepared_next:b.transforms[0];const auto& z=c.transforms[3];
             if(!x.same_topology(y) || !x.same_topology(z) || x.count>x.records.size())return reject(__LINE__);
             for(unsigned i=0;i<x.count;++i){const auto& r=x.records[i];const auto& next=y.records[i];const auto& live=z.records[i];
                 section=2;record=i;kind=r.kind;
-                if(r.size<=512)difference(r.bytes.data(),live.bytes.data(),r.size);
+                ++records_checked;
+                const bool changed=r.size<=512 && difference(r.bytes.data(),live.bytes.data(),r.size);
                 if(r.size>512 || std::memcmp(reinterpret_cast<void*>(r.address),live.bytes.data(),r.size))return reject(__LINE__);
-                if(!std::memcmp(r.bytes.data(),live.bytes.data(),r.size))continue;
+                if(!changed){++unchanged_records;continue;}
                 if(r.side>1)return reject(__LINE__);
                 unsigned offset=0,length=0;
                 if(r.kind==0 && r.size==512){offset=0x1F0;length=16;}
@@ -96,11 +108,11 @@ struct ImmediateIdleCorrection {
             const auto& ca=a.cameras[0];const auto& cb=c.camera_slots[0].enabled?c.cameras[1]:b.cameras[0];const auto& cc=c.cameras[4];
             if(!ca.valid || !cb.valid || !cc.valid || ca.count>ca.records.size() || ca.count!=cb.count || ca.count!=cc.count)return reject(__LINE__);
             for(unsigned i=0;i<ca.count;++i){const auto& r=ca.records[i];const auto& next=cb.records[i];const auto& live=cc.records[i];
-                record=i;difference(r.bytes.data(),live.bytes.data(),static_cast<unsigned>(r.bytes.size()));
+                record=i;const bool changed=difference(r.bytes.data(),live.bytes.data(),static_cast<unsigned>(r.bytes.size()));
                 if(r.owner!=next.owner || r.owner!=live.owner || r.smoothing_valid!=live.smoothing_valid ||
                    std::memcmp(reinterpret_cast<void*>(r.owner),live.bytes.data(),r.bytes.size()))return reject(__LINE__);
                 if(r.smoothing_valid && (r.smoothing!=live.smoothing || r.targets!=live.targets || r.response!=live.response))return reject(__LINE__);
-                if(r.bytes==live.bytes)continue;
+                if(!changed)continue;
                 // 33FF40/340F70 omit these active limits. 33E640/3402C0
                 // initialize the exact defaults below; 340C00 uses the limits.
                 // Restore the archived scalars, never exclude them from equality.

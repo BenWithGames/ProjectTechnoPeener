@@ -40,7 +40,7 @@ struct NetworkDepthCorrection {
         const auto& x=*a.data;const auto& y=*b.data;
         if(!TwoFrameIdleReplay::transforms_equal(x.transforms[0],y.transforms[0]) ||
            !TwoFrameIdleReplay::cameras_equal(x.cameras[0],y.cameras[0]) ||
-           x.blends[0].bytes!=y.blends[0].bytes || x.measurements[0].rng!=y.measurements[0].rng)return true;
+           x.blends[0].bytes!=y.blends[0].bytes || x.blends[0].controller!=y.blends[0].controller || x.measurements[0].rng!=y.measurements[0].rng)return true;
         for(unsigned side=0;side<2;++side)
             if(std::memcmp(x.measurements[0].fields[side].data()+8,y.measurements[0].fields[side].data()+8,216))return true;
         return false;

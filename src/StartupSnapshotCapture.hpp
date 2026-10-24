@@ -8,10 +8,19 @@ template<class History=NativeRollingHistory<4>> class StartupSnapshotCapture {
 public:
     std::atomic<unsigned> captured{};
     std::atomic<bool> failed{},retired{};
+    std::array<std::atomic<uint64_t>,6> cleanup_diagnostic{};
     bool discard_released_storage(){
+        cleanup_diagnostic[0]=1;
         if(!retired.load() || failed.load())return false;
-        if constexpr(requires {history_.discard_released_storage();})return history_.discard_released_storage();
-        else return true;
+        bool ok=true;
+        if constexpr(requires {history_.discard_released_storage();})ok=history_.discard_released_storage();
+        if constexpr(requires {history_.discard_diagnostic();})
+            for(unsigned i=0;i<5;++i)cleanup_diagnostic[i+1]=history_.discard_diagnostic()[i];
+        cleanup_diagnostic[0]=ok?0:2;return ok;
+    }
+    History* release_unused_history(){
+        if(captured.load() || failed.load() || retired.load())return nullptr;
+        return release()?&history_:nullptr;
     }
     bool release(){
         if(retired.load())return true;

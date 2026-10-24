@@ -39,12 +39,16 @@ public:
         if(result==EffectBirthJournal::Compaction::deferred){++birth_compaction_deferred;return true;}
         compacted=result==EffectBirthJournal::Compaction::applied;return compacted;
     }
+    std::atomic<unsigned> branch_check{},branch_at{},branch_retained{},branch_owned{},branch_mode{},branch_count{};
     bool branch_birth_history(unsigned at,unsigned retained){
-        if(!active_ || runtime_.stopped() || captures.load()-retirements.load()!=retained)return false;
-        // Releasing the final binding stops the old journal. The next capture
-        // starts a fresh epoch; otherwise preserve its retained prefix.
-        if(!retained)return runtime_.births.mode==EffectBirthJournal::Mode::off;
-        return runtime_.edit_births([&](EffectBirthJournal& births){return births.resume_recording(at);});
+        branch_at=at;branch_retained=retained;branch_owned=captures.load()-retirements.load();
+        branch_mode=static_cast<unsigned>(runtime_.births.mode);branch_count=runtime_.births.count;
+        branch_check=1;if(!active_)return false;
+        branch_check=2;if(runtime_.stopped())return false;
+        branch_check=3;if(branch_owned.load()!=retained)return false;
+        branch_check=4;if(!retained){if(runtime_.births.mode!=EffectBirthJournal::Mode::off)return false;}
+        else {branch_check=5;if(!runtime_.branch_births(at))return false;}
+        branch_check=0;return true;
     }
     bool begin_birth_replay(const Binding& source,const Binding& next){
         const bool ok=source.owner==this && next.owner==this && source.valid && next.valid &&
@@ -54,6 +58,9 @@ public:
     }
     bool end_birth_replay(){const bool ok=runtime_.births.finish() && !runtime_.stopped();if(!ok)failure=8;return ok;}
     template<class Stream> void retention_report(Stream& out)const{out<<"suite_wind_capture_session_check="<<capture_check.load()<<'\n';runtime_.retention_report(out);
+        out<<"suite_effect_begin_reason="<<begin_reason.load()<<"\nsuite_effect_begin_stopped="<<begin_stopped.load()<<'\n';
+        out<<"suite_birth_branch_check="<<branch_check.load()<<"\nsuite_birth_branch_at="<<branch_at.load()<<"\nsuite_birth_branch_retained="<<branch_retained.load()
+           <<"\nsuite_birth_branch_owned="<<branch_owned.load()<<"\nsuite_birth_branch_mode="<<branch_mode.load()<<"\nsuite_birth_branch_count="<<branch_count.load()<<'\n';
         out<<"suite_birth_compaction_schema=1\nsuite_birth_compaction_attempts="<<birth_compaction_attempts.load()
            <<"\nsuite_birth_compaction_deferred="<<birth_compaction_deferred.load()
            <<"\nsuite_birth_compaction_result="<<birth_compaction_result.load()
@@ -74,14 +81,23 @@ public:
     std::atomic<unsigned> capture_check{};
     std::atomic<uint64_t> external_check{},external_visits{},external_column{},external_interval{},external_candidate{},external_address{},external_extent{};
     void external_diagnostic(const Binding& b){const auto& d=b.references.diagnostic;external_check=d.check;external_visits=d.visits;external_column=d.column;external_interval=d.interval;external_candidate=d.candidate;external_address=d.address;external_extent=d.extent;}
+    std::atomic<unsigned> begin_reason{},begin_stopped{};
     bool begin(uintptr_t module,uint64_t session,uint64_t round,EffectExternalSource external){
-        if(active_)return module_==module && session_==session && round_==round && !runtime_.stopped();
+        begin_reason=0;begin_stopped=runtime_.stopped();
+        if(active_){
+            if(module_!=module){begin_reason=1;return false;}
+            if(session_!=session){begin_reason=2;return false;}
+            if(round_!=round){begin_reason=3;return false;}
+            if(runtime_.stopped()){begin_reason=4;return false;}
+            return true;
+        }
         failure=1;
-        if(effect_release::route.load() || !native_release_ || !external.available())return false;
-        EffectEnvironment env;if(!EffectEnvironment::capture(module,env))return false;
-        if(!runtime_.begin(module,session,round,native_release_) || !runtime_.adopt_live(env.values[2]))return false;
+        if(effect_release::route.load() || !native_release_ || !external.available()){begin_reason=5;return false;}
+        EffectEnvironment env;if(!EffectEnvironment::capture(module,env)){begin_reason=6;return false;}
+        if(!runtime_.begin(module,session,round,native_release_)){begin_reason=7;return false;}
+        if(!runtime_.adopt_live(env.values[2])){begin_reason=8;return false;}
         module_=module;manager_=env.values[2];session_=session;round_=round;external_=external;
-        if(!effect_release::publish(runtime_.route())){runtime_.finish(true);return false;}
+        if(!effect_release::publish(runtime_.route())){begin_reason=9;runtime_.finish(true);return false;}
         active_=route_published_=true;failure=0;return true;
     }
     bool capture(Binding& binding){

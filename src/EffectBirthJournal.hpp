@@ -45,6 +45,13 @@ struct EffectBirthJournal {
         if(failure || mode!=Mode::sealed || at>count)return false;
         count=at;cursor=end=0;mode=Mode::record;++branches;return true;
     }
+    // Mandatory branch: retry only failure to enter the direct-memory gate.
+    // Once entered, validation/mutation runs exactly once, including on failure.
+    template<class Retry> bool resume_bounded(EffectMemoryGate& gate,const std::atomic<bool>& stopped,
+        unsigned at,Retry retry,unsigned limit,unsigned& attempts,EffectMemoryGate::AccessOutcome& outcome){
+        bool accepted=false;
+        return gate.try_access_bounded(stopped,[&]{accepted=resume_recording(at);},retry,limit,attempts,outcome) && accepted;
+    }
     void seal(){if(mode==Mode::record)mode=Mode::sealed;}
     void stop(){mode=Mode::off;} // Preserve evidence until the next window.
     bool begin(unsigned first,unsigned last,uint64_t s,uint64_t r,uint64_t w){

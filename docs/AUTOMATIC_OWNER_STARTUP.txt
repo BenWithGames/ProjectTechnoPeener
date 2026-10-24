@@ -1,0 +1,22 @@
+Automatic startup owner-thread fix
+
+Side detection previously read fight readiness on the control-poll thread, then required the evidence to belong to the native clock thread. This prevented automatic side selection even when compatibility and resource preparation succeeded.
+
+The clock hook now publishes fight readiness alongside its clock observation before live routes exist. The control poll consumes that bounded-fresh observation. Round/generation, playback/result, local mask and producer-thread checks remain enforced; native admission still revalidates before activation.
+
+Reports include automatic side selection status, producer/control/fight thread identities, observed mask and round/frame metadata. Low latency, exact verification, resource ownership and round safety remain unchanged.
+
+Regression coverage includes cross-thread P1 selection, P2 selection, stale observation, wrong round/generation, playback/results and mismatched producer evidence. Actual two-PC activation still requires a live match.
+
+Startup hook ordering and target retry update
+
+All five native startup hooks are installed before agreeing on a target frame. After hook preparation the poll returns, so the next proposal uses a fresh clock observation. Queueing performs no hook installation.
+
+Continuous startup uses version-2 boundary proposals with monotonic target revisions. A refreshed target preserves the verified clock-to-battle offset, clears acknowledgements and requires bilateral agreement. Old acknowledgements cannot authorize the revised target. Both PCs need this build; transport signatures reject the older startup protocol.
+
+At most 16 target revisions are processed per match. A queued request can be withdrawn only while waiting or after an exact missed-target rejection before preparation. Atomic state transitions prevent a concurrent native prepare from winning after withdrawal. Callback shells stay alive for in-flight hook readers. No retry is permitted after preparation begins or across round identity/generation/event changes. Existing native preparation, exact verification, low latency, ownership and round safety checks remain active.
+
+Report fields: continuous_start_hooks_ready, continuous_start_target_revision, continuous_start_retries, continuous_start_rejection, continuous_start_observed_frame, continuous_start_last_rejection, continuous_start_last_observed_frame.
+Rejection codes: 1 deadline expired; 2 wrong owner thread; 3 clock read failed; 4 clock identity changed; 5 target frame missed; 6 dependency source unavailable; 7 rearm wiring failed; 8 native preparation failed (see stage); 9 exception.
+
+Validation covers newer proposals, crossed proposals, stale acknowledgements, invalid mappings, overflow, safe withdrawal with a previously loaded callback, missed-frame withdrawal and refusal to withdraw after resource preparation. Live two-PC activation remains to be verified.

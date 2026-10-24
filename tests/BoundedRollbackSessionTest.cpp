@@ -1,6 +1,7 @@
 #include "../src/BoundedRollbackSession.hpp"
 #include "../src/ContinuousRollbackReport.hpp"
 #include "../src/PostBattleSettlement.hpp"
+#include "../src/RoundFightReadiness.hpp"
 #include "../src/PostBattleHookGate.hpp"
 #include "../src/NativeOuterCompletion.hpp"
 #include "PostBattleContinuationTest.hpp"
@@ -8,6 +9,7 @@
 #include <sstream>
 #include <cassert>
 #include <iostream>
+#include <thread>
 struct Input {int held{},edge{};bool operator==(const Input&)const=default;};
 struct Adapter {
     long long value{};unsigned steps{},loads{};bool failSave{},failLoad{},failStep{};
@@ -55,6 +57,24 @@ static void post_battle_tests(){
         assert(exception.wait([]()->R{throw 1;},[]{return 0u;},[]{},3)==R::restart_required);
         assert(exception.failure()==Barrier::Failure::exception);
     }
+    // A predicted player result is settled while mode is still Normal, before
+    // native adjudication can commit GameSet and run irreversible callbacks.
+    for(bool realResult:{false,true}){
+        S live;BoundaryAdapter engine;Barrier beforeResult;
+        assert(live.begin(81,82) && live.advance(engine,{1,0}));
+        sc6::RoundFightReadiness::PlayerResults flags{uint16_t(engine.value),0,true};
+        assert(flags.may_adjudicate() && !live.settled());
+        auto settle=[&]{return beforeResult.poll(live,engine,[]{return true;},Input{},81,82,7,1,true);};
+        assert(settle()==R::waiting);
+        // Negative authoritative input removes the speculative result; equal
+        // input preserves it. Neither case retires routes while still Normal.
+        assert(live.receive(81,82,0,{realResult?0:-1,0})==S::Arrival::accepted);
+        assert(settle()==R::ready && live.settled());
+        assert(engine.value==(realResult?1:0));
+        assert(beforeResult.resume(live,81,82,7,1));
+        assert(live.admission(81,82)==S::Admission::ready);
+        assert(engine.loads==(realResult?0u:1u));
+    }
     // Incomplete truth waits at exactly the same endpoint. The last correction
     // requires refreshing the native backend endpoint before its load.
     S s;BoundaryAdapter a,reference;Barrier barrier;
@@ -71,6 +91,29 @@ static void post_battle_tests(){
     const auto loads=a.loads;
     assert(poll()==R::ready && a.loads==loads); // Never repeats a clean replay.
     assert(!s.advance(a,{9,0})); // No extra frame while native commit is pending.
+    // A predicted exit can disappear after authoritative replay. Keep the same
+    // session and endpoint, resume only after full settlement, then allow a
+    // later genuine exit to use the barrier again.
+    {
+        S live;BoundaryAdapter engine;Barrier candidate;
+        assert(live.begin(71,72) && live.advance(engine,{1,0}));
+        auto settle=[&]{return candidate.poll(live,engine,[]{return true;},Input{},71,72,7,engine.frame,true);};
+        assert(settle()==R::waiting);
+        assert(!candidate.resume(live,71,72,7,1));
+        assert(live.receive(71,72,0,{4,1})==S::Arrival::accepted);
+        assert(settle()==R::ready && engine.loads==1 && engine.value==6);
+        assert(!candidate.resume(live,71,73,7,1));
+        assert(!candidate.resume(live,71,72,8,1));
+        assert(!candidate.resume(live,71,72,7,2));
+        assert(candidate.resume(live,71,72,7,1));
+        assert(!candidate.resume(live,71,72,7,1));
+        assert(live.admission(71,72)==S::Admission::ready);
+        assert(live.advance(engine,{2,0}) && engine.frame==2);
+        assert(settle()==R::waiting);
+        assert(live.receive(71,72,1,{4,0})==S::Arrival::accepted);
+        assert(settle()==R::ready && live.handoff_ready());
+        assert(!live.advance(engine,{3,0})); // genuine exit stays stopped
+    }
     // Every rejection below must stop before an unsafe load/step.
     for(unsigned fault=0;fault<6;++fault){
         S broken;BoundaryAdapter engine;Barrier guard;
@@ -81,6 +124,7 @@ static void post_battle_tests(){
             fault==1?2u:1u,fault!=5)==R::restart_required);
         assert(engine.frame==1 && !engine.loads);
         assert(guard.poll(broken,engine,[]{return true;},Input{},11,12,7,1,true)==R::restart_required);
+        assert(!guard.resume(broken,11,12,7,1));
     }
     S changed;BoundaryAdapter engine;Barrier guard;
     assert(changed.begin(11,12) && changed.advance(engine,{}));
@@ -179,6 +223,35 @@ int main(){
     assert(tiny.dropped()==1);sc6::research::RollbackEvent e;
     assert(tiny.pop(e) && e.sequence==0);assert(tiny.pop(e) && e.sequence==1);assert(!tiny.pop(e));
     tiny.push(1,2,3,3,1);assert(tiny.pop(e) && e.sequence==3);
+    {
+        sc6::research::RollbackJournal<4> batched;
+        std::array<sc6::research::RollbackEvent,3> batch;
+        assert(batched.pop_batch(batch)==0);
+        for(unsigned i=0;i<4;++i)batched.push(1,2,i,i,1);
+        assert(batched.pop_batch(batch)==3);
+        for(unsigned i=0;i<3;++i)assert(batch[i].sequence==i);
+        for(unsigned i=4;i<7;++i)batched.push(1,2,i,i,1);
+        assert(batched.pop_batch(batch)==3);
+        for(unsigned i=0;i<3;++i)assert(batch[i].sequence==i+3);
+        assert(batched.pop_batch(batch)==1 && batch[0].sequence==6);
+        assert(batched.pop_batch(batch)==0 && !batched.dropped());
+    }
+    {
+        sc6::research::RollbackJournal<64> concurrent;
+        std::atomic<bool> done{};constexpr unsigned total=20000;
+        std::thread producer([&]{for(unsigned i=0;i<total;++i)concurrent.push(11,12,i,i+1,1,i,7,8);done.store(true,std::memory_order_release);});
+        std::array<sc6::research::RollbackEvent,17> batch;uint64_t consumed=0,previous=0;
+        for(;;){const bool finished=done.load(std::memory_order_acquire);const auto count=concurrent.pop_batch(batch);
+            for(size_t i=0;i<count;++i){const auto& value=batch[i];
+                assert(value.session==11 && value.round==12 && value.frame==value.sequence && value.head==value.frame+1);
+                assert(value.detail==value.frame && value.aux0==7 && value.aux1==8);
+                assert(!consumed || value.sequence>previous);previous=value.sequence;++consumed;
+            }
+            if(!count && finished)break;
+            std::this_thread::yield();
+        }
+        producer.join();assert(consumed+concurrent.dropped()==total);
+    }
     sc6::research::RollbackJournal<> journal;Session logged;Adapter engine;
     assert(logged.attach_journal(journal) && logged.begin(4,5));
     assert(!logged.attach_journal(journal));

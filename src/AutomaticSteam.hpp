@@ -1,4 +1,5 @@
 #pragma once
+#include "LoadingReadinessObserver.hpp"
 #include "SteamObserver.hpp"
 #include "SteamHandshakeProtocol.hpp"
 #include "SteamPing.hpp"
@@ -9,7 +10,7 @@
 #include <chrono>
 namespace sc6::automatic_steam {
 inline constexpr int channel=27862;
-inline constexpr uint64_t version=0x0001534336415554ULL;
+inline constexpr uint64_t version=0x000C534336415554ULL; // exact next-round boundary reservations
 struct Packet {steam_handshake::Packet handshake{};uint32_t kind{},id{};uint64_t handling{};};
 static_assert(sizeof(Packet)==48);
 using Send=bool(*)(void*,uint64_t,const void*,uint32_t,int,int);
@@ -47,6 +48,7 @@ inline void report(uint64_t now){
        <<"\nsent="<<sent<<"\nreceived="<<received<<"\nrejected="<<rejected<<"\nping_refresh_seconds=3\nping_rtt_ms=";
     const auto value=compatible(now)?ping.value(micros()):std::nullopt;if(value)out<<*value;else out<<"unavailable";
     out<<"\n";overlay_ping.report(out);
+    sc6::research::loading_readiness_observer::report(out);
 }
 inline void poll(){
     const auto now=GetTickCount64();

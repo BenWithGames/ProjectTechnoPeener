@@ -11,6 +11,8 @@ struct CombatRouteBundle {
     NativeClockDispatch<>* clock{};
     ExclusiveBattleRoute* battle{};
     const SchedulerInputSink* inputs{};
+    void* recovery_context{};
+    bool (*recover)(void*,uintptr_t){};
 private:
     std::atomic<bool> retired_{};
     friend class NativeCombatSession;

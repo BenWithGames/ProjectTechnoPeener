@@ -37,14 +37,19 @@ public:
         depth=live.frame-target.frame;
         std::array<RollbackBoundaryKey,4> keys{};
         for(unsigned i=0;i<=depth;++i){keys[i]=target;keys[i].frame+=i;}
+        const auto validate_all=[&]{
+            if constexpr(requires {history.validate_owned_batch(keys.data(),depth+1);})
+                return history.validate_owned_batch(keys.data(),depth+1);
+            else {for(unsigned i=0;i<=depth;++i)if(!history.validate_owned(keys[i]))return false;return true;}
+        };
         stage=Stage::ownership;
         {NativeRollbackTiming::Scope measured(NativeRollbackTiming::verification);
         NativeRollbackTiming::Scope ownership_timing(NativeRollbackTiming::restore_ownership);
-        for(unsigned i=0;i<=depth;++i)if(!history.validate_owned(keys[i]))return false;}
+        if(!validate_all())return false;}
         stage=Stage::prepare;
         for(hop=0;hop<depth;++hop){
             NativeRollbackTiming::Scope measured(NativeRollbackTiming::prepare);
-            if(!history.visit(keys[hop],[&](NativeBoundarySnapshot& a){return history.visit(keys[hop+1],[&](NativeBoundarySnapshot& b){
+            if(!history.visit(keys[hop],[&](auto& a){return history.visit(keys[hop+1],[&](auto& b){
                 if(a.module!=base || b.module!=base)return false;
                 if(bool(a.effects)!=bool(b.effects))return false;
                 if(a.effects && (!a.effects->owner || a.effects->owner!=b.effects->owner ||
@@ -61,7 +66,7 @@ public:
         if constexpr(requires(Workspace& w,const NativeBoundarySnapshot& a,const NativeBoundarySnapshot& b){w.prepare_direct(a,b,depth);w.discard_unloaded_candidate();w.direct_diagnostic.reason;w.rejection;}){
             if(depth>1 && source_mode==static_cast<unsigned>(NativeBoundarySnapshot::Mode::general_combat)){
                 hop=depth-1;direct_attempted=true;auto& w=*work_[hop];
-                bool admitted=history.visit(keys[0],[&](NativeBoundarySnapshot& a){return history.visit(keys[depth],[&](NativeBoundarySnapshot& b){
+                bool admitted=history.visit(keys[0],[&](auto& a){return history.visit(keys[depth],[&](auto& b){
                     return w.prepare_direct(a,b,depth);
                 });});
                 if(!admitted){
@@ -71,8 +76,8 @@ public:
                 }else{
                     direct_used=true;stage=Stage::load;
                     NativeRollbackTiming::Scope direct_timing(NativeRollbackTiming::restore_direct);
-                    for(unsigned j=0;j<=depth;++j)if(!history.validate_owned(keys[j]))return false;
-                    const bool ok=history.visit(keys[0],[&](NativeBoundarySnapshot& a){return history.visit(keys[depth],[&](NativeBoundarySnapshot& b){
+                    if(!validate_all())return false;
+                    const bool ok=history.visit(keys[0],[&](auto& a){return history.visit(keys[depth],[&](auto& b){
                         if(bool(a.effects)!=bool(b.effects))return false;
                         if(a.effects && (!a.effects->owner || a.effects->owner!=b.effects->owner ||
                            !a.effects->owner->validate(*a.effects) || !a.effects->owner->validate(*b.effects)))return false;
@@ -94,8 +99,8 @@ public:
             // Recheck every retained dependency before each native mutation.
             {NativeRollbackTiming::Scope measured(NativeRollbackTiming::verification);
         NativeRollbackTiming::Scope ownership_timing(NativeRollbackTiming::restore_ownership);
-            for(unsigned j=0;j<=depth;++j)if(!history.validate_owned(keys[j]))return false;}
-            if(!history.visit(keys[i],[&](NativeBoundarySnapshot& a){return history.visit(keys[i+1],[&](NativeBoundarySnapshot& b){
+            if(!validate_all())return false;}
+            if(!history.visit(keys[i],[&](auto& a){return history.visit(keys[i+1],[&](auto& b){
                 if(bool(a.effects)!=bool(b.effects))return false;
                 if(a.effects && (!a.effects->owner || a.effects->owner!=b.effects->owner ||
                     !a.effects->owner->validate(*a.effects) || !a.effects->owner->validate(*b.effects)))return false;
@@ -103,7 +108,9 @@ public:
                 if(a.mode==NativeBoundarySnapshot::Mode::general_combat){
                     NativeRollbackTiming::Scope measured(NativeRollbackTiming::prepare);
                     stage=Stage::prepare;
-                    if(!work_[i]->prepare_captured(a,b,false,false,true))return false;
+                    if constexpr(requires {work_[i]->prepare_captured(a,b,false,false,true,1,true);}){
+                        if(!work_[i]->prepare_captured(a,b,false,false,true,1,true))return false;
+                    }else if(!work_[i]->prepare_captured(a,b,false,false,true))return false;
                     stage=Stage::load;
                 }
                 if constexpr(requires {work_[i]->probe->defer_inactive_animation_weights;})
@@ -142,6 +149,7 @@ public:
         if constexpr(requires {selected.rejection;selected.diagnostic_stage;selected.probe;}){
             out.values[5]=static_cast<unsigned>(selected.rejection);out.values[6]=selected.diagnostic_stage;
             if(selected.probe){out.values[7]=selected.probe->exception;out.values[8]=selected.probe->delayed_failure_line;}
+            if(selected.probe)for(unsigned i=0;i<5;++i)out.values[NativeRestoreDiagnostic::reference_check_stage+i]=selected.probe->camera_reference_check[i];
             if(selected.probe){const auto& route=selected.probe->load_route_diagnostic;
                 out.values[NativeRestoreDiagnostic::route_reason]=route.reason;
                 out.values[NativeRestoreDiagnostic::route_record]=route.record;
@@ -176,9 +184,21 @@ public:
                 out.values[NativeRestoreDiagnostic::blend_mask_next]=blend.mask_next;
                 out.values[NativeRestoreDiagnostic::blend_index_saved]=blend.index_saved;
                 out.values[NativeRestoreDiagnostic::blend_index_next]=blend.index_next;
+                out.values[NativeRestoreDiagnostic::blend_scalar_saved]=blend.scalar_saved;
+                out.values[NativeRestoreDiagnostic::blend_scalar_next]=blend.scalar_next;
 
             }
             if(selected.probe){
+                const auto& controller=selected.probe->controller_diagnostic;
+                out.values[NativeRestoreDiagnostic::controller_phase]=controller.phase;
+                out.values[NativeRestoreDiagnostic::controller_reason]=controller.reason;
+                out.values[NativeRestoreDiagnostic::controller_side]=controller.side;
+                out.values[NativeRestoreDiagnostic::controller_offset]=controller.offset;
+                out.values[NativeRestoreDiagnostic::controller_expected]=controller.expected;
+                out.values[NativeRestoreDiagnostic::controller_actual]=controller.actual;
+                out.values[NativeRestoreDiagnostic::controller_restored]=controller.restored;
+                out.values[NativeRestoreDiagnostic::intermediate_reuses]=selected.probe->intermediate_reuses;
+                out.values[NativeRestoreDiagnostic::intermediate_reuse_misses]=selected.probe->intermediate_reuse_misses;
                 out.values[NativeRestoreDiagnostic::intermediate_refreshes]=selected.probe->intermediate_refreshes;
                 out.values[NativeRestoreDiagnostic::intermediate_fallbacks]=selected.probe->intermediate_fallbacks;
                 out.values[NativeRestoreDiagnostic::intermediate_last_rejection]=selected.probe->intermediate_last_rejection;
@@ -199,6 +219,56 @@ public:
                     out.values[NativeRestoreDiagnostic::animation_group_loaded_weight]=ActiveAnimationGroup::value<uint32_t>(loaded_group.data()+8);
                     out.values[NativeRestoreDiagnostic::animation_group_verified_weight]=ActiveAnimationGroup::value<uint32_t>(verified.data()+8);
                 }
+            }
+            if(selected.probe){
+                const auto& p=*selected.probe;const auto& d=p.combat_loaded_blend;
+                out.values[NativeRestoreDiagnostic::postload_schema]=1;
+                out.values[NativeRestoreDiagnostic::postload_stage]=p.postload_readiness.stage;
+                out.values[NativeRestoreDiagnostic::postload_rejected]=p.postload_readiness.rejected();
+                out.values[NativeRestoreDiagnostic::postload_pass_mask]=p.postload_readiness.passed;
+                out.values[NativeRestoreDiagnostic::postload_legacy_mask]=p.combat_postload_pass_mask;
+                for(unsigned i=0;i<6;++i)out.values[NativeRestoreDiagnostic::reset_table_reason+i]=p.reset_table_diagnostic[i];
+                out.values[NativeRestoreDiagnostic::loaded_blend_reason]=d.reason;
+                out.values[NativeRestoreDiagnostic::loaded_blend_side]=d.side;
+                out.values[NativeRestoreDiagnostic::loaded_blend_block]=d.block;
+                out.values[NativeRestoreDiagnostic::loaded_blend_offset]=d.offset;
+                out.values[NativeRestoreDiagnostic::loaded_blend_saved]=d.saved;
+                out.values[NativeRestoreDiagnostic::loaded_blend_next]=d.next;
+                out.values[NativeRestoreDiagnostic::loaded_blend_loaded]=d.loaded;
+                out.values[NativeRestoreDiagnostic::loaded_blend_pointer_valid]=d.pointer_valid;
+                out.values[NativeRestoreDiagnostic::loaded_blend_pointer_saved]=d.pointer_saved;
+                out.values[NativeRestoreDiagnostic::loaded_blend_pointer_next]=d.pointer_next;
+                out.values[NativeRestoreDiagnostic::loaded_blend_pointer_loaded]=d.pointer_loaded;
+                for(unsigned i=0;i<d.block_state.size();++i)out.values[NativeRestoreDiagnostic::loaded_blend_index_saved+i]=d.block_state[i];
+            }
+            if(selected.probe){
+                out.values[NativeRestoreDiagnostic::sway_check_line]=selected.probe->transforms[0].sway_check.line;
+                out.values[NativeRestoreDiagnostic::sway_check_record]=selected.probe->transforms[0].sway_check.record;
+                out.values[NativeRestoreDiagnostic::sway_check_kind]=selected.probe->transforms[0].sway_check.kind;
+                out.values[NativeRestoreDiagnostic::sway_check_side]=selected.probe->transforms[0].sway_check.side;
+                out.values[NativeRestoreDiagnostic::sway_check_offset]=selected.probe->transforms[0].sway_check.offset;
+                out.values[NativeRestoreDiagnostic::sway_check_expected]=selected.probe->transforms[0].sway_check.expected;
+                out.values[NativeRestoreDiagnostic::sway_check_actual]=selected.probe->transforms[0].sway_check.actual;
+                out.values[NativeRestoreDiagnostic::sway_check_exception]=selected.probe->transforms[0].sway_check.exception;
+                out.values[NativeRestoreDiagnostic::sway_node_vtable]=selected.probe->transforms[0].sway_check.node_vtable;
+                out.values[NativeRestoreDiagnostic::sway_position_saved]=selected.probe->transforms[0].sway_check.position_saved;
+                out.values[NativeRestoreDiagnostic::sway_position_next]=selected.probe->transforms[0].sway_check.position_next;
+                out.values[NativeRestoreDiagnostic::sway_control_offset]=selected.probe->transforms[0].sway_check.control_offset;
+                out.values[NativeRestoreDiagnostic::sway_control_saved]=selected.probe->transforms[0].sway_check.control_saved;
+                out.values[NativeRestoreDiagnostic::sway_control_next]=selected.probe->transforms[0].sway_check.control_next;
+                out.values[NativeRestoreDiagnostic::sway_control_current]=selected.probe->transforms[0].sway_check.control_current;
+                out.values[NativeRestoreDiagnostic::sway_control_live]=selected.probe->transforms[0].sway_check.control_live;
+                out.values[NativeRestoreDiagnostic::constraint_check_line]=selected.probe->transforms[0].constraint_check.line;
+                out.values[NativeRestoreDiagnostic::constraint_check_record]=selected.probe->transforms[0].constraint_check.record;
+                out.values[NativeRestoreDiagnostic::constraint_check_kind]=selected.probe->transforms[0].constraint_check.kind;
+                out.values[NativeRestoreDiagnostic::constraint_check_side]=selected.probe->transforms[0].constraint_check.side;
+                out.values[NativeRestoreDiagnostic::constraint_check_offset]=selected.probe->transforms[0].constraint_check.offset;
+                out.values[NativeRestoreDiagnostic::constraint_check_expected]=selected.probe->transforms[0].constraint_check.expected;
+                out.values[NativeRestoreDiagnostic::constraint_check_actual]=selected.probe->transforms[0].constraint_check.actual;
+                out.values[NativeRestoreDiagnostic::constraint_check_exception]=selected.probe->transforms[0].constraint_check.exception;
+                out.values[NativeRestoreDiagnostic::constraint_node_vtable]=selected.probe->transforms[0].constraint_check.node_vtable;
+                out.values[NativeRestoreDiagnostic::constraint_position_saved]=selected.probe->transforms[0].constraint_check.position_saved;
+                out.values[NativeRestoreDiagnostic::constraint_position_next]=selected.probe->transforms[0].constraint_check.position_next;
             }
             if(selected.probe)out.values[NativeRestoreDiagnostic::preflight_mask]=selected.probe->combat_preflight_pass_mask;
             if(selected.probe)out.values[NativeRestoreDiagnostic::source_guard_reason]=selected.probe->source_guard_reason;
@@ -237,6 +307,13 @@ public:
                 out.payload_details=pd.details;
             }
             if constexpr(requires {selected.completion;}){
+                if constexpr(requires {selected.completion.records_checked;}){
+                    out.values[NativeRestoreDiagnostic::completion_records_checked]=selected.completion.records_checked;
+                    out.values[NativeRestoreDiagnostic::completion_unchanged_records]=selected.completion.unchanged_records;
+                    out.values[NativeRestoreDiagnostic::completion_diagnostic_scans]=selected.completion.diagnostic_byte_scans;
+                }
+                if constexpr(requires {selected.completion_endpoint_bytes_reused;})
+                    out.values[NativeRestoreDiagnostic::completion_endpoint_bytes_reused]=selected.completion_endpoint_bytes_reused;
                 out.values[NativeRestoreDiagnostic::completion_line]=selected.completion.failure_line;
                 out.values[NativeRestoreDiagnostic::completion_section]=selected.completion.section;
                 out.values[NativeRestoreDiagnostic::completion_record]=selected.completion.record;
@@ -249,3 +326,4 @@ public:
     }
 };
 }
+

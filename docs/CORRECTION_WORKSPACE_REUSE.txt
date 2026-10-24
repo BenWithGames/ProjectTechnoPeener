@@ -1,0 +1,14 @@
+CORRECTION WORKSPACE REUSE - 2026-10-21
+
+FullStateProbe reset and copy now distinguish published native stream metadata and valid animation-ring payloads from unused backing storage. Reset restores every control field, callback, validity flag, count, sentinel and diagnostic field. It skips only payload buffers whose controls have been reset. Copy preserves the entire published prefix, including read/write provenance, and all valid ring bytes; malformed published sizes are rejected before mutation.
+
+FullRestoreStream::write initializes all four trace fields before publishing a record. This prevents stale reader/destination addresses when a previously consumed workspace is reused for a smaller capture. Native readers still enforce seal, record count, exact transfer lengths, cursor bounds and sticky failures. No retained ownership reference is stored in the skipped byte arrays; existing retirement, drain, failed-load quarantine and thread guards are unchanged.
+
+Ghidra targeted decompilation refreshed at work/ghidra-sc6-focus/workspace-reset-audit. FullSave RVA 3841E0 uses stream callbacks to save both players and shared state. PlayerSubLoad RVA 30EDC0 reads through slot 30 and follows native object lists. The stream interface, native loading order and all live dependency checks remain unchanged. This optimization concerns host-side storage, not caching live pointers across native loads.
+
+Reset bytes per FullStateProbe: 3,344,232 -> 231,272.
+Reset bytes per CompactBoundaryState: 808,864 -> 30,624.
+Same-run local mock full workspace reset: 46.028 -> 1.617 microseconds.
+These are reset component measurements, not total restoration or live FPS results.
+
+Regression coverage includes fully poisoned workspaces, exact default control restoration, exact published copy/invalid-count rejection, valid ring payload preservation, unread tails, consumed-to-fresh stream reuse, smaller capture readback, full/compact native restoration, ownership cycles and failed-load quarantine. Final exact endpoint verification, adaptive delay, low latency and round safety are unchanged.

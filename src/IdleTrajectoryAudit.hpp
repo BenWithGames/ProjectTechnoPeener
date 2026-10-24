@@ -95,7 +95,7 @@ struct IdleTrajectoryAudit {
         for(unsigned i=0;i<2;++i){
             q.input_checkpoints[i].valid=frames[first+i]->input_valid;
             q.input_checkpoints[i].bytes=frames[first+i]->inputs;
-            q.blends[i]=visuals->blends[first+i];q.transforms[i]=visuals->transforms[first+i];
+            q.blends[i]=visuals->blends[first+i];q.transforms[i]=visuals->transform_checkpoint(first+i);
             q.cameras[i]=visuals->cameras[first+i];
         }
         q.combat_replay_preflight(b);
@@ -120,7 +120,7 @@ struct IdleTrajectoryAudit {
         // A failed shape check is pre-load evidence, not permission to remap records.
         enum Field {reason,record,saved_count,next_count,saved_length,next_length,
             saved_writer,next_writer,saved_source,next_source,saved_sealed,next_sealed,
-            saved_failures,next_failures,saved_bytes,next_bytes,count};
+            saved_failures,next_failures,saved_bytes,next_bytes,map_reason,map_saved_record,map_next_record,count};
         std::array<uint64_t,count> values{};
     };
     static bool same_shape(const FullRestoreStream& a,const FullRestoreStream& b,ShapeDiagnostic* diagnostic=nullptr){

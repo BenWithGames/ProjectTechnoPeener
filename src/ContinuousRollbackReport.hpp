@@ -11,8 +11,9 @@ class ContinuousRollbackReport {
     bool correction_pending_{};
 public:
     template<unsigned Capacity> void drain(RollbackJournal<Capacity>& journal,std::ostream& csv){
-        RollbackEvent e;
-        while(journal.pop(e)){
+        std::array<RollbackEvent,64> batch;
+        for(size_t count;(count=journal.pop_batch(batch))!=0;){
+          for(size_t i=0;i<count;++i){const auto& e=batch[i];
             RollbackJournal<Capacity>::row(csv,e);++events_;
             switch(e.kind){
             case RollbackEvent::advance:++advanced_;predicted_+=e.detail!=0;break;
@@ -22,6 +23,7 @@ public:
             case RollbackEvent::failure:++failures_;failure_frame_=e.frame;failure_reason_=e.detail;break;
             default:break;
             }
+        }
         }
         dropped_=journal.dropped();
     }

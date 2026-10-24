@@ -1,0 +1,11 @@
+ALTERNATE CAMERA STATE RESTORATION - 2026-10-21
+
+Failure match 7a27d2d54bfd2251ec5628c9593e13a0, peer 5224: camera readiness reason 14, targets offset 0x38 (object +0x220), frames 9835 -> 9836. Values 39AD03DA -> 3A01C2E4 equal one exact native addition of 392D03DA (0.000165).
+
+Ghidra and instruction evidence: concrete camera vtable RVA3E87EB0 selects reset31A2B0, base loader33FF40 and update31A490. Update calls31B760 and31B880. Setup31B760 caches both player positions (+1F0/+200 triples), mode+210, selected side+214, starting angles+218/+21C. Advance31B880 increments+220 up to float3D9CAC08 (0.0765), then uses it with the cached angles to update camera+50/+54. Reset31A2B0 clears these scalar caches and sets+214 to -1. The base loader only reads base fields through+184; it does not restore this derived state. Evidence: work/ghidra-sc6-focus/camera-alternate-audit. An earlier exploratory camera-motion-cache-audit covers a different vtable and is not the justification for this fix.
+
+General combat readiness accepts audited alternate-state scalar differences with finite coordinates, bounded accumulator, mode0/1 and side -1/0/1. Restoration requires captured loaded values to match live memory and have saved-value or exact-reset provenance. Only those audited fields are restored, with the existing final full target-byte comparison unchanged. Owner/type, response/history, round, input and endpoint checks remain in place. No pointer or padding is restored by this change.
+
+Regression coverage: all 11 audited scalar fields, native-reset restoration, validate-only no writes, stale-live rejection without writes, invalid modes/side/range/NaN rejection, reported exact accumulator increment, general-combat readiness and opt-out rejection. Full native regression build also runs.
+
+Fixed one-frame input delay, three-frame prediction limit, compact snapshots, workspace optimizations, diagnostics, ownership cleanup and round safety are retained. Both players install this build and play normally. Live reproduction remains to be tested.

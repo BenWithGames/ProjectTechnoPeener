@@ -1,0 +1,19 @@
+Input path timing (local QPC only)
+Fixed 1-frame delay and 3-frame prediction limit remain unchanged.
+Per-route histograms, mean, maximum and counts are appended to existing reports.
+Sampling-to-publication starts at native service entry (upper bound).
+Sample-end-to-publication starts at service return (lower bound).
+The actual native sampling call lies within this existing service bracket, as
+confirmed by the existing Ghidra input-buffer audit (3FDB80 -> 3FDF30).
+These bounds are not physical controller polling or button-to-screen latency.
+Publication-to-send-begin and send-call measure only the first successful send.
+Steam send success means accepted by its API, not delivery to the peer.
+Receive timestamp is immediately after Steam ReadP2PPacket returns, on both channels.
+Receive-to-enqueue includes authentication/decoding and queue admission.
+Receive-to-prediction ends after successful append for early truth or confirm for late truth.
+This is admission, not completion of correction replay or rendered presentation.
+Existing receive-to-drain and drain-to-scheduler timings remain available.
+Duplicates do not add timing samples; failed sends are not counted as first sends.
+No timestamps from different PCs are subtracted. These are not one-way network latency.
+No file IO, sleeps, allocations or unbounded event logs are added to the frame path.
+The previously audited native sampler and filter are unchanged; no new native hooks.

@@ -1,5 +1,6 @@
 #include "../src/GeneratedSnapshotDependency.hpp"
 #include "../src/NativeSnapshotPool.hpp"
+#include "../src/StartupSnapshotCapture.hpp"
 #include "../src/ResourceDependencyCapture.hpp"
 #include "../src/DescriptorOwnershipBridge.hpp"
 #include "../src/NativeRollingHistory.hpp"
@@ -10,7 +11,106 @@ static bool fixture_preflight(uintptr_t){return true;}
 static unsigned disposed_objects{},disposed_controls{};
 static void dispose_object(uintptr_t){++disposed_objects;}
 static void dispose_control(uintptr_t){++disposed_controls;}
+static void validation_batch_tests(){
+    using namespace sc6::research;
+    std::array<unsigned char,64> bytes{};const auto address=reinterpret_cast<uintptr_t>(bytes.data());
+    const auto expected=GeneratedBufferFingerprint::read(address,bytes.size());
+    GeneratedBufferValidationBatch<4> batch;
+    for(unsigned i=0;i<4;++i)assert(batch.matches(expected));
+    assert(batch.reads==1 && batch.reuses==3);
+    auto wrong=expected;++wrong.hash;assert(!batch.matches(wrong));
+    wrong=expected;wrong.valid=false;assert(!batch.matches(wrong));
+    auto shorter=GeneratedBufferFingerprint::read(address,32);assert(batch.matches(shorter) && batch.reads==2);
+    bytes[3]=1;
+    GeneratedBufferValidationBatch<4> after_native_mutation;
+    assert(!after_native_mutation.matches(expected)); // No proof survives a native operation.
+    GeneratedBufferValidationBatch<1> bounded;
+    auto changed=GeneratedBufferFingerprint::read(address,bytes.size());assert(bounded.matches(changed));
+    assert(bounded.matches(GeneratedBufferFingerprint::read(address,16)) && bounded.count==1);
+    wrong=expected;wrong.buffer=1;assert(!bounded.matches(wrong));
+}
+static void effect_storage_reuse_tests(){
+    using namespace sc6::research;
+    auto pool=std::make_unique<NativeSnapshotPool<1>>();uintptr_t allocation{};
+    for(unsigned frame=0;frame<32;++frame){
+        auto key=pool->acquire(1,2,frame);assert(key);
+        assert(pool->visit(*key,[&](auto& snapshot){
+            assert(!snapshot.effects && snapshot.prepare_effect_binding());
+            auto* b=snapshot.effects.get();
+            if(!frame)allocation=reinterpret_cast<uintptr_t>(b);
+            assert(allocation==reinterpret_cast<uintptr_t>(b) && !b->owner && !b->valid && !b->snapshot.generation);
+            assert(!snapshot.prepare_effect_binding());
+            b->valid=true;assert(!snapshot.recycle_effect_binding());b->valid=false;
+            b->snapshot.generation=1;assert(!snapshot.recycle_effect_binding());b->snapshot={};
+            return true;
+        }));
+        assert(pool->retire(*key));
+    }
+    auto key=pool->acquire(1,2,32);assert(key);
+    assert(pool->visit(*key,[](auto& s){assert(s.prepare_effect_binding());s.fault=true;return true;}));
+    assert(!pool->retire(*key) && !pool->acquire(1,2,33)); // Still quarantine faults.
+    assert(pool->discard_drained_storage());
+    auto prior=std::make_unique<NativeSnapshotPool<1>>();auto h=prior->acquire(2,3,0);assert(h);
+    assert(prior->visit(*h,[&](auto& s){assert(s.prepare_effect_binding());allocation=reinterpret_cast<uintptr_t>(s.effects.get());return true;}));
+    assert(prior->retire(*h));
+    auto next=std::make_unique<NativeSnapshotPool<1>>(prior.get());assert(next->storage_reused);
+    auto n=next->acquire(2,4,0);assert(n);
+    assert(next->visit(*n,[&](auto& s){return s.prepare_effect_binding() && reinterpret_cast<uintptr_t>(s.effects.get())==allocation;}));
+    assert(next->retire(*n) && next->discard_drained_storage());
+}
 int main(){
+    validation_batch_tests();effect_storage_reuse_tests();
+    for(unsigned failure=4;failure<=9;++failure){
+        sc6::research::NativeSnapshotPool<1> pool;auto h=pool.acquire(1,2,3);assert(h);
+        assert(pool.visit(*h,[&](auto& s){
+            if(failure==4)s.fault=true;if(failure==5)s.exception=1;
+            if(failure==6)s.data->fault=true;if(failure==7)s.data->restore_invoked=true;
+            if(failure==8)s.data->saved.stream.failures=1;if(failure==9)s.data->after_save.stream.failures=1;return true;
+        }));
+        assert(!pool.retire(*h) && pool.retirement_diagnostic[0]==failure);
+        assert(pool.retirement_diagnostic[1]==3 && !pool.acquire(1,2,4));
+        assert(pool.release_dependencies(*h));
+    }
+    {
+        sc6::research::NativeSnapshotPool<1> pool;auto h=pool.acquire(1,2,3);assert(h);
+        assert(pool.visit(*h,[&](auto&){assert(!pool.retire(*h) && pool.retirement_diagnostic[0]==2);return true;}));
+        assert(pool.retire(*h) && pool.retirement_diagnostic[0]==0);
+        assert(!pool.retire(*h) && pool.retirement_diagnostic[0]==1);
+    }
+
+    {
+        using namespace sc6::research;
+        auto source=std::make_unique<FullStateProbe>();
+        auto full=std::make_unique<FullStateProbe>();
+        auto compact=std::make_unique<FullStateProbe>();
+        // Three successive endpoints, with growing then shrinking topology.
+        for(unsigned count:{3u,7u,1u}){
+            source->transforms[0].count=count;source->transforms[0].valid=true;
+            for(unsigned i=0;i<count;++i)std::memset(&source->transforms[0].records[i],int(count+i),sizeof(TransformSnapshot::Record));
+            source->before_keys.fill(count);source->before_players[0]=count+123;
+            source->delayed_inputs.fill(std::byte(count));
+            source->rings[0].headers[0].previous=count;
+            source->saved.stream.payload[0]=std::byte{0x71};
+            assert(full->copy_recorded_from(*source));
+            assert(compact->copy_restore_endpoint_from(*source));
+            assert(compact->before_keys==full->before_keys && compact->before_players[0]==full->before_players[0]);
+            assert(compact->delayed_inputs==full->delayed_inputs);
+            assert(!std::memcmp(&compact->rings[0],&full->rings[0],sizeof(full->rings[0])));
+            assert(!std::memcmp(&compact->blends[0],&full->blends[0],sizeof(full->blends[0])));
+            assert(!std::memcmp(&compact->cameras[0],&full->cameras[0],sizeof(full->cameras[0])));
+            assert(compact->transforms[0].count==count && !std::memcmp(compact->transforms[0].records.data(),full->transforms[0].records.data(),count*sizeof(TransformSnapshot::Record)));
+            assert(compact->saved.stream.payload[0]==std::byte{});
+            compact->transforms[0].records.back().bytes.back()=std::byte{0x5A};
+            assert(compact->copy_restore_endpoint_from(*source,false));
+            assert(!compact->transforms[0].valid && compact->transforms[0].count==0);
+            assert(compact->transforms[0].records.back().bytes.back()==std::byte{0x5A});
+            assert(compact->before_keys==full->before_keys && compact->delayed_inputs==full->delayed_inputs);
+            assert(compact->blends[0].controller==full->blends[0].controller);
+
+        }
+        source->transforms[0].count=unsigned(source->transforms[0].records.size()+1);
+        assert(!compact->copy_restore_endpoint_from(*source));
+    }
     {
         using namespace sc6::research;
         auto source=std::make_unique<FullStateProbe>();
@@ -20,10 +120,19 @@ int main(){
             auto& t=source->transforms[i];t.count=i;t.valid=true;t.failure=i;
             for(unsigned j=0;j<i;++j)std::memset(&t.records[j],0x30+i,sizeof(t.records[j]));
         }
+        source->rings[0].valid=true;source->rings[0].bytes.fill(std::byte{0x81});
+        source->restored_rings.valid=true;source->restored_rings.bytes.fill(std::byte{0x82});
+        source->saved.traces[0]={11,22,33,44};source->saved.lengths[0]=9;
         source->fault=true;source->saved.writes=17;
         assert(target->copy_recorded_from(*source));
         // Published prefixes are exact; unused capacity must not be copied.
         assert(target->fault && target->saved.writes==17);
+        assert(target->rings[0].same(source->rings[0]) && target->restored_rings.same(source->restored_rings));
+        assert(target->saved.traces[0].reader==44 && target->saved.lengths[0]==9);
+        assert(target->saved.traces[17].source==uintptr_t(0xA5A5A5A5A5A5A5A5ull));
+        source->saved.writes=FullRestoreStream::transfer_limit+1;
+        assert(!target->copy_recorded_from(*source) && target->saved.writes==17);
+        source->saved.writes=17;
         for(unsigned i=0;i<source->transforms.size();++i){
             const auto& t=source->transforms[i];
             assert(!std::memcmp(target->transforms[i].records.data(),t.records.data(),t.count*sizeof(TransformSnapshot::Record)));
@@ -41,9 +150,7 @@ int main(){
         assert(!target->copy_recorded_from(*source) && target->selectors[0].entries[0].bytes==5);
         source->selectors[0].entries[0].bytes=5;
         auto copied_expected=std::make_unique<FullStateProbe>(*source);
-        for(auto& t:copied_expected->transforms)std::memset(t.records.data()+t.count,0xA5,(t.records.size()-t.count)*sizeof(TransformSnapshot::Record));
-        for(auto& selector:copied_expected->selectors)for(auto& e:selector.entries)std::memset(e.table.data()+e.bytes,0xA5,e.table.size()-e.bytes);
-        for(auto* stream:{&copied_expected->saved,&copied_expected->after_save,&copied_expected->replay,&copied_expected->restored})std::memset(stream->stream.payload.data()+stream->stream.write_position,0xA5,SaveStream::limit-stream->stream.write_position);
+        for(const auto& span:source->storage_spans())std::memset(reinterpret_cast<std::byte*>(copied_expected.get())+span.offset+span.published,0xA5,span.capacity-span.published);
         assert(!std::memcmp(target.get(),copied_expected.get(),sizeof(*target)));
         auto& transform=target->transforms[1];
         transform.records.back().bytes.back()=std::byte{0x5A};
@@ -72,9 +179,7 @@ int main(){
         std::memset(reused.get(),0xA5,sizeof(*reused));
         reused->reset_for_reuse();
         auto expected=std::make_unique<FullStateProbe>(defaults);
-        for(auto& t:expected->transforms)std::memset(t.records.data(),0xA5,sizeof(t.records));
-        for(auto& selector:expected->selectors)for(auto& e:selector.entries)e.table.fill(std::byte{0xA5});
-        for(auto* stream:{&expected->saved,&expected->after_save,&expected->replay,&expected->restored})stream->stream.payload.fill(std::byte{0xA5});
+        for(const auto& span:defaults.storage_spans())std::memset(reinterpret_cast<std::byte*>(expected.get())+span.offset,0xA5,span.capacity);
         assert(!std::memcmp(reused.get(),expected.get(),sizeof(*reused)));
         std::array<std::byte,24> payload{};payload.fill(std::byte{0x37});
         auto& t=reused->transforms[0];
@@ -97,7 +202,7 @@ int main(){
         ReplayDependencySource unavailable;assert(!history->capture_owned(key,0,0,0,unavailable));
         auto capture=[&](auto& pool,const auto& handle,const auto&){
             if(!pool.retain_dependency(handle,reinterpret_cast<uintptr_t>(&control),dispose_object,dispose_control))return false;
-            return pool.visit(handle,[](NativeBoundarySnapshot& snapshot){snapshot.valid=true;return snapshot.mode==NativeBoundarySnapshot::Mode::combat_capture_only;});
+            return pool.visit(handle,[](auto& snapshot){snapshot.valid=true;return snapshot.mode==NativeBoundarySnapshot::Mode::combat_capture_only;});
         };
         for(unsigned frame=100;frame<120;++frame){
             key.frame=frame;
@@ -114,6 +219,7 @@ int main(){
         auto rewindKey=key;rewindKey.frame=117;
         assert(history->rewind_for_replay(rewindKey,[&](auto& snapshot){assert(control.strong==5);return snapshot.valid;}));
         assert(history->count()==1 && control.strong==2);
+        assert(history->rewind_diagnostic[0]==0 && history->retirement_diagnostic()[0]==0);
         assert(!history->append(key,116,capture)); // Must recapture the restored boundary first.
         for(unsigned f=117;f<120;++f){key.frame=f;assert(history->append(key,116,capture));}
         assert(history->count()==4 && control.strong==5);
@@ -133,6 +239,7 @@ int main(){
         auto failedLoad=std::make_unique<NativeRollingHistory<>>();
         assert(failedLoad->append(key,0,capture));
         assert(!failedLoad->rewind_for_replay(key,[](auto&){return false;}));
+        assert(failedLoad->rewind_diagnostic[0]==4);
         assert(failedLoad->failed() && control.strong==2);
         assert(failedLoad->release() && control.strong==1);
         auto partial=std::make_unique<NativeRollingHistory<>>();
@@ -141,6 +248,8 @@ int main(){
         assert(partial->visit(poisoned,[](auto& snapshot){snapshot.fault=true;return true;}));
         auto first=key;first.frame=200;
         assert(!partial->rewind_for_replay(first,[](auto&){return true;}));
+        assert(partial->rewind_diagnostic[0]==5 && partial->retirement_diagnostic()[0]==4);
+        assert(partial->retirement_diagnostic()[1]==202);
         assert(partial->failed() && partial->count()==3 && control.strong==3);
         assert(partial->release() && control.strong==1);
     }
@@ -330,5 +439,52 @@ int main(){
         assert(!completed.visit(*h,[](auto&){return true;}));
         assert(!completed.acquire(10,1,1)); // a new match must use a new pool
     }
+    {
+        // Automatic play leaves the setup-only pool unused. Cleanup runs on
+        // the simulation thread, not the thread that constructed its storage.
+        sc6::research::NativeSnapshotPool<1> unused;
+        std::thread game([&]{assert(unused.discard_drained_storage());assert(unused.discard_diagnostic[0]==0);assert(unused.discard_drained_storage());});game.join();
+        sc6::research::NativeSnapshotPool<1> used;
+        auto h=used.acquire(9,1,1);assert(h);assert(used.release_dependencies(*h));
+        std::thread foreign([&]{assert(!used.discard_drained_storage());assert(used.discard_diagnostic[0]==1);});foreign.join();
+        assert(used.discard_drained_storage());
+        auto history=std::make_unique<sc6::research::NativeRollingHistory<>>();
+        std::thread terminal([&]{assert(history->release());assert(history->discard_released_storage());});terminal.join();
+    }
+    {
+        using P=sc6::research::NativeSnapshotPool<1>;
+        P donor;auto old=donor.acquire(20,1,10);assert(old);
+        uintptr_t address{};
+        assert(donor.visit(*old,[&](B& snapshot){address=reinterpret_cast<uintptr_t>(snapshot.data.get());return true;}));
+        assert(!donor.reusable_storage()); // live ownership cannot transfer
+        assert(donor.release_dependencies(*old));
+        std::thread wrong([&]{assert(!donor.reusable_storage());});wrong.join();
+        P next(&donor);assert(next.storage_reused);
+        assert(donor.discard_drained_storage());
+        assert(!donor.visit(*old,[](B&){return true;}));
+        auto nextHandle=next.acquire(20,2,0);assert(nextHandle);
+        assert(next.visit(*nextHandle,[&](B& snapshot){return reinterpret_cast<uintptr_t>(snapshot.data.get())==address && !snapshot.valid && !snapshot.attempted && !snapshot.effects;}));
+        assert(!next.visit(*old,[](B&){return true;}));
+        assert(next.release_dependencies(*nextHandle));
+        P third(&next);assert(third.storage_reused);
+        auto final=third.acquire(20,3,0);assert(final);assert(third.retire(*final));
+        P broken;auto bad=broken.acquire(21,1,0);assert(bad);
+        assert(broken.visit(*bad,[](B& snapshot){snapshot.data->fault=true;return true;}));
+        assert(broken.release_dependencies(*bad));
+        P fallback(&broken);assert(!fallback.storage_reused && broken.reuse_diagnostic[0]==5);
+        assert(broken.discard_drained_storage());
+    }
+    {
+        // Setup-only storage transfers once to the simulation thread.
+        auto prepared=std::make_unique<sc6::research::StartupSnapshotCapture<>>();
+        std::thread owner([&]{
+            auto* donorHistory=prepared->release_unused_history();assert(donorHistory);
+            sc6::research::NativeRollingHistory<> ready(donorHistory);
+            assert(ready.storage_reused());assert(!prepared->release_unused_history());
+            assert(prepared->discard_released_storage());
+            assert(ready.release());assert(ready.discard_released_storage());
+        });owner.join();
+    }
     std::cout<<"PASS: native snapshot in-place reuse, stale handle/identity/thread rejection, retention, poisoned slots and terminal storage release\n";
 }
+

@@ -1,0 +1,21 @@
+Post-load readiness diagnostics
+
+Reports 9352 and 19444: P1 failed loading frame 234 from 235 after five native updates. P2 stopped on the peer notification. Earlier preflight mask 253 is not a post-load result. Existing reports contain no post-load subcheck mask or binary snapshots, so the rejecting subcheck is not yet proven.
+
+Ghidra bounded audit of 0x2F8FA0..0x2F90C2 confirms seven 0xB0 animation blocks receive wrapper table pointers, native weight reset clears masks/weights, and table/resource presence triggers mode-1 selection. This justifies reporting wrapper identity separately from loaded blend contents; it does not authorize relaxing any guard.
+
+New continuous_restore_postload_rejected values:
+0: no rejected check (use stage/pass mask to distinguish not run from success)
+1: reset-table and owner identity
+2: loaded blend readiness
+3: combat animation groups
+4: root wind
+5: wind objects
+6: sway
+7: constraints
+8: camera capture
+9: camera smoothing readiness
+
+Postload pass mask uses bits 0..8; full success is 511. Legacy 8-bit mask is also retained. Reset-table detail reports side, sample, expected/actual and player. Reasons 1..10 distinguish bounds, current owner, measurement validity/player/owner, wrapper owner/table/resource, live table/resource. Bit 256 indicates a trapped read. Loaded-blend detail exports reason, side, block, offset, saved/next/loaded values and pointer evidence.
+
+All predicates retain their original order and short-circuit behavior. No additional unsafe follow-up probes run after failure. No restoration semantics, input delay, performance optimizations or round safety checks changed.

@@ -1,0 +1,31 @@
+# Animation block5 scalar restoration
+
+Match ID 0d5e79fb64f0d6b97af2b7dd655aec9b, peer PID8732: source7949,
+next7950 rejected before load, combat blend reason6, side1, flattened offset1041.
+140 + 5*176 + 21 = 1041: this is block5 +15, inside the +14 four-byte word.
+First differing byte80 ->00; two differing bytes total. Owners, table, wrapper,
+resource and mask match. The report does not contain the entire saved word.
+
+Read-only Ghidra evidence: work/ghidra-sc6-focus/blend-scalar-latest, plus
+blend-field14/references.txt. Native reset2F8FA0 iterates seven blocks at owner
++1DD8 with strideB0. R11 initially owner+1DEC (block+14), incrementsB0;
+2F9012 stores zero to [R11]. Table pointer is separately at block+08 and index
+at+10. The reset zeros this word unconditionally without an ownership operation.
+3031D0 constructs the B0 block with zero scalar storage (fresh export in
+blend-scalar-followup). Other same-offset references on unrelated object types
+were not used to authorize this change. No claim is made about a gameplay name
+for this scalar or which nonzero writer ran during the specific Critical Edge.
+
+In general-combat mode, only block5 +14..17 may differ across the pair. Post-load
+acceptance requires its exact saved, next or native-zero word. Restore copies
+all four saved bytes; the existing whole-block memcmp verifies the endpoint.
+All pointer identity, table bounds, active mask, captured/live checks, remaining
+fields, round guards, ownership, diagnostics and timing behavior remain intact.
+Unexpected loaded words report loaded_blend_reason13 with side/block/offset and
+saved/next/loaded full words. No new delays, allocation or file writes in replay.
+
+Regression coverage: both players, nonzero->zero and reverse transitions,
+loaded saved/next/reset states, unexpected loaded value, wrong block, changed
+table, changed neighboring field, disabled general mode, no writes on rejection,
+and exact full-block restoration. The full native suite is also required.
+Live confirmation that this resolves the reported Critical Edge is pending.

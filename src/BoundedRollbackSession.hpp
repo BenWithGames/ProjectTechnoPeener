@@ -48,6 +48,12 @@ public:
         if(session!=session_ || round!=round_ || state==State::idle || state==State::restart_required)return false;
         draining_=true;return true;
     }
+    // Cancel a speculative exit only after every simulated input was reconciled.
+    // Identity/history are retained; this never recovers a failed restoration.
+    bool resume_settled_handoff(uint64_t session,uint64_t round){
+        if(session!=session_ || round!=round_ || !handoff_ready())return false;
+        draining_=false;state=State::running;return true;
+    }
     bool handoff_ready()const{return draining_ && settled();}
     template<class Adapter> bool settle_handoff(Adapter& adapter){
         return draining_ && reconcile(adapter) && settled();
@@ -80,6 +86,15 @@ public:
     }
     void trace_confirmation(uint64_t frame,uint64_t enqueued,uint64_t drained){
         if(journal_)journal_->push(session_,round_,frame,head_,RollbackEvent::confirmation_delivery,0,enqueued,drained);
+    }
+    void trace_receipt_grace(bool starting,bool callback_ok=true)const{
+        if(!journal_)return;const auto e=admission_evidence(session_,round_);
+        journal_->push(session_,round_,e.confirmed,e.head,
+            starting?RollbackEvent::receipt_grace_begin:RollbackEvent::receipt_grace_end,e.reason,callback_ok,e.settled);
+    }
+    void trace_missed_recovery(unsigned outcome)const{
+        if(!journal_)return;const auto e=admission_evidence(session_,round_);
+        journal_->push(session_,round_,e.confirmed,e.head,RollbackEvent::missed_update_recovery,outcome,e.reason,e.settled);
     }
     // Attach before begin; journal must outlive this simulation session.
     bool attach_journal(RollbackJournal<>& journal){if(state!=State::idle)return false;journal_=&journal;return true;}

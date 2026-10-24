@@ -1,0 +1,42 @@
+Startup wait and completed-match workspace reuse
+
+Startup timing is unchanged: no loading/intro relocation in this change.
+The final clean retired match workspace retains detached backing allocations on
+its owner thread. Every old history must retire successfully before caching.
+Cache is bounded to one workspace, requires matching module base and owner
+thread, and never retains live effect ownership, input history or session keys.
+First match after launch still allocates; clean subsequent matches can reuse.
+Existing within-match round reuse remains unchanged.
+
+Synchronization requires three fresh four-timestamp samples, proposal/ack/commit,
+exact target identity, expiration checks and bilateral native hold. The release
+margin is max(100 ms, 1.5 * worst fresh sampled RTT + 50 ms), accounting for
+proposal, acknowledgment, commit and a scheduling reserve. Clock conversion
+still uses the minimum-RTT sample. Worst RTT and chosen margin are reported.
+Commit retransmissions stay at 10 ms for the first second after local
+publication; only then do completed agreements slow to 250 ms. Tests drop the
+first proposal, acknowledgment and commit independently in one exchange.
+Connection timing now stays live after release through existing authenticated
+control packets. A bounded 32-sample ring retains only samples at most five
+seconds old. A successor in the same peer/session/build chain imports those
+measurements on the network worker; it never copies targets, commitments,
+probe identities, snapshots or native resources. Missing/stale samples still
+require fresh measurement. Target and diagnostic timing freeze once proposed.
+Every successor starts a new fast commit-retry window, even though its send
+cadence object survives. Reports include carried sample count and newest age.
+Variable delay may increase margins.
+This is a bounded timing optimization, not a guarantee against arbitrary packet
+loss. Existing late-message failure containment remains in force.
+
+Regression coverage: detached cache eligibility/base identity/single-use/bound;
+margin floors and worst-sample policy; simulated offsets, preparation skew,
+packet loss, asymmetric paths, roles and late/changed targets. Real two-PC
+validation remains pending. Adaptive input delay, max-three prediction, exact
+verification and round safety remain unchanged.
+
+Retained-timing regression: 30 seconds of completed-round heartbeats, a fresh
+successor agreement with a nine-second clock offset, dropped control messages,
+stale/expired/backwards timing, changed build identity, and immutable release
+targets. At symmetric 90 ms RTT the deterministic simulated hold decreases
+from 295 to 275 ms. This does not eliminate the bilateral agreement or promise
+the same saving on a live connection; first-round sampling is unchanged.

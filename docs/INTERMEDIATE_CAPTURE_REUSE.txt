@@ -1,0 +1,11 @@
+Unchanged intermediate capture reuse
+
+Only the synchronous general-combat restoration path with separately retained effects opts in, at checkpoints 7, 8 and 9. The previous checkpoint must be valid, belong to the same owners and have identical blend bytes. Every captured transform byte (including list links and vtables) is compared with live memory, and constraint dependencies are revalidated. If unchanged, the intermediate checkpoint refers to the preceding capture inside the same probe (without copying its records), and every live byte is checked again to preserve the second-read stability guard. Otherwise the existing refresh/full-discovery fallback runs. No native game call or simulation update occurs inside this reuse check.
+
+This avoids rediscovery, redundant payload recapture and snapshot copying for unchanged intermediate state. It does not reuse across frames, replace ownership leases, omit native loading, or skip final exact endpoint verification. All original restoration stage validation and diagnostic checkpoints remain. Dynamic effect lists are excluded from this path and retain their separate ownership verification.
+
+Reports append continuous_restore_intermediate_reuses and continuous_restore_intermediate_reuse_misses. Existing state-capture timings measure the entire operation. Counts belong to the reported restoration workspace, not a whole-match total. A mock benchmark is not a live-game speedup estimate; measure both peers in a match.
+
+Regression coverage: exact unchanged reuse, live payload changes, traversal-link changes, owner mismatch and invalid-prior fallback. Full restore regression suite retains restoration and endpoint tests.
+
+Diagnostic export resolves checkpoint indices so each stage retains its complete raw transform evidence. The next restore resets all checkpoint indices. No cross-probe or retained raw pointers are used.

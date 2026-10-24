@@ -1,0 +1,47 @@
+Block 5 selected-table restoration
+
+Failure: match 0561005bf43b56f0154a7d1922ff2e6d, Ben's restore
+6296 -> 6294. Saved/next block5+8 were identical, but native load
+installed a different non-null pointer. Post-load blend reason 5.
+
+Binary evidence (pinned SC6 executable, RVAs):
+2F8FA0 resets all seven blocks to the table at the player's +971E8
+wrapper. It resets index/scalar/mask without transferring ownership.
+303810 constructs the bank at player+29120. Block5+8 is therefore
+player+2B270. Searching only bank-relative 2150 missed this writer.
+37C230 installs controller[1] into player+2B270, and 37C2F0 advances
+the selected animation and can clear the link when it completes.
+2DBC60 invokes that controller at player+95ED0.
+2F77C0 obtains the selected table from 37C570 and publishes the
+player/table at +95ED0/+95ED8. The source resource/player are at
++95EC0/+95EC8. 37C570 returns a relative-offset child of section 2
+of the three-section resource. These are borrowed links; the fix
+does not allocate, free, or claim ownership of a table.
+
+Guarded restoration:
+- Capture the four dependency pointers with each blend checkpoint.
+- Require saved/next selected table equality and the expected default
+  after load; require the known embedded-bank/player relationship.
+- Require identical resource/controller pointers in saved, next and
+  loaded checkpoints, rechecked against the current player object.
+- Validate selected table membership in the current bounded resource
+  directory (monotonic offsets, counts and bounds, exception guard).
+- Require the native reset index/scalar/mask, then restore the saved
+  table pointer along with the existing scalar/weight restoration.
+- All other block bytes and final exact verification remain enforced.
+
+Existing reset-table diagnostics now identify rejection stages 11-16:
+11 selected/default pointer relation; 12 embedded bank; 13 controller
+player/table; 14 checkpoint dependencies; 15 live dependencies;
+16 resource membership. Existing raw pointer diagnostics are retained.
+
+Regression coverage: both player sides, active saved selection, missing
+proof, wrong default, changed next pointer, unexpected loaded reset,
+wrong block, table bounds, malformed resource directories, stale live
+controller, changed checkpoint dependencies, and no partial writes.
+
+This supports the proven native reset of an unchanged selected table.
+It does not authorize unrelated allocations or changing table lifetime.
+Adaptive delay, prediction limit, optimizations, ownership cleanup,
+diagnostics, round checks and exact replay endpoint checks are retained.
+Live match validation remains necessary after local tests pass.
